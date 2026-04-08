@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Hermes skill definitions (synced separately, not part of this repo)
+current-setup/skills/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
