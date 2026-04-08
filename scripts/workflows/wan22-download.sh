@@ -1,4 +1,11 @@
 #!/bin/bash
+# ---
+# name: Wan 2.2
+# aliases: [wan, wan 2.1, wan 2.2, wan2.2, wanvideo, wan video]
+# description: Downloads all Wan 2.2 models for multi-keyframe i2v video generation in ComfyUI
+# size: ~25GB
+# min_vram: 24GB
+# ---
 # =============================================================================
 # Wan 2.2 — Full Model Download Script
 # =============================================================================
