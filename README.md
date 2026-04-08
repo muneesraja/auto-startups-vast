@@ -31,7 +31,7 @@ Provisioning script that runs after the Vast.ai ComfyUI image boots. Handles:
 - Workflow script execution (if `WORKFLOW_SCRIPT` env var is set)
 - Discord webhook notification
 
-**Raw URL:** `https://raw.githubusercontent.com/muneesraja/aurora/main/scripts/comfyui-bootstrap.sh`
+**Raw URL:** `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh`
 
 ### Workflow Scripts (`scripts/workflows/`)
 Standalone bash scripts for downloading AI models. Each script is self-contained and can be passed via the `WORKFLOW_SCRIPT` env var during provisioning.
@@ -50,4 +50,4 @@ Standalone bash scripts for downloading AI models. Each script is self-contained
 1. Create a new `.sh` file in `scripts/workflows/`
 2. Follow the pattern in `wan22-download.sh`
 3. Push to `main` branch
-4. Use the raw URL: `https://raw.githubusercontent.com/muneesraja/aurora/main/scripts/workflows/<name>.sh`
+4. Use the raw URL: `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<name>.sh`
