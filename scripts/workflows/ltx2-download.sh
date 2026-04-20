@@ -41,6 +41,7 @@ aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/unet" -o "ltx-2.3-22b-dev-nvfp4.safetenso
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/unet" -o "ltx-2.3-22b-dev-fp8.safetensors" "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-dev-fp8.safetensors" &
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "gemma_3_12B_it_fp4_mixed.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" &
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "ltx-2.3-22b-distilled-lora-384.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384.safetensors" &
+aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" &
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_video_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors" &
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_audio_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors" &
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors" &
