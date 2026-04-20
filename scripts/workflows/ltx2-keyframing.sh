@@ -1,8 +1,8 @@
 #!/bin/bash
 # ---
-# name: LTX 2.3
-# aliases: [ltx, ltx 2.3, ltx2.3, ltx-2.3]
-# description: Downloads all models required for LTX 2.3 and applies requisite patch.
+# name: LTX 2.3 Keyframing
+# aliases: [ltx, ltx 2.3, ltx2.3, ltx-2.3, ltx2-keyframing, keyframing]
+# description: Downloads all models required for LTX 2.3 Keyframing workflow and applies requisite patch.
 # size: ~60GB
 # min_vram: 24GB
 # ---
