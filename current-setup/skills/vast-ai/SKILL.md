@@ -1,0 +1,246 @@
+---
+name: vast-ai
+description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Uses a stable Docker image + bootstrap script approach (no fragile template hashes). Includes extended diagnostics, tmux background execution, and strict SSH-only remote execution.
+---
+
+# Vast.ai Server Provisioning Skill
+
+This skill defines the precise workflow for provisioning GPU servers on Vast.ai. You must follow these steps EXACTLY in order.
+
+## Tools Required
+You have the `vastai` CLI installed natively on the system. You execute it directly via the console.
+
+## The Provisioning Workflow
+
+When a user asks you to "setup a [GPU] server" or similar, execute the following steps:
+
+### Step 1: Read Configuration from Vault
+
+Read GPU specs and (optionally) a workflow script from the `growthlabs-docs` vault.
+
+**A. Fetching GPU Server Specs:**
+Use the **growthlabs-docs skill's folder structure table** to determine the exact file path, then read it directly. Do NOT search.
+
+- "3090" → Read `growthlabs-docs/references/gpu/3090.md`
+- "4090" → Read `growthlabs-docs/references/gpu/4090.md`
+
+Extract the following variables:
+- `num_gpus`: Number of GPUs (usually 1)
+- `gpu_name`: GPU model (e.g., RTX_3090, RTX_4090)
+- `cpu_ram`: Minimum RAM in GB (e.g., 48)
+- `disk_space`: Disk space in GB (e.g., 100)
+- `inet_down` / `inet_up`: Minimum network speeds in Mbps (e.g., 500)
+- `cpu_cores`: Minimum CPU cores (e.g., 4)
+- `reliability`: Minimum reliability score (e.g., 0.99)
+- `docker_image`: The Docker image to use (e.g., `pytorch/pytorch:latest`)
+- `max_price`: Maximum price per hour ($/hr)
+- `max_inet_down_cost`: Maximum internet download cost per TB (default $0.01 i.e. $10/TB)
+
+**B. Fetching Workflow Script (if requested):**
+Check if the user requested a specific workflow (e.g., "with Wan 2.2" or "with LTX").
+
+**Discovery via GitHub API — always up to date, no registry to maintain:**
+```bash
+curl -s https://api.github.com/repos/muneesraja/auto-startups-vast/contents/scripts/workflows
+```
+
+This returns a JSON array of all `.sh` files. For each file, read its raw URL and check the frontmatter `aliases` field (embedded as bash comments at the top of each script) to find the one that matches the user's request.
+
+**Frontmatter format** (first ~10 lines of every workflow script):
+```bash
+#!/bin/bash
+# ---
+# name: Wan 2.2
+# aliases: [wan, wan 2.1, wan 2.2, wan2.2]
+# description: ...
+# size: ~25GB
+# min_vram: 24GB
+# ---
+```
+
+**Matching rule:** If the user says "wan 2.2", "wan", or "wanvideo" — any of those should match the script whose `aliases` list contains that term (case-insensitive).
+
+**Construct `WORKFLOW_SCRIPT` URL** from the matched filename:
+```
+https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<filename>
+```
+
+If no match is found, tell the user: "I couldn't find a workflow script matching '[request]'. Available workflows are: [list names from frontmatter]."
+
+
+### Step 2: Search for Offers
+Construct a `vastai search offers` command using the exact parameters from Step 1. Wait to get the output.
+
+```bash
+vastai search offers 'gpu_name=[GPU] num_gpus=[NUM] cpu_ram>=[RAM] disk_space>=[DISK] inet_down>=[DOWN] inet_up>=[UP] cpu_cores>=[CORES] reliability>[REL] dph<=[MAX_PRICE] inet_down_cost<[MAX_INET_DOWN_COST] inet_up_cost<[MAX_INET_UP_COST] rented=False' -o 'dph+' --limit 10
+```
+*Note: Ensure NO spaces are around the `>=` or `<=` operators in the query string.*
+
+**Internet Cost Filtering:**
+GrowthLabs regularly downloads ~100 GB of model files per server setup. Many hosts charge usage-based internet fees. Always filter by `inet_down_cost<0.01` in the search query — this already screens out expensive bandwidth hosts. Do NOT do extra manual checks of inet costs after the search. Trust the filter.
+
+### Step 3: Confirm with User (CRITICAL SAFETY STEP)
+Select the cheapest valid offer from the search results (the top result, since it's sorted by `dph+`).
+Post a summary to the user in Discord and explicitly ASK FOR PERMISSION to spend money.
+
+> 🔍 Found a matching offer for **[GPU_NAME]**:
+> - **Offer ID:** `[ID]`
+> - **Specs:** [RAM] RAM, [CORES] Cores, [DISK] Disk, [UP]/[DOWN] Mbps Internet
+> - **Location:** [Country/Region]
+> - **Cost:** **$[DPH]/hr**
+> - **Internet Cost:** $[INET_DOWN_COST]/TB download, $[INET_UP_COST]/TB upload
+>
+> Shall I rent this server?
+
+*DO NOT PROCEED UNTIL THE USER SAYS YES.*
+
+**⚠️ Price Too Good to Be True?**
+If an offer is significantly cheaper than others, it may be unreliable. When in doubt, prefer a slightly more expensive offer from a known-good host.
+
+### Step 4: Provision Instance
+
+**Instance Labeling (REQUIRED):**
+Always tag the instance with the requester's name using `--label`. Use lowercase, no spaces (e.g., `--label "balaji"`).
+
+**Provisioning command — uses official Vast.ai ComfyUI image (pre-cached, instant boot):**
+
+**Without workflow (bare ComfyUI):**
+```bash
+vastai create instance <OFFER_ID> \
+  --image vastai/comfy:v0.18.2-cuda-12.9-py312 \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --disk <DISK> \
+  --label "<requester_name>" \
+  --direct \
+  --ssh \
+  --jupyter \
+  --onstart-cmd 'entrypoint.sh'
+```
+
+**With workflow (e.g., Wan 2.2) — add `WORKFLOW_SCRIPT` env var:**
+```bash
+vastai create instance <OFFER_ID> \
+  --image vastai/comfy:v0.18.2-cuda-12.9-py312 \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --disk <DISK> \
+  --label "<requester_name>" \
+  --direct \
+  --ssh \
+  --jupyter \
+  --onstart-cmd 'entrypoint.sh'
+```
+
+**Workflow script URLs** (use in `WORKFLOW_SCRIPT` env var):
+- Wan 2.2: `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/wan22-download.sh`
+
+**Key env vars:**
+- `PROVISIONING_SCRIPT` — Bootstrap script URL. Runs after entrypoint. Handles system extras, portal fix, workflow, and Discord webhook.
+- `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
+- `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
+- `COMFYUI_ARGS` — `--port 18188` is the internal port (mapped to 8188 externally).
+- `PORTAL_CONFIG` — Instance Portal (hub), ComfyUI, Jupyter tabs. **Port 1111 must be mapped.**
+
+Capture the `new_contract` ID from the JSON output. This is your `INSTANCE_ID`.
+
+**⚠️ Why `vastai/comfy:v0.18.2-cuda-12.9-py312` with `entrypoint.sh`?**
+Vast.ai's official ComfyUI image — pre-cached on most hosts, instant boots. **Never override `--onstart-cmd`** — always use `entrypoint.sh` and pass customizations via env vars.
+
+### Step 5: Monitoring Loop
+
+**Phase A: Initial Monitoring (0-2 minutes)**
+Every 30 seconds, check status:
+```bash
+vastai show instance <INSTANCE_ID> --raw
+```
+- **`actual_status` = `"running"`** → Proceed to Step 6
+- **`actual_status` = `"loading"` AND `duration` > 120 seconds** → Proceed to Phase B
+
+**Phase B: Extended Diagnostics (2+ minutes)**
+The image is pre-cached on most hosts — expect 1-2 min boots. If it takes longer, investigate:
+
+1. **Report status to user:**
+   > ⏳ **Instance still loading** (Duration: [X] min)
+   > - Image should be pre-cached — checking if host needs to pull it
+   > - Current cost: ~$[Y] so far
+
+2. **Check instance logs:**
+   ```bash
+   vastai show logs <INSTANCE_ID>
+   ```
+
+3. **Continue monitoring until:**
+   - **`actual_status` = `"running"`** → Proceed to Step 6
+   - **Logs show unrecoverable errors** → Report error, ask user if they want to destroy
+   - **User says `/stop` or asks to destroy** → Destroy the instance
+   - **Duration exceeds 10 minutes with no progress** → Ask user whether to continue or destroy
+
+**Phase C: User-Initiated Destroy**
+Only destroy when the user explicitly requests it, logs show unrecoverable errors, or duration > 10 min AND user confirms.
+
+```bash
+vastai destroy instance <INSTANCE_ID>
+```
+
+> ❌ **Instance Destroyed:** `[INSTANCE_ID]`
+> - Reason: [User request / Error in logs / Timeout]
+> - Total duration: [X] minutes
+
+### Step 6: Report Server Ready
+
+Once the instance status is "running", ComfyUI is already up. **The provisioning script automatically sends a Discord webhook with all tunnel URLs, credentials, and GPU info — you do NOT need to SSH in to extract these.**
+
+```bash
+vastai show instance <INSTANCE_ID> --raw
+```
+
+Extract from the `--raw` JSON:
+- `jupyter_token` — login password
+- `public_ipaddr` + SSH port from `ports` map (look for `"22/tcp"` → `HostPort`)
+- `dph_total` — cost per hour
+
+**DO NOT SSH into the instance to get tunnel URLs.** The webhook already posted them to Discord. Just report the basics:
+
+> ✅ **Server Ready!**
+> - **GPU:** [GPU_NAME]
+> - **Instance ID:** `[ID]`
+> - **Cost:** $[COST]/hr
+>
+> 💻 **SSH:** `ssh -p [direct_ssh_port] root@[public_ipaddr]`
+> 🔐 **Login:** `vastai` / `[jupyter_token]`
+>
+> 📬 Tunnel URLs (ComfyUI, Jupyter, Instance Portal) were sent via webhook notification above.
+
+**⚠️ STOP HERE.** Do not run any more commands unless the user asks for something specific (e.g., workflow script execution). The server is ready.
+
+### Step 7: Execute Workflow Script (If requested)
+
+If the user requested a workflow in Step 1, it was already included as the `WORKFLOW_SCRIPT` env var in the provisioning command (Step 4). **No SSH needed.**
+
+The provisioning script automatically:
+1. Downloads the workflow script from the URL
+2. Runs it in a background tmux session (`workflow`)
+3. Sends a second Discord webhook when the download completes
+
+Just inform the user:
+> 📦 **Workflow models downloading in background.**
+> A Discord notification will be sent when the download is complete.
+
+**If the user asks "is it done?" before the webhook fires:**
+This is the ONE case where SSH is needed:
+```bash
+ssh -p [direct_ssh_port] -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@[public_ipaddr] \
+  "tail -3 /workspace/workflow.log 2>/dev/null || echo 'Log not found'"
+```
+
+---
+
+## General Commands
+
+If the user asks to **"List my instances"**:
+```bash
+vastai show instances
+```
+
+If the user asks to **"Destroy instance [ID]"**:
+Always confirm first: "⚠️ You are about to irrevocably destroy instance [ID]. Are you sure?"
+Then run: `vastai destroy instance [ID]`
