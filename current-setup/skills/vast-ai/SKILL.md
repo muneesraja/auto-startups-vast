@@ -3,9 +3,38 @@ name: vast-ai
 description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Uses a stable Docker image + bootstrap script approach (no fragile template hashes). Includes extended diagnostics, tmux background execution, and strict SSH-only remote execution.
 ---
 
-# Vast.ai Server Provisioning Skill
+# Vast.ai - GPU Server Provisioning
 
-This skill defines the precise workflow for provisioning GPU servers on Vast.ai. You must follow these steps EXACTLY in order.
+> Provision GPU servers on Vast.ai for ML/AI workloads. Use this whenever the user needs a GPU server (training, inference, etc.).
+>
+> **⚠️ Avoid these hosts — Docker daemon issues (containers fail to start):**
+> - **Host 344939** — fails on both private and official PyTorch templates
+> - **Host 20325** (Quebec) — container never created after 6+ min, "No such container" in logs
+> - **Host 201023** (Quebec, RTX 3090) — container never started, stuck `loading` indefinitely
+> - **Host 37070** (Netherlands, RTX 3090) — same Docker daemon pattern, container refused to start
+> - **Host 148689** (Belgium, RTX 3090) — ✅ WORKING, instance 35051543
+>
+> **Docker daemon failure pattern:** Container `actual_status=loading` indefinitely, SSH never responds, logs show "No such container". Try a different host before assuming the offer is bad.
+>
+> **Instance 35051543:** Belgium, RTX 3090, $0.215/hr, Qwen Image Edit workflow. SSH port 11542. Portal: https://cloud.vast.ai/instances/35051543
+
+**⚠️ `success` field as early indicator:** When `vastai create instance` returns `"success": false`, the instance will almost certainly fail with the Docker daemon "No such container" pattern. When `"success": true` — boot succeeds. This is a reliable leading signal to try the next offer immediately rather than waiting through a 2+ min failed boot.
+
+**Docker daemon failure hosts (verified):**
+| Host ID | Location | Notes |
+|---------|----------|-------|
+| 446098 | Sweden | Instance 35291406 — `success: false`, Docker fails |
+| 264182 | Bulgaria | Instance 35291605 — `success: false`, Docker fails |
+| 73118 | Spain | Instance 35291702 — `success: true`, **works** ✅ |
+>
+> **💡 Zram:** Use for RAM boost on low-memory hosts. See vault: `infrastructure/zram-notes.md`
+
+## ⚡ Quick Rent Workflow (3 Steps)
+1. **Search** with all filters (inet_down_cost in query — trust it, don't manually cross-check)
+2. **Confirm** — report cheapest valid offer to user in one message
+3. **Rent** on user approval
+
+Do NOT add extra steps between search and confirm.
 
 ## Tools Required
 You have the `vastai` CLI installed natively on the system. You execute it directly via the console.
@@ -107,7 +136,7 @@ Always tag the instance with the requester's name using `--label`. Use lowercase
 **Without workflow (bare ComfyUI):**
 ```bash
 vastai create instance <OFFER_ID> \
-  --image vastai/comfy:v0.18.2-cuda-12.9-py312 \
+  --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
   --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
@@ -120,7 +149,7 @@ vastai create instance <OFFER_ID> \
 **With workflow (e.g., Wan 2.2) — add `WORKFLOW_SCRIPT` env var:**
 ```bash
 vastai create instance <OFFER_ID> \
-  --image vastai/comfy:v0.18.2-cuda-12.9-py312 \
+  --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
   --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
@@ -137,12 +166,15 @@ vastai create instance <OFFER_ID> \
 - `PROVISIONING_SCRIPT` — Bootstrap script URL. Runs after entrypoint. Handles system extras, portal fix, workflow, and Discord webhook.
 - `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
+- **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
+- **Cloudflare tunnel token:** `eyJhIjoiYjY1ZDBjYzIxYWU4YTM1N2FmNjM1NGY0M2I4MDYyY2IiLCJ0IjoiZWFkNTcyYTItNzViNC00NjJmLThlYTYtOTRjOTkzZDM0ZTJmIiwicyI6Ill6RTVNekU1TkRRdFpEbGlNUzAwWXpVekxXSTROMlV0WmpjeVlqUmhNRFl6T1RnMyJ9`
+- **Zram:** See `infrastructure/zram-notes.md` in vault for RAM boost setup
 - `COMFYUI_ARGS` — `--port 18188` is the internal port (mapped to 8188 externally).
 - `PORTAL_CONFIG` — Instance Portal (hub), ComfyUI, Jupyter tabs. **Port 1111 must be mapped.**
 
 Capture the `new_contract` ID from the JSON output. This is your `INSTANCE_ID`.
 
-**⚠️ Why `vastai/comfy:v0.18.2-cuda-12.9-py312` with `entrypoint.sh`?**
+**⚠️ Why `vastai/comfy:v0.19.3-cuda-13.2-py312` with `entrypoint.sh`?**
 Vast.ai's official ComfyUI image — pre-cached on most hosts, instant boots. **Never override `--onstart-cmd`** — always use `entrypoint.sh` and pass customizations via env vars.
 
 ### Step 5: Monitoring Loop
@@ -165,8 +197,9 @@ The image is pre-cached on most hosts — expect 1-2 min boots. If it takes long
 
 2. **Check instance logs:**
    ```bash
-   vastai show logs <INSTANCE_ID>
+   vastai logs <INSTANCE_ID>
    ```
+   Note: the command is `vastai logs`, NOT `vastai show logs` (that will error).
 
 3. **Continue monitoring until:**
    - **`actual_status` = `"running"`** → Proceed to Step 6
@@ -211,6 +244,11 @@ Extract from the `--raw` JSON:
 > 📬 Tunnel URLs (ComfyUI, Jupyter, Instance Portal) were sent via webhook notification above.
 
 **⚠️ STOP HERE.** Do not run any more commands unless the user asks for something specific (e.g., workflow script execution). The server is ready.
+
+**Fallback — if the webhook didn't fire or user asks for URLs:**
+1. Use `vastai ssh-url <INSTANCE_ID>` to get the correct direct SSH endpoint (more reliable than `ssh_port`/`ssh_host` from `--raw` JSON which may be stale or proxy-based)
+2. SSH in and tunnel URLs are managed by `portal-aio` TUI — not written to files. The cloudflare URLs are captured by the TUI process stdout and not easily extractable via SSH
+3. Direct the user to the Vast.ai portal: `https://cloud.vast.ai/instances/<INSTANCE_ID>` — the "Open" button takes them to the Instance Portal (port 1111) which displays all tunnel URLs
 
 ### Step 7: Execute Workflow Script (If requested)
 
