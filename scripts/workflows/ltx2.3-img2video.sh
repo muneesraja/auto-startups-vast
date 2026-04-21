@@ -11,7 +11,7 @@ set -e
 BASE_DIR="/workspace/ComfyUI/models"
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{checkpoints,loras,latent_upscale_models}
+mkdir -p "$BASE_DIR"/{checkpoints,loras,latent_upscale_models,text_encoders}
 
 echo "==> Checking aria2..."
 if ! command -v aria2c &> /dev/null; then
@@ -32,6 +32,9 @@ aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "gemma-3-12b-it-abliterated_lor
 
 # Latent Upscale Models
 aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" &
+
+# Text Encoders
+aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "gemma_3_12B_it_fp4_mixed.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" &
 
 wait
 echo "==> All downloads completed!"
