@@ -119,47 +119,94 @@ fi
 # ── [5/5] Discord webhook notification ───────────────────────────────────────
 echo "=== [5/5] Discord notification ==="
 
+_notify_discord() {
+  local webhook_url="$1"
+  local gpu_name="$2"
+  local vram="$3"
+  local public_ip="$4"
+  local label="$5"
+  local portal_url="$6"
+  local comfy_url="$7"
+  local jupyter_url="$8"
+  local workflow_status="$9"
+
+  # Build access lines
+  local portal_line=""
+  [ -n "$portal_url" ] && portal_line="[🖥️ Instance Portal](${portal_url})"
+  local comfy_line=""
+  [ -n "$comfy_url" ] && comfy_line="[🎨 ComfyUI](${comfy_url})"
+  local jupyter_line=""
+  [ -n "$jupyter_url" ] && jupyter_line="[📓 Jupyter](${jupyter_url})"
+
+  local access_lines="${portal_line}"
+  [ -n "$comfy_line" ] && access_lines="${access_lines}\\n${comfy_line}"
+  [ -n "$jupyter_line" ] && access_lines="${access_lines}\\n${jupyter_line}"
+  [ -z "$access_lines" ] && access_lines="Use Vast.ai dashboard → OPEN button"
+
+  # Build description with optional workflow status
+  local desc="Instance **${label}** is up and running."
+  [ -n "$workflow_status" ] && desc="${desc}\\n\\n${workflow_status}"
+
+  # Build Discord payload
+  local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local payload="{
+    \"embeds\": [{
+      \"title\": \"🟢 GPU Server Ready!\",
+      \"description\": \"${desc}\",
+      \"color\": 5763719,
+      \"fields\": [
+        {\"name\": \"🖥️ GPU\", \"value\": \"${gpu_name}\", \"inline\": true},
+        {\"name\": \"💾 VRAM\", \"value\": \"${vram}\", \"inline\": true},
+        {\"name\": \"🌐 IP\", \"value\": \"\`${public_ip}\`\", \"inline\": true},
+        {\"name\": \"Access\", \"value\": \"${access_lines}\", \"inline\": false},
+        {\"name\": \"🔑 Login\", \"value\": \"User: \`vastai\` — Password: \`${JUPYTER_TOKEN}\`\", \"inline\": false}
+      ],
+      \"footer\": {\"text\": \"Provisioned via Aurora • GrowthLabs\"},
+      \"timestamp\": \"${timestamp}\"
+    }]
+  }"
+
+  # Try direct to Discord first (with retry), then fallback to LXC relay
+  local sent=false
+  local relay_url="https://relay.lxc.muneesraja.com/hook?url=$(echo -n "$webhook_url" | base64 -w0)"
+
+  # Retry direct 3 times with backoff
+  for attempt in 1 2 3; do
+    if curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+      -H "Content-Type: application/json" \
+      -d "$payload" \
+      "$webhook_url" | grep -q "20\|30"; then
+      echo "Discord notification sent! (direct, attempt $attempt)"
+      sent=true
+      break
+    fi
+    [ "$attempt" -lt 3 ] && sleep 2
+  done
+
+  # Fallback to LXC relay (handles regionally blocked Discord hosts)
+  if [ "$sent" = false ]; then
+    for attempt in 1 2 3; do
+      if curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+        -H "Content-Type: application/json" \
+        -d "$payload" \
+        "$relay_url" | grep -q "20\|30"; then
+        echo "Discord notification sent! (relay, attempt $attempt)"
+        sent=true
+        break
+      fi
+      [ "$attempt" -lt 3 ] && sleep 3
+    done
+  fi
+
+  [ "$sent" = false ] && echo "Discord notification failed (non-critical)."
+}
+
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then
   GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
   VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
   PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || echo "Unknown")
   LABEL="${VAST_CONTAINERLABEL:-GPU Server}"
-
-  # Build access lines
-  PORTAL_LINE=""
-  [ -n "$PORTAL_URL" ] && PORTAL_LINE="[🖥️ Instance Portal](${PORTAL_URL})"
-  COMFY_LINE=""
-  [ -n "$COMFY_URL" ] && COMFY_LINE="[🎨 ComfyUI](${COMFY_URL})"
-  JUPYTER_LINE=""
-  [ -n "$JUPYTER_URL" ] && JUPYTER_LINE="[📓 Jupyter](${JUPYTER_URL})"
-
-  ACCESS_LINES="${PORTAL_LINE}"
-  [ -n "$COMFY_LINE" ] && ACCESS_LINES="${ACCESS_LINES}\\n${COMFY_LINE}"
-  [ -n "$JUPYTER_LINE" ] && ACCESS_LINES="${ACCESS_LINES}\\n${JUPYTER_LINE}"
-  [ -z "$ACCESS_LINES" ] && ACCESS_LINES="Use Vast.ai dashboard → OPEN button"
-
-  # Build description with optional workflow status
-  DESC="Instance **${LABEL}** is up and running."
-  [ -n "$WORKFLOW_STATUS" ] && DESC="${DESC}\\n\\n${WORKFLOW_STATUS}"
-
-  curl -s -H "Content-Type: application/json" \
-    -d "{
-      \"embeds\": [{
-        \"title\": \"🟢 GPU Server Ready!\",
-        \"description\": \"${DESC}\",
-        \"color\": 5763719,
-        \"fields\": [
-          {\"name\": \"🖥️ GPU\", \"value\": \"${GPU_NAME}\", \"inline\": true},
-          {\"name\": \"💾 VRAM\", \"value\": \"${VRAM}\", \"inline\": true},
-          {\"name\": \"🌐 IP\", \"value\": \"\`${PUBLIC_IP}\`\", \"inline\": true},
-          {\"name\": \"Access\", \"value\": \"${ACCESS_LINES}\", \"inline\": false},
-          {\"name\": \"🔑 Login\", \"value\": \"User: \`vastai\` — Password: \`${JUPYTER_TOKEN}\`\", \"inline\": false}
-        ],
-        \"footer\": {\"text\": \"Provisioned via Aurora • GrowthLabs\"},
-        \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
-      }]
-    }" \
-    "$DISCORD_WEBHOOK_URL" && echo "Discord notification sent!" || echo "Discord notification failed (non-critical)."
+  _notify_discord "$DISCORD_WEBHOOK_URL" "$GPU_NAME" "$VRAM" "$PUBLIC_IP" "$LABEL" "$PORTAL_URL" "$COMFY_URL" "$JUPYTER_URL" "$WORKFLOW_STATUS"
 else
   echo "No DISCORD_WEBHOOK_URL set — skipping notification."
 fi
