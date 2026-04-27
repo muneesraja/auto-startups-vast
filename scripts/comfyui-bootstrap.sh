@@ -5,7 +5,7 @@
 # Called by the vastai/comfy image's entrypoint AFTER ComfyUI is running.
 # Handles: system extras, portal tunnel fix, workflow script, Discord webhook.
 #
-# Image: vastai/comfy:v0.18.2-cuda-12.9-py312
+# Image: vastai/comfy:v0.19.3-cuda-13.2-py312
 #
 # Environment Variables:
 #   DISCORD_WEBHOOK_URL — Discord webhook for notifications
@@ -67,9 +67,11 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# Save ComfyUI and Jupyter tunnel URLs BEFORE killing anything
-COMFY_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /var/log/portal/tunnel_manager.log 2>/dev/null | sed -n '2p' || echo "")
-JUPYTER_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /var/log/portal/tunnel_manager.log 2>/dev/null | sed -n '3p' || echo "")
+# Save ComfyUI and Jupyter tunnel URLs — only from portal log if present, otherwise keep quick tunnel values
+PORTAL_COMFY_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /var/log/portal/tunnel_manager.log 2>/dev/null | sed -n '2p' || echo "")
+PORTAL_JUPYTER_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /var/log/portal/tunnel_manager.log 2>/dev/null | sed -n '3p' || echo "")
+[ -n "$PORTAL_COMFY_URL" ] && COMFY_URL="$PORTAL_COMFY_URL"
+[ -n "$PORTAL_JUPYTER_URL" ] && JUPYTER_URL="$PORTAL_JUPYTER_URL"
 
 # Test if portal is broken (tunnel on :1111, app on :11111)
 PORTAL_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:11111/ 2>/dev/null || echo "000")
@@ -104,23 +106,75 @@ echo "=== [4/5] Workflow script ==="
 WORKFLOW_STATUS=""
 if [ -n "$WORKFLOW_SCRIPT" ]; then
   echo "WORKFLOW_SCRIPT found: $WORKFLOW_SCRIPT"
-  curl -sSL "$WORKFLOW_SCRIPT" -o /workspace/workflow-setup.sh
+  curl --fail -sSL "$WORKFLOW_SCRIPT" -o /workspace/workflow-setup.sh
   chmod +x /workspace/workflow-setup.sh
 
-  # Write workflow-completion webhook as a separate script so $DISCORD_WEBHOOK_URL expands correctly
-  # (tmux session runs in a subprocess - variable references break inside the tmux string)
+  # Write workflow-completion webhook as a separate script with full retry/relay support
+  # (tmux session runs in a subprocess — bake all needed values via sed)
   WEBHOOK_URL="${DISCORD_WEBHOOK_URL}"
+  JUPYTER_TOKEN_VAL="${JUPYTER_TOKEN}"
+  PORTAL_URL_VAL="${PORTAL_URL}"
+  COMFY_URL_VAL="${COMFY_URL}"
+  JUPYTER_URL_VAL="${JUPYTER_URL}"
   cat > /workspace/workflow-complete.sh << 'WEBSCRIPT'
 #!/bin/bash
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-curl -s -H "Content-Type: application/json" \
-  -d "{\"embeds\": [{\"title\": "\xe2\x9c\x85 Workflow Download Complete!\", \"description\": \"All models have been downloaded. ComfyUI is ready to use.\", \"color\": 5763719, \"footer\": {\"text\": \"Aurora \xe2\x80\xa2 GrowthLabs\"}, \"timestamp\": \"$TIMESTAMP\"}]}" \
-  "WEBHOOK_URL_PLACEHOLDER" 2>/dev/null || true
+# Workflow-completion webhook — implements full retry + LXC relay fallback
+_notify_workflow_complete() {
+  local webhook_url="$1"
+  local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local payload="{\"embeds\": [{\"title\": \"✅ Workflow Download Complete!\", \"description\": \"All models have been downloaded. ComfyUI is ready to use.\", \"color\": 5763719, \"footer\": {\"text\": \"Aurora • GrowthLabs\"}, \"timestamp\": \"$timestamp\"}]}"
+  local sent=false
+  local relay_url="https://relay.lxc.muneesraja.com/hook?url=$(echo -n "$webhook_url" | base64 -w0)"
+
+  # Retry direct 3 times with backoff
+  for attempt in 1 2 3; do
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+      -H "Content-Type: application/json" \
+      -d "$payload" \
+      "$webhook_url" 2>/dev/null)
+    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+      echo "Workflow notification sent! (direct, attempt $attempt, http=$http_code)"
+      sent=true
+      break
+    fi
+    if [ "$attempt" -lt 3 ]; then
+echo "Direct send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+      sleep 2
+    else
+      echo "Direct send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+    fi
+  done
+
+  # Fallback to LXC relay
+  if [ "$sent" = false ]; then
+    for attempt in 1 2 3; do
+      local http_code
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+        -H "Content-Type: application/json" \
+        -d "$payload" \
+        "$relay_url" 2>/dev/null)
+      if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+        echo "Workflow notification sent! (relay, attempt $attempt, http=$http_code)"
+        sent=true
+        break
+      fi
+      if [ "$attempt" -lt 3 ]; then
+echo "Relay send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+        sleep 3
+      else
+        echo "Relay send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+      fi
+    done
+  fi
+  [ "$sent" = false ] && echo "Workflow notification failed (non-critical)."
+}
+_notify_workflow_complete "$WEBHOOK_URL_PLACEHOLDER"
 WEBSCRIPT
   sed -i "s|WEBHOOK_URL_PLACEHOLDER|${WEBHOOK_URL}|" /workspace/workflow-complete.sh
   chmod +x /workspace/workflow-complete.sh
 
-  # Run in tmux (background) - calls the pre-written webhook script
+  # Run in tmux (background)
   tmux new-session -d -s workflow "bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log; bash /workspace/workflow-complete.sh"
 
   WORKFLOW_STATUS="⏳ Workflow models downloading in background (tmux session: \`workflow\`)"
@@ -143,6 +197,7 @@ _notify_discord() {
   local comfy_url="$7"
   local jupyter_url="$8"
   local workflow_status="$9"
+  local jupyter_token="${10}"
 
   # Build access lines
   local portal_line=""
@@ -173,7 +228,7 @@ _notify_discord() {
         {\"name\": \"💾 VRAM\", \"value\": \"${vram}\", \"inline\": true},
         {\"name\": \"🌐 IP\", \"value\": \"\`${public_ip}\`\", \"inline\": true},
         {\"name\": \"Access\", \"value\": \"${access_lines}\", \"inline\": false},
-        {\"name\": \"🔑 Login\", \"value\": \"User: \`vastai\` — Password: \`${JUPYTER_TOKEN}\`\", \"inline\": false}
+        { "name": "🔑 Login", "value": "User: \`vastai\` — Password: \`${jupyter_token}\`", "inline": false }
       ],
       \"footer\": {\"text\": \"Provisioned via Aurora • GrowthLabs\"},
       \"timestamp\": \"${timestamp}\"
@@ -182,7 +237,7 @@ _notify_discord() {
 
   # Try direct to Discord first (with retry), then fallback to LXC relay
   # IMPORTANT: We only want ONE successful send. Once sent=true, stop.
-  # Use http_code >= 200 && < 400 as success criterion.
+  # Use http_code >= 200 && < 300 as success criterion (2xx only).
   local sent=false
   local relay_url="https://relay.lxc.muneesraja.com/hook?url=$(echo -n "$webhook_url" | base64 -w0)"
 
@@ -193,13 +248,17 @@ _notify_discord() {
       -H "Content-Type: application/json" \
       -d "$payload" \
       "$webhook_url" 2>/dev/null)
-    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ]; then
+    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
       echo "Discord notification sent! (direct, attempt $attempt, http=$http_code)"
       sent=true
       break
     fi
-    echo "Direct send failed (http=$http_code), retrying in 2s... (attempt $attempt/3)"
-    [ "$attempt" -lt 3 ] && sleep 2
+    if [ "$attempt" -lt 3 ]; then
+      echo "Direct send failed (http=$http_code), retrying in 2s... (attempt $attempt/3)"
+      sleep 2
+    else
+      echo "Direct send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+    fi
   done
 
   # Fallback to LXC relay (handles regionally blocked Discord hosts)
@@ -210,13 +269,17 @@ _notify_discord() {
         -H "Content-Type: application/json" \
         -d "$payload" \
         "$relay_url" 2>/dev/null)
-      if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ]; then
+      if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
         echo "Discord notification sent! (relay, attempt $attempt, http=$http_code)"
         sent=true
         break
       fi
-      echo "Relay send failed (http=$http_code), retrying in 3s... (attempt $attempt/3)"
-      [ "$attempt" -lt 3 ] && sleep 3
+      if [ "$attempt" -lt 3 ]; then
+        echo "Relay send failed (http=$http_code), retrying in 3s... (attempt $attempt/3)"
+        sleep 3
+      else
+        echo "Relay send failed (http=$http_code), not retrying. (attempt $attempt/3)"
+      fi
     done
   fi
 
@@ -228,7 +291,7 @@ if [ -n "$DISCORD_WEBHOOK_URL" ]; then
   VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
   PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || echo "Unknown")
   LABEL="${VAST_CONTAINERLABEL:-GPU Server}"
-  _notify_discord "$DISCORD_WEBHOOK_URL" "$GPU_NAME" "$VRAM" "$PUBLIC_IP" "$LABEL" "$PORTAL_URL" "$COMFY_URL" "$JUPYTER_URL" "$WORKFLOW_STATUS"
+  _notify_discord "$DISCORD_WEBHOOK_URL" "$GPU_NAME" "$VRAM" "$PUBLIC_IP" "$LABEL" "$PORTAL_URL" "$COMFY_URL" "$JUPYTER_URL" "$WORKFLOW_STATUS" "$JUPYTER_TOKEN"
 else
   echo "No DISCORD_WEBHOOK_URL set — skipping notification."
 fi

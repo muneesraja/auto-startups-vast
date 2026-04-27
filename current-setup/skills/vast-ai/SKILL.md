@@ -18,18 +18,30 @@ description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Us
 >
 > **Instance 35051543:** Belgium, RTX 3090, $0.215/hr, Qwen Image Edit workflow. SSH port 11542. Portal: https://cloud.vast.ai/instances/35051543
 
+**⚠️ `CF_TUNNEL_TOKEN` no longer required (updated 2026-04-27):**
+The bootstrap script now always sets up quick Cloudflare tunnels for ComfyUI and Jupyter — even without `CF_TUNNEL_TOKEN`. So tunnel URLs will always be in the Discord webhook. The token is only needed for persistent named tunnels.
+
 **⚠️ Discord webhook silently fails — check `provisioning.log` first:**
-If the user reports no Discord notification, check `/var/log/portal/provisioning.log` on the server. The bootstrap script's Discord webhook call has a quoting bug that causes it to fail silently every time:
+If the user reports no Discord notification, check `/var/log/portal/provisioning.log` on the server.
 
+**LXC Discord Relay (for regionally blocked hosts):**
+Turkish hosts (and some others) block Discord's AS — the direct curl times out. The bootstrap script now:
+1. Tries direct Discord POST (3 retries, 2s backoff, direct)
+2. Falls back to `https://relay.lxc.muneesraja.com/hook?url=<base64_webhook_url>` — routes through LXC which always has clean Discord access. The relay has **3 retries, 2s backoff (direct) / 3s backoff (relay)**.
+
+The relay runs as a systemd service (`discord-relay`) on the LXC. If it goes down, `sudo systemctl restart discord-relay`.
+
+**Root cause (fixed 2026-04-27, commit `b85ea68`):** The workflow-completion curl was inside a double-quoted tmux string — `$DISCORD_WEBHOOK_URL` ran in a subprocess where the variable was never expanded before the curl call, causing silent failure.
+
+**Fix applied:** Write a standalone `/workspace/workflow-complete.sh` with the URL baked in via `sed`, then call that from the tmux session. The provisioning webhook (step 5/5) was unaffected — only the workflow-completion tmux webhook had the bug.
+
+**Workaround for instances with old bootstrap script:** SSH in and run manually:
 ```bash
-# ❌ BROKEN — single quotes prevent URL from being passed correctly
-curl ... '${DISCORD_WEBHOOK_URL}' 2>/dev/null || true
-
-# ✅ FIXED — double quotes allow proper variable expansion
-curl ... "$DISCORD_WEBHOOK_URL" 2>/dev/null || true
+WEBHOOK_URL="<DISCORD_WEBHOOK_URL>"
+curl -s -H "Content-Type: application/json" \
+  -d '{"embeds": [{"title": "🟢 GPU Server Ready!", "description": "Instance up and running.", "color": 5763719}]}' \
+  "$WEBHOOK_URL"
 ```
-
-Workaround: tunnel URLs are in `/var/log/portal/tunnel_manager.log`. If provisioning says "complete", the server is ready — send the webhook manually or report URLs directly. Bug is in `auto-startups-vast/scripts/comfyui-bootstrap.sh` (both the provisioning notification and the workflow completion tmux command).
 
 **Docker daemon failure is often transient — wait ~5 min before destroying:**
 > **Instance 35051543:** Belgium, RTX 3090, $0.215/hr, Qwen Image Edit workflow. SSH port 11542. Portal: https://cloud.vast.ai/instances/35051543
@@ -171,7 +183,7 @@ Always tag the instance with the requester's name using `--label`. Use lowercase
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -184,7 +196,7 @@ vastai create instance <OFFER_ID> \
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -201,7 +213,7 @@ vastai create instance <OFFER_ID> \
 - `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
 - **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
-- **Cloudflare tunnel token:** `eyJhIjoiYjY1ZDBjYzIxYWU4YTM1N2FmNjM1NGY0M2I4MDYyY2IiLCJ0IjoiZWFkNTcyYTItNzViNC00NjJmLThlYTYtOTRjOTkzZDM0ZTJmIiwicyI6Ill6RTVNekU1TkRRdFpEbGlNUzAwWXpVekxXSTROMlV0WmpjeVlqUmhNRFl6T1RnMyJ9`
+- **Cloudflare tunnel token:** `<CF_TUNNEL_TOKEN>`
 - **Zram:** See `infrastructure/zram-notes.md` in vault for RAM boost setup
 - `COMFYUI_ARGS` — `--port 18188` is the internal port (mapped to 8188 externally).
 - `PORTAL_CONFIG` — Instance Portal (hub), ComfyUI, Jupyter tabs. **Port 1111 must be mapped.**

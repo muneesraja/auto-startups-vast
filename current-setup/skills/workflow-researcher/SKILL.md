@@ -20,6 +20,10 @@ description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CL
 
 ## Phase 1: Extract Models from Workflow JSON
 
+> ⚠️ **ComfyUI workflows have TWO parallel node representations.** The `nodes[]` array uses `type` as the class field and stores widget values in `widgets_values`. The `extra.prompt` object uses `class_type` and `inputs`. **Always check BOTH** — `extra.prompt` may contain models not visible in the interactive nodes (e.g., vocoder checkpoints). The two representations can also describe completely different rendering paths.
+>
+> **Also check the `mode` field** — nodes with `"mode": 4` are collapsed/disabled in the UI. **Exclude them from the model manifest** unless explicitly told to include alternate paths.
+
 ### 1.1 Identify Loader Nodes
 
 Scan every node in the workflow JSON. Each node has a `class_type` and `inputs` object. The following loader types contain model references:
@@ -41,6 +45,11 @@ Scan every node in the workflow JSON. Each node has a `class_type` and `inputs` 
 | `CLIPVisionLoader` | `clip_name` | CLIP Vision | `clip_vision/` |
 | `UpscaleModelLoader` | `model_name` | Upscale Model | `upscale_models/` |
 | `ImageOnlyCheckpointLoader` | `ckpt_name` | SVD/Image Checkpoint | `checkpoints/` |
+| `UnetLoaderGGUF` | `unet_name` | Diffusion Model (GGUF) | `unet/` |
+| `DualCLIPLoaderGGUF` | `clip_name1`, `clip_name2` | Text Encoders (GGUF) | `text_encoders/` |
+| `VAELoaderKJ` | `vae_name` | VAE | `vae/` |
+| `LTXVAudioVAELoader` | `ckpt_name` | Audio VAE / Vocoder | `vae/` or `checkpoints/` |
+| `LTXVGemmaCLIPModelLoader` | `gemma_path`, `ltxv_path` | Gemma CLIP + Vocoder | `text_encoders/` |
 
 ### 1.2 Extract Unique Model Filenames
 
@@ -139,7 +148,11 @@ split_files/loras/Qwen-Image-Edit-2509-Anything2RealAlpha.safetensors    609.6M
 hf download <org>/<repo> <path/to/file> --dry-run
 ```
 
-### 2.4 Extract the Exact Download URL
+### 2.5 Comfy-Org LTX Repo Naming Gotcha
+
+The `Comfy-Org/ltx-2.3` repo **does not contain gemma text encoders**. The gemma fp4/fp8 text encoders for LTX video are in **`Comfy-Org/ltx-2`** (the v2 repo), not v2.3. If a dry-run returns no matching files for gemma, try `Comfy-Org/ltx-2` instead. Always verify with `curl -sI` HEAD request — 302 = valid redirect, 404 = wrong repo.
+
+### 2.6 Extract the Exact Download URL
 
 **Method 1 — Manual URL pattern (preferred, no debug needed):**
 
@@ -162,7 +175,7 @@ https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lig
 HF_DEBUG=1 hf download <org>/<repo> <filepath> --dry-run 2>&1 | grep "https://"
 ```
 
-### 2.5 Verify Each URL
+### 2.7 Verify Each URL
 
 Before adding a URL to the script, verify it resolves (HEAD request, no download):
 
@@ -358,33 +371,53 @@ curl -sI -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/munee
 
 ## Quick Reference: HF CLI Commands
 
+### Repo Discovery (finding which repo hosts a model)
 ```bash
-# Search for models
+# Search repos by name/keywords — searches repo IDs, not file contents
 hf models ls --search "<keywords>" --limit 10
 
-# Get model info
-hf models info <org>/<repo>
-
-# List files in a repo
-hf models info <org>/<repo> --expand siblings
-
-# Dry-run to see files + sizes (SAFE — no download)
-hf download <org>/<repo> --dry-run
-
-# Dry-run for a specific file
-hf download <org>/<repo> <filepath> --dry-run
-
-# Debug mode — shows full URLs (SAFE with --dry-run)
-HF_DEBUG=1 hf download <org>/<repo> <filepath> --dry-run
-
-# Manual URL pattern (no CLI needed)
-# https://huggingface.co/{org}/{repo}/resolve/main/{filepath}
-
-# Verify URL resolves (HEAD request)
-curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/resolve/main/<filepath>"
+# ⚠️ The command is `hf models ls` (NOT `hf models list`). The `list` subcommand does not exist.
 ```
 
-> ⚠️ **The command is `hf models ls` (NOT `hf models list`).** The `list` subcommand does not exist and will error.
+### Repo Inspection (once you know the repo)
+```bash
+# Get repo metadata
+hf models info <org>/<repo>
+
+# List ALL files in a repo with sizes — USE THIS to explore what a repo contains
+hf download <org>/<repo> --dry-run
+
+# Filter the dry-run output to find a specific file
+hf download <org>/<repo> --dry-run | grep "filename_you_want"
+
+# List only specific files/directories in a repo (siblings = file listing)
+hf models info <org>/<repo> --expand siblings
+```
+
+### File Verification (getting the exact URL and checking it resolves)
+```bash
+# Verify a URL resolves (HEAD request — no download)
+# 200 = direct hit, 302 = valid redirect (HF redirects to CDN), 404 = wrong path/repo
+curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/resolve/main/<filepath>"
+
+# Dry-run for a specific file to see its size
+hf download <org>/<repo> <filepath> --dry-run
+
+# Debug mode — shows the full resolved URL (SAFE with --dry-run)
+HF_DEBUG=1 hf download <org>/<repo> <filepath> --dry-run 2>&1 | grep "https://"
+```
+
+### URL Pattern (manual — no CLI needed)
+```
+https://huggingface.co/{org}/{repo}/resolve/main/{filepath}
+```
+Where `{filepath}` is the `rfilename` from siblings or the path shown in dry-run output.
+
+### Common Pitfalls
+- **`hf models ls --search`** searches **repo IDs/names**, not filenames inside repos. If you can't find a model by searching, use `hf download <repo> --dry-run` directly on the likely repo.
+- **Comfy-Org LTX v2.3 vs v2:** `Comfy-Org/ltx-2.3` does NOT contain gemma text encoders. They are in **`Comfy-Org/ltx-2`** (the v2 repo). Always verify with `curl -sI`.
+- **Disabled nodes:** Nodes with `"mode": 4` in the JSON are collapsed/disabled. Exclude them unless instructed otherwise.
+- **extra.prompt section:** Some workflows store a completely different node graph in `extra.prompt`. This can describe alternate/active rendering paths with different models from the interactive `nodes[]` array. Always check both.
 
 ---
 
