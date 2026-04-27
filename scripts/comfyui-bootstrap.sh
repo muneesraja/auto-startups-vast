@@ -93,11 +93,21 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
   curl -sSL "$WORKFLOW_SCRIPT" -o /workspace/workflow-setup.sh
   chmod +x /workspace/workflow-setup.sh
 
-  # Run in tmux (background) so it doesn't block the webhook
-  tmux new-session -d -s workflow "bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log; \
-    curl -s -H 'Content-Type: application/json' \
-    -d '{\"embeds\": [{\"title\": \"✅ Workflow Download Complete!\", \"description\": \"All models have been downloaded. ComfyUI is ready to use.\", \"color\": 5763719, \"footer\": {\"text\": \"Aurora • GrowthLabs\"}, \"timestamp\": \"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\"}]}' \
-    "$DISCORD_WEBHOOK_URL" 2>/dev/null || true"
+  # Write workflow-completion webhook as a separate script so $DISCORD_WEBHOOK_URL expands correctly
+  # (tmux session runs in a subprocess - variable references break inside the tmux string)
+  WEBHOOK_URL="${DISCORD_WEBHOOK_URL}"
+  cat > /workspace/workflow-complete.sh << 'WEBSCRIPT'
+#!/bin/bash
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+curl -s -H "Content-Type: application/json" \
+  -d "{\"embeds\": [{\"title\": "\xe2\x9c\x85 Workflow Download Complete!\", \"description\": \"All models have been downloaded. ComfyUI is ready to use.\", \"color\": 5763719, \"footer\": {\"text\": \"Aurora \xe2\x80\xa2 GrowthLabs\"}, \"timestamp\": \"$TIMESTAMP\"}]}" \
+  "WEBHOOK_URL_PLACEHOLDER" 2>/dev/null || true
+WEBSCRIPT
+  sed -i "s|WEBHOOK_URL_PLACEHOLDER|${WEBHOOK_URL}|" /workspace/workflow-complete.sh
+  chmod +x /workspace/workflow-complete.sh
+
+  # Run in tmux (background) - calls the pre-written webhook script
+  tmux new-session -d -s workflow "bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log; bash /workspace/workflow-complete.sh"
 
   WORKFLOW_STATUS="⏳ Workflow models downloading in background (tmux session: \`workflow\`)"
   echo "Workflow script running in background tmux session 'workflow'."
