@@ -37,10 +37,24 @@ if [ -n "$CF_TUNNEL_TOKEN" ]; then
   rm -f /tmp/cloudflared.deb
   echo "Cloudflare tunnel installed."
 else
-  echo "No CF_TUNNEL_TOKEN set — skipping Cloudflare tunnel."
+  echo "No CF_TUNNEL_TOKEN set — skipping Cloudflare tunnel service."
+  # Always set up quick tunnels so ComfyUI and Jupyter URLs are available for the Discord webhook.
+  CLOUDFLARED_BIN=$(which cloudflared 2>/dev/null || echo "/opt/instance-tools/bin/cloudflared")
+  if [ -x "$CLOUDFLARED_BIN" ]; then
+    echo "Setting up quick tunnels for ComfyUI and Jupyter..."
+    nohup $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:18188 > /tmp/comfy_tunnel.log 2>&1 &
+    nohup $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:8080 > /tmp/jupyter_tunnel.log 2>&1 &
+    sleep 15
+    COMFY_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/comfy_tunnel.log 2>/dev/null | tail -1 || echo "")
+    JUPYTER_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/jupyter_tunnel.log 2>/dev/null | tail -1 || echo "")
+    echo "Quick tunnels — ComfyUI: ${COMFY_URL:-NOT READY}, Jupyter: ${JUPYTER_URL:-NOT READY}"
+  else
+    echo "cloudflared not found at ${CLOUDFLARED_BIN} — quick tunnels skipped."
+  fi
 fi
 
-# ── [3/5] Fix Instance Portal tunnel (known vastai/comfy image bug) ──────────
+echo "=== [3/5] Fix Instance Portal tunnel (known vastai/comfy image bug) ==="
+# NOTE: If CF_TUNNEL_TOKEN was absent, COMFY_URL and JUPYTER_URL are already set from quick tunnels above.
 echo "=== [3/5] Fix portal tunnel ==="
 
 # Wait for tunnel_manager to create tunnels
