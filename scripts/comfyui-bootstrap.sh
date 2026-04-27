@@ -181,33 +181,41 @@ _notify_discord() {
   }"
 
   # Try direct to Discord first (with retry), then fallback to LXC relay
+  # IMPORTANT: We only want ONE successful send. Once sent=true, stop.
+  # Use http_code >= 200 && < 400 as success criterion.
   local sent=false
   local relay_url="https://relay.lxc.muneesraja.com/hook?url=$(echo -n "$webhook_url" | base64 -w0)"
 
-  # Retry direct 3 times with backoff
+  # Retry direct 3 times with backoff — stop immediately on first success
   for attempt in 1 2 3; do
-    if curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
       -H "Content-Type: application/json" \
       -d "$payload" \
-      "$webhook_url" | grep -q "20\|30"; then
-      echo "Discord notification sent! (direct, attempt $attempt)"
+      "$webhook_url" 2>/dev/null)
+    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ]; then
+      echo "Discord notification sent! (direct, attempt $attempt, http=$http_code)"
       sent=true
       break
     fi
+    echo "Direct send failed (http=$http_code), retrying in 2s... (attempt $attempt/3)"
     [ "$attempt" -lt 3 ] && sleep 2
   done
 
   # Fallback to LXC relay (handles regionally blocked Discord hosts)
   if [ "$sent" = false ]; then
     for attempt in 1 2 3; do
-      if curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+      local http_code
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
         -H "Content-Type: application/json" \
         -d "$payload" \
-        "$relay_url" | grep -q "20\|30"; then
-        echo "Discord notification sent! (relay, attempt $attempt)"
+        "$relay_url" 2>/dev/null)
+      if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ]; then
+        echo "Discord notification sent! (relay, attempt $attempt, http=$http_code)"
         sent=true
         break
       fi
+      echo "Relay send failed (http=$http_code), retrying in 3s... (attempt $attempt/3)"
       [ "$attempt" -lt 3 ] && sleep 3
     done
   fi
