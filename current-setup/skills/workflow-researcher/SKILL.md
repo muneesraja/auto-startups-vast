@@ -320,6 +320,42 @@ grep -r "safetensors" scripts/workflows/ | grep -o '\-o "[^"]*"'
 
 ---
 
+## Phase 5: Commit & Push to Git
+
+After the script is written to `scripts/workflows/` and passes all Phase 4 validation checks, commit and push it so the provisioning pipeline can access it via raw GitHub URL.
+
+> The repository remote (`origin`) and SSH key for push access are already configured. No additional auth setup is needed.
+
+### 5.1 Stage, Commit, and Push
+
+```bash
+git add scripts/workflows/<script-name>.sh
+git commit -m "feat: add <workflow-name> workflow download script"
+git push origin main
+```
+
+### 5.2 Commit Message Convention
+
+Use this format:
+- **New script:** `feat: add <workflow-name> workflow download script`
+- **Update existing:** `fix: update <model-name> URL in <script-name>`
+- **Multiple changes:** `feat: add <workflow-name> script and update <other-script>`
+
+### 5.3 Verify the Raw URL
+
+After pushing, the script is immediately available at:
+```
+https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<script-name>.sh
+```
+
+This is the URL used in the `WORKFLOW_SCRIPT` env var during provisioning. Verify it resolves:
+```bash
+curl -sI -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<script-name>.sh"
+```
+- `200` = ✅ live and ready for provisioning
+
+---
+
 ## Quick Reference: HF CLI Commands
 
 ```bash
