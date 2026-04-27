@@ -14,6 +14,9 @@
 # =============================================================================
 set -e
 
+# JUPYTER_TOKEN: vastai passes this as OPEN_BUTTON_TOKEN env var
+JUPYTER_TOKEN="${OPEN_BUTTON_TOKEN:-${JUPYTER_TOKEN:-}}"
+
 echo "============================================"
 echo "  Provisioning Script — Starting"
 echo "============================================"
@@ -112,10 +115,6 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
   # Write workflow-completion webhook as a separate script with full retry/relay support
   # (tmux session runs in a subprocess — bake all needed values via sed)
   WEBHOOK_URL="${DISCORD_WEBHOOK_URL}"
-  JUPYTER_TOKEN_VAL="${JUPYTER_TOKEN}"
-  PORTAL_URL_VAL="${PORTAL_URL}"
-  COMFY_URL_VAL="${COMFY_URL}"
-  JUPYTER_URL_VAL="${JUPYTER_URL}"
   cat > /workspace/workflow-complete.sh << 'WEBSCRIPT'
 #!/bin/bash
 # Workflow-completion webhook — implements full retry + LXC relay fallback
