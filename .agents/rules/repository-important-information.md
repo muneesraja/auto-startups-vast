@@ -3,3 +3,4 @@ trigger: always_on
 ---
 
 Always go through the @vast-ai/SKILL.md before adding/modifying any script
+Always go through the @workflow-researcher/SKILL.md before creating workflow download scripts from ComfyUI JSON files

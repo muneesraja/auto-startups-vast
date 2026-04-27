@@ -18,16 +18,50 @@ description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Us
 >
 > **Instance 35051543:** Belgium, RTX 3090, $0.215/hr, Qwen Image Edit workflow. SSH port 11542. Portal: https://cloud.vast.ai/instances/35051543
 
+**⚠️ Discord webhook silently fails — check `provisioning.log` first:**
+If the user reports no Discord notification, check `/var/log/portal/provisioning.log` on the server. The bootstrap script's Discord webhook call has a quoting bug that causes it to fail silently every time:
+
+```bash
+# ❌ BROKEN — single quotes prevent URL from being passed correctly
+curl ... '${DISCORD_WEBHOOK_URL}' 2>/dev/null || true
+
+# ✅ FIXED — double quotes allow proper variable expansion
+curl ... "$DISCORD_WEBHOOK_URL" 2>/dev/null || true
+```
+
+Workaround: tunnel URLs are in `/var/log/portal/tunnel_manager.log`. If provisioning says "complete", the server is ready — send the webhook manually or report URLs directly. Bug is in `auto-startups-vast/scripts/comfyui-bootstrap.sh` (both the provisioning notification and the workflow completion tmux command).
+
+**Docker daemon failure is often transient — wait ~5 min before destroying:**
+> **Instance 35051543:** Belgium, RTX 3090, $0.215/hr, Qwen Image Edit workflow. SSH port 11542. Portal: https://cloud.vast.ai/instances/35051543
+
 **⚠️ `success` field as early indicator:** When `vastai create instance` returns `"success": false`, the instance will almost certainly fail with the Docker daemon "No such container" pattern. When `"success": true` — boot succeeds. This is a reliable leading signal to try the next offer immediately rather than waiting through a 2+ min failed boot.
+
+**⚠️ Known working hosts can still fail Docker — always wait for `actual_status: running`:**
+Even hosts previously verified as working (like Belgium host 148689) can exhibit the Docker "No such container" pattern on a given boot. The instance must transition to `actual_status: running` before it's truly ready — don't trust `cur_state: running` alone. Boots can take **4-5+ minutes** even with pre-cached images.
 
 **Docker daemon failure hosts (verified):**
 | Host ID | Location | Notes |
 |---------|----------|-------|
-| 446098 | Sweden | Instance 35291406 — `success: false`, Docker fails |
-| 264182 | Bulgaria | Instance 35291605 — `success: false`, Docker fails |
-| 73118 | Spain | Instance 35291702 — `success: true`, **works** ✅ |
->
+| 344939 | — | Docker fails on private + official PyTorch templates |
+| 20325 | Quebec | Container never created after 6+ min |
+| 201023 | Quebec | RTX 3090 — stuck `loading` indefinitely |
+| 37070 | Netherlands | RTX 3090 — Docker refuses to start |
+| 264182 | Bulgaria | `success: false` on create |
+| 446098 | Sweden | `success: false` on create |
+| 148689 | Belgium | **Was working previously — but can fail on new boots** (instance 35351926 failed) |
+
 > **💡 Zram:** Use for RAM boost on low-memory hosts. See vault: `infrastructure/zram-notes.md`
+
+**⚠️ SSH port — use `vastai ssh-url`, NOT the raw JSON `ssh_port` field:**
+The `ssh_port` in `--raw` JSON (e.g., 32104) may be stale/proxy-based. Use `vastai ssh-url <instance_id>` to get the correct direct SSH endpoint (e.g., `ssh://root@IP:42761`). This is the port that actually works for SCP and SSH commands.
+
+**Large file downloads (8GB+) — download directly on the server:**
+For big model files (8GB+), do NOT download to LXC then SCP — that pipes 8GB through the relay and takes 20+ min. Instead, SSH into the server and run:
+```bash
+ssh -p <ssh_port> -o StrictHostKeyChecking=no root@<ip> \
+  "nohup curl -L '<url>' -o /workspace/ComfyUI/models/<path>/<filename> --progress-bar > /workspace/download.log 2>&1 & echo PID: \$!"
+```
+Then monitor with `ssh "tail -3 /workspace/download.log"`. The server downloads at full speed from HuggingFace/CivitAI directly.
 
 ## ⚡ Quick Rent Workflow (3 Steps)
 1. **Search** with all filters (inet_down_cost in query — trust it, don't manually cross-check)
@@ -137,7 +171,7 @@ Always tag the instance with the requester's name using `--label`. Use lowercase
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<YOUR_DISCORD_WEBHOOK_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -150,7 +184,7 @@ vastai create instance <OFFER_ID> \
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<YOUR_DISCORD_WEBHOOK_URL>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1491367956259541022/TshCR6M84_Ej0kwoFHrMq_c_zItMqZnjHxvJoJCPKeQTslQrSiHSOCmYOp70ljd4dKfq" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -167,7 +201,7 @@ vastai create instance <OFFER_ID> \
 - `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
 - **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
-- **Cloudflare tunnel token:** `<YOUR_CLOUDFLARE_TUNNEL_TOKEN>`
+- **Cloudflare tunnel token:** `eyJhIjoiYjY1ZDBjYzIxYWU4YTM1N2FmNjM1NGY0M2I4MDYyY2IiLCJ0IjoiZWFkNTcyYTItNzViNC00NjJmLThlYTYtOTRjOTkzZDM0ZTJmIiwicyI6Ill6RTVNekU1TkRRdFpEbGlNUzAwWXpVekxXSTROMlV0WmpjeVlqUmhNRFl6T1RnMyJ9`
 - **Zram:** See `infrastructure/zram-notes.md` in vault for RAM boost setup
 - `COMFYUI_ARGS` — `--port 18188` is the internal port (mapped to 8188 externally).
 - `PORTAL_CONFIG` — Instance Portal (hub), ComfyUI, Jupyter tabs. **Port 1111 must be mapped.**

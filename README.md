@@ -9,7 +9,8 @@ aurora/
 ├── scripts/
 │   ├── comfyui-bootstrap.sh          # Provisioning script (runs on Vast.ai instances)
 │   └── workflows/
-│       └── wan22-download.sh          # Wan 2.2 model download script
+│       ├── wan22-download.sh          # Wan 2.2 model download script
+│       └── ltx2.3-img2video.sh        # LTX 2.3 Image to Video model download script
 ├── current-setup/
 │   └── skills/                        # Hermes agent skill definitions (gitignored)
 └── README.md

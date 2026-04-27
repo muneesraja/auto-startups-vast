@@ -3,7 +3,6 @@ node_modules/
 
 # Hermes skill definitions (synced separately, not part of this repo)
 # current-setup/skills/
-current-setup/skills/workflow-researcher
 current-setup/skills/growthlabs-docs
 # OS files
 .DS_Store

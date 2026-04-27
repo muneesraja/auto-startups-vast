@@ -1,0 +1,1491 @@
+{
+  "433:37": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model (Shared)"
+    }
+  },
+  "433:38": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP (Shared)"
+    }
+  },
+  "433:39": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE (Shared)"
+    }
+  },
+  "433:89": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "433:37",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA Lightning (Shared)"
+    }
+  },
+  "433:66": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "433:89",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow (Shared)"
+    }
+  },
+  "433:75": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "433:66",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFGNorm (Shared)"
+    }
+  },
+  "78": {
+    "inputs": {
+      "image": "image_qwen_image_edit_2509_input_image.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Reference Character Image"
+    }
+  },
+  "435": {
+    "inputs": {
+      "value": "Scene 1: The character stands at the edge of a vast ancient forest, looking determined and hopeful, golden sunrise behind them, epic cinematic wide shot, detailed background"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 1 Prompt"
+    }
+  },
+  "433:117": {
+    "inputs": {
+      "image": [
+        "78",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 1"
+    }
+  },
+  "433:88": {
+    "inputs": {
+      "pixels": [
+        "433:117",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 1"
+    }
+  },
+  "433:110": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "433:117",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 1"
+    }
+  },
+  "433:111": {
+    "inputs": {
+      "prompt": [
+        "435",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "433:117",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 1"
+    }
+  },
+  "433:3": {
+    "inputs": {
+      "seed": 42001,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "433:111",
+        0
+      ],
+      "negative": [
+        "433:110",
+        0
+      ],
+      "latent_image": [
+        "433:88",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 1"
+    }
+  },
+  "433:8": {
+    "inputs": {
+      "samples": [
+        "433:3",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 1"
+    }
+  },
+  "60": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_01",
+      "images": [
+        "433:8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 1"
+    }
+  },
+  "503": {
+    "inputs": {
+      "value": "Scene 2: The same character cautiously steps into the dark ancient forest, holding a glowing torch, tall shadowy trees surrounding them, mysterious atmosphere, same outfit and appearance"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 2 Prompt"
+    }
+  },
+  "501": {
+    "inputs": {
+      "image": [
+        "433:8",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 2"
+    }
+  },
+  "502": {
+    "inputs": {
+      "pixels": [
+        "501",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 2"
+    }
+  },
+  "504": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "501",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 2"
+    }
+  },
+  "505": {
+    "inputs": {
+      "prompt": [
+        "503",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "501",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 2"
+    }
+  },
+  "506": {
+    "inputs": {
+      "seed": 42002,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "505",
+        0
+      ],
+      "negative": [
+        "504",
+        0
+      ],
+      "latent_image": [
+        "502",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 2"
+    }
+  },
+  "507": {
+    "inputs": {
+      "samples": [
+        "506",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 2"
+    }
+  },
+  "508": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_02",
+      "images": [
+        "507",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 2"
+    }
+  },
+  "513": {
+    "inputs": {
+      "value": "Scene 3: The same character discovers glowing ancient ruins deep in the forest, standing in awe, magical light emanating from the stone carvings, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 3 Prompt"
+    }
+  },
+  "511": {
+    "inputs": {
+      "image": [
+        "507",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 3"
+    }
+  },
+  "512": {
+    "inputs": {
+      "pixels": [
+        "511",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 3"
+    }
+  },
+  "514": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "511",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 3"
+    }
+  },
+  "515": {
+    "inputs": {
+      "prompt": [
+        "513",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "511",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 3"
+    }
+  },
+  "516": {
+    "inputs": {
+      "seed": 42003,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "515",
+        0
+      ],
+      "negative": [
+        "514",
+        0
+      ],
+      "latent_image": [
+        "512",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 3"
+    }
+  },
+  "517": {
+    "inputs": {
+      "samples": [
+        "516",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 3"
+    }
+  },
+  "518": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_03",
+      "images": [
+        "517",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 3"
+    }
+  },
+  "523": {
+    "inputs": {
+      "value": "Scene 4: The same character stands in battle stance facing a large shadowy forest creature inside the ruins, weapon raised, intense dramatic lighting, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 4 Prompt"
+    }
+  },
+  "521": {
+    "inputs": {
+      "image": [
+        "517",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 4"
+    }
+  },
+  "522": {
+    "inputs": {
+      "pixels": [
+        "521",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 4"
+    }
+  },
+  "524": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "521",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 4"
+    }
+  },
+  "525": {
+    "inputs": {
+      "prompt": [
+        "523",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "521",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 4"
+    }
+  },
+  "526": {
+    "inputs": {
+      "seed": 42004,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "525",
+        0
+      ],
+      "negative": [
+        "524",
+        0
+      ],
+      "latent_image": [
+        "522",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 4"
+    }
+  },
+  "527": {
+    "inputs": {
+      "samples": [
+        "526",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 4"
+    }
+  },
+  "528": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_04",
+      "images": [
+        "527",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 4"
+    }
+  },
+  "533": {
+    "inputs": {
+      "value": "Scene 5: The same character holds a glowing magical artifact triumphantly in the air, victorious smile, ruins in background, warm magical light, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 5 Prompt"
+    }
+  },
+  "531": {
+    "inputs": {
+      "image": [
+        "527",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 5"
+    }
+  },
+  "532": {
+    "inputs": {
+      "pixels": [
+        "531",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 5"
+    }
+  },
+  "534": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "531",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 5"
+    }
+  },
+  "535": {
+    "inputs": {
+      "prompt": [
+        "533",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "531",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 5"
+    }
+  },
+  "536": {
+    "inputs": {
+      "seed": 42005,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "535",
+        0
+      ],
+      "negative": [
+        "534",
+        0
+      ],
+      "latent_image": [
+        "532",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 5"
+    }
+  },
+  "537": {
+    "inputs": {
+      "samples": [
+        "536",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 5"
+    }
+  },
+  "538": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_05",
+      "images": [
+        "537",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 5"
+    }
+  },
+  "543": {
+    "inputs": {
+      "value": "Scene 6: The same character emerges from the forest tree line at dusk, artifact glowing in hand, relief on their face, orange and purple sky, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 6 Prompt"
+    }
+  },
+  "541": {
+    "inputs": {
+      "image": [
+        "537",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 6"
+    }
+  },
+  "542": {
+    "inputs": {
+      "pixels": [
+        "541",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 6"
+    }
+  },
+  "544": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "541",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 6"
+    }
+  },
+  "545": {
+    "inputs": {
+      "prompt": [
+        "543",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "541",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 6"
+    }
+  },
+  "546": {
+    "inputs": {
+      "seed": 42006,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "545",
+        0
+      ],
+      "negative": [
+        "544",
+        0
+      ],
+      "latent_image": [
+        "542",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 6"
+    }
+  },
+  "547": {
+    "inputs": {
+      "samples": [
+        "546",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 6"
+    }
+  },
+  "548": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_06",
+      "images": [
+        "547",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 6"
+    }
+  },
+  "553": {
+    "inputs": {
+      "value": "Scene 7: The same character walks into a medieval village, townspeople cheering and gathering around them in celebration, warm evening light, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 7 Prompt"
+    }
+  },
+  "551": {
+    "inputs": {
+      "image": [
+        "547",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 7"
+    }
+  },
+  "552": {
+    "inputs": {
+      "pixels": [
+        "551",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 7"
+    }
+  },
+  "554": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "551",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 7"
+    }
+  },
+  "555": {
+    "inputs": {
+      "prompt": [
+        "553",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "551",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 7"
+    }
+  },
+  "556": {
+    "inputs": {
+      "seed": 42007,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "555",
+        0
+      ],
+      "negative": [
+        "554",
+        0
+      ],
+      "latent_image": [
+        "552",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 7"
+    }
+  },
+  "557": {
+    "inputs": {
+      "samples": [
+        "556",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 7"
+    }
+  },
+  "558": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_07",
+      "images": [
+        "557",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 7"
+    }
+  },
+  "563": {
+    "inputs": {
+      "value": "Scene 8: The same character kneels before a wise elder in a grand stone hall, presenting the glowing artifact with both hands, torchlit interior, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 8 Prompt"
+    }
+  },
+  "561": {
+    "inputs": {
+      "image": [
+        "557",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 8"
+    }
+  },
+  "562": {
+    "inputs": {
+      "pixels": [
+        "561",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 8"
+    }
+  },
+  "564": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "561",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 8"
+    }
+  },
+  "565": {
+    "inputs": {
+      "prompt": [
+        "563",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "561",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 8"
+    }
+  },
+  "566": {
+    "inputs": {
+      "seed": 42008,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "565",
+        0
+      ],
+      "negative": [
+        "564",
+        0
+      ],
+      "latent_image": [
+        "562",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 8"
+    }
+  },
+  "567": {
+    "inputs": {
+      "samples": [
+        "566",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 8"
+    }
+  },
+  "568": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_08",
+      "images": [
+        "567",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 8"
+    }
+  },
+  "573": {
+    "inputs": {
+      "value": "Scene 9: The same character stands confidently on a hilltop overlooking a vast peaceful kingdom at midday, noble and respected pose, same face and outfit"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 9 Prompt"
+    }
+  },
+  "571": {
+    "inputs": {
+      "image": [
+        "567",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 9"
+    }
+  },
+  "572": {
+    "inputs": {
+      "pixels": [
+        "571",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 9"
+    }
+  },
+  "574": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "571",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 9"
+    }
+  },
+  "575": {
+    "inputs": {
+      "prompt": [
+        "573",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "571",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 9"
+    }
+  },
+  "576": {
+    "inputs": {
+      "seed": 42009,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "575",
+        0
+      ],
+      "negative": [
+        "574",
+        0
+      ],
+      "latent_image": [
+        "572",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 9"
+    }
+  },
+  "577": {
+    "inputs": {
+      "samples": [
+        "576",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 9"
+    }
+  },
+  "578": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_09",
+      "images": [
+        "577",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 9"
+    }
+  },
+  "583": {
+    "inputs": {
+      "value": "Scene 10: The same character sits peacefully beside a warm campfire under a star-filled night sky, contented smile, journey complete, same face and outfit, soft firelight"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "[EDIT] Scene 10 Prompt"
+    }
+  },
+  "581": {
+    "inputs": {
+      "image": [
+        "577",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "Image Scale - Scene 10"
+    }
+  },
+  "582": {
+    "inputs": {
+      "pixels": [
+        "581",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode - Scene 10"
+    }
+  },
+  "584": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "581",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Negative - Scene 10"
+    }
+  },
+  "585": {
+    "inputs": {
+      "prompt": [
+        "583",
+        0
+      ],
+      "clip": [
+        "433:38",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ],
+      "image1": [
+        "581",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "Positive - Scene 10"
+    }
+  },
+  "586": {
+    "inputs": {
+      "seed": 42010,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "433:75",
+        0
+      ],
+      "positive": [
+        "585",
+        0
+      ],
+      "negative": [
+        "584",
+        0
+      ],
+      "latent_image": [
+        "582",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler - Scene 10"
+    }
+  },
+  "587": {
+    "inputs": {
+      "samples": [
+        "586",
+        0
+      ],
+      "vae": [
+        "433:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode - Scene 10"
+    }
+  },
+  "588": {
+    "inputs": {
+      "filename_prefix": "Story_Scene_10",
+      "images": [
+        "587",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image - Scene 10"
+    }
+  }
+}
