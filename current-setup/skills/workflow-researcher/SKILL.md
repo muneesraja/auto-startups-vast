@@ -1,11 +1,11 @@
 ---
 name: workflow-researcher
-description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CLIP, VAE, LoRA, checkpoints), research download URLs via HuggingFace CLI (never download!), and generate provisioning-ready bash scripts for scripts/workflows/.
+description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CLIP, VAE, LoRA, checkpoints), research download URLs via HuggingFace CLI (never download!), and generate provisioning-ready bash scripts for $REPO_ROOT/scripts/workflows/.
 ---
 
 # Workflow Researcher — ComfyUI Model Discovery & Script Generator
 
-> Given a ComfyUI `workflow.json`, extract every model it needs, find the exact HuggingFace download URLs, and generate a `scripts/workflows/*.sh` download script — **without ever downloading any model files.**
+> Given a ComfyUI `workflow.json`, extract every model it needs, find the exact HuggingFace download URLs, and generate a `$REPO_ROOT/scripts/workflows/*.sh` download script — **without ever downloading any model files.**
 >
 > ⚠️ **CRITICAL SAFETY RULE:** Models are multi-GB files (8-40GB each). **NEVER run `hf download` without `--dry-run`.** NEVER download model files to the local system. This skill is purely for research and URL extraction.
 
@@ -180,7 +180,7 @@ curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/res
 
 ### 3.1 Script Template
 
-Every script in `scripts/workflows/` MUST follow this exact pattern:
+Every script in `$REPO_ROOT/scripts/workflows/` MUST follow this exact pattern:
 
 ```bash
 #!/bin/bash
@@ -254,7 +254,7 @@ Map the model type to the correct ComfyUI subdirectory:
 | Style Model | `style_models/` |
 | CLIP Vision | `clip_vision/` |
 
-> **Note:** ComfyUI has evolved its directory naming. Some older workflows use `unet/` while newer ones use `diffusion_models/`. Some use `checkpoints/` as an alias for diffusion models. Check the existing `scripts/workflows/` scripts for precedent.
+> **Note:** ComfyUI has evolved its directory naming. Some older workflows use `unet/` while newer ones use `diffusion_models/`. Some use `checkpoints/` as an alias for diffusion models. Check the existing `$REPO_ROOT/scripts/workflows/` scripts for precedent.
 
 ### 3.4 Filename Rules
 
@@ -315,7 +315,7 @@ Before finalizing the script, verify:
 Check if any models are already downloaded by other workflow scripts. Document shared models:
 ```bash
 # Check for duplicate model filenames across existing scripts
-grep -r "safetensors" scripts/workflows/ | grep -o '\-o "[^"]*"'
+grep -r "safetensors" "$REPO_ROOT/scripts/workflows/" | grep -o '\-o "[^"]*"'
 ```
 
 ---
@@ -390,7 +390,7 @@ curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/res
 
 ## Example: Full Walkthrough
 
-Given `current-setup/comfyui-workflows/qwen_img_story_10scenes.json`:
+Given `$REPO_ROOT/current-setup/comfyui-workflows/qwen_img_story_10scenes.json`:
 
 ### Step 1: Extract models
 | Filename | Type | Loader |
@@ -417,17 +417,24 @@ hf models ls --search "qwen image lightning" --limit 5
 # → lightx2v/Qwen-Image-Lightning
 ```
 
-### Step 3: Result → `scripts/workflows/qwen-image-download.sh`
+### Step 3: Result → `$REPO_ROOT/scripts/workflows/qwen-image-download.sh`
 (See the existing script for the generated output)
 
 ---
+
+## Base Path
+
+All paths in this skill reference the repo root:
+```
+REPO_ROOT="/root/repos/auto-startups-vast"
+```
 
 ## File Locations
 
 | What | Where |
 |---|---|
-| Workflow JSONs (input) | `current-setup/comfyui-workflows/*.json` |
-| Download scripts (output) | `scripts/workflows/*.sh` |
-| This skill | `current-setup/skills/workflow-researcher/SKILL.md` |
-| Provisioning skill | `current-setup/skills/vast-ai/SKILL.md` |
-| Bootstrap script | `scripts/comfyui-bootstrap.sh` |
+| Workflow JSONs (input) | `$REPO_ROOT/current-setup/comfyui-workflows/*.json` |
+| Download scripts (output) | `$REPO_ROOT/scripts/workflows/*.sh` |
+| This skill | `$REPO_ROOT/current-setup/skills/workflow-researcher/SKILL.md` |
+| Provisioning skill | `$REPO_ROOT/current-setup/skills/vast-ai/SKILL.md` |
+| Bootstrap script | `$REPO_ROOT/scripts/comfyui-bootstrap.sh` |
