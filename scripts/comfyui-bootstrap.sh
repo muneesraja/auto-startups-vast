@@ -97,7 +97,7 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
   tmux new-session -d -s workflow "bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log; \
     curl -s -H 'Content-Type: application/json' \
     -d '{\"embeds\": [{\"title\": \"✅ Workflow Download Complete!\", \"description\": \"All models have been downloaded. ComfyUI is ready to use.\", \"color\": 5763719, \"footer\": {\"text\": \"Aurora • GrowthLabs\"}, \"timestamp\": \"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\"}]}' \
-    '${DISCORD_WEBHOOK_URL}' 2>/dev/null || true"
+    "$DISCORD_WEBHOOK_URL" 2>/dev/null || true"
 
   WORKFLOW_STATUS="⏳ Workflow models downloading in background (tmux session: \`workflow\`)"
   echo "Workflow script running in background tmux session 'workflow'."
