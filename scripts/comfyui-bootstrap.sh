@@ -227,7 +227,7 @@ _notify_discord() {
         {\"name\": \"💾 VRAM\", \"value\": \"${vram}\", \"inline\": true},
         {\"name\": \"🌐 IP\", \"value\": \"\`${public_ip}\`\", \"inline\": true},
         {\"name\": \"Access\", \"value\": \"${access_lines}\", \"inline\": false},
-        { "name": "🔑 Login", "value": "User: \`vastai\` — Password: \`${jupyter_token}\`", "inline": false }
+        {\"name\": \"🔑 Login\", \"value\": \"User: \`vastai\` — Password: \`${jupyter_token}\`\", \"inline\": false}
       ],
       \"footer\": {\"text\": \"Provisioned via Aurora • GrowthLabs\"},
       \"timestamp\": \"${timestamp}\"
