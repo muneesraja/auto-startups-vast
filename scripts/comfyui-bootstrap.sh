@@ -131,7 +131,7 @@ _notify_workflow_complete() {
     http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
       -H "Content-Type: application/json" \
       -d "$payload" \
-      "$webhook_url" 2>/dev/null)
+      "$webhook_url" 2>/dev/null) || true
     if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
       echo "Workflow notification sent! (direct, attempt $attempt, http=$http_code)"
       sent=true
@@ -152,7 +152,7 @@ echo "Direct send failed (http=$http_code), not retrying. (attempt $attempt/3)"
       http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
         -H "Content-Type: application/json" \
         -d "$payload" \
-        "$relay_url" 2>/dev/null)
+        "$relay_url" 2>/dev/null) || true
       if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
         echo "Workflow notification sent! (relay, attempt $attempt, http=$http_code)"
         sent=true
@@ -166,7 +166,9 @@ echo "Relay send failed (http=$http_code), not retrying. (attempt $attempt/3)"
       fi
     done
   fi
-  [ "$sent" = false ] && echo "Workflow notification failed (non-critical)."
+  if [ "$sent" = false ]; then
+    echo "Workflow notification failed (non-critical)."
+  fi
 }
 _notify_workflow_complete "$WEBHOOK_URL_PLACEHOLDER"
 WEBSCRIPT
@@ -174,6 +176,7 @@ WEBSCRIPT
   chmod +x /workspace/workflow-complete.sh
 
   # Run in tmux (background)
+  tmux kill-session -t workflow 2>/dev/null || true
   tmux new-session -d -s workflow "bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log; bash /workspace/workflow-complete.sh"
 
   WORKFLOW_STATUS="⏳ Workflow models downloading in background (tmux session: \`workflow\`)"
@@ -246,7 +249,7 @@ _notify_discord() {
     http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
       -H "Content-Type: application/json" \
       -d "$payload" \
-      "$webhook_url" 2>/dev/null)
+      "$webhook_url" 2>/dev/null) || true
     if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
       echo "Discord notification sent! (direct, attempt $attempt, http=$http_code)"
       sent=true
@@ -267,7 +270,7 @@ _notify_discord() {
       http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
         -H "Content-Type: application/json" \
         -d "$payload" \
-        "$relay_url" 2>/dev/null)
+        "$relay_url" 2>/dev/null) || true
       if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
         echo "Discord notification sent! (relay, attempt $attempt, http=$http_code)"
         sent=true
@@ -282,7 +285,9 @@ _notify_discord() {
     done
   fi
 
-  [ "$sent" = false ] && echo "Discord notification failed (non-critical)."
+  if [ "$sent" = false ]; then
+    echo "Discord notification failed (non-critical)."
+  fi
 }
 
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then
