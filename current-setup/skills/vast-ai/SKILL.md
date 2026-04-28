@@ -35,9 +35,9 @@ The relay runs as a systemd service (`discord-relay`) on the LXC. If it goes dow
 
 **Fix applied:** Write a standalone `/workspace/workflow-complete.sh` with the URL baked in via `sed`, then call that from the tmux session. The provisioning webhook (step 5/5) was unaffected — only the workflow-completion tmux webhook had the bug.
 
-**Workaround for instances with old bootstrap script:** SSH in and run manually:
+**Workaround for instances with old bootstrap script:** SSH in and run manually (fetch webhook URL from `vastai show env-vars -s --raw` first):
 ```bash
-WEBHOOK_URL="<DISCORD_WEBHOOK_URL>"
+WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>"
 curl -s -H "Content-Type: application/json" \
   -d '{"embeds": [{"title": "🟢 GPU Server Ready!", "description": "Instance up and running.", "color": 5763719}]}' \
   "$WEBHOOK_URL"
@@ -177,13 +177,20 @@ If an offer is significantly cheaper than others, it may be unreliable. When in 
 **Instance Labeling (REQUIRED):**
 Always tag the instance with the requester's name using `--label`. Use lowercase, no spaces (e.g., `--label "balaji"`).
 
+**⚠️ Fetch `DISCORD_WEBHOOK_URL` from account env vars (REQUIRED before provisioning):**
+The Discord webhook URL is stored as a Vast.ai account-level env var. **Do NOT hardcode or memorize this URL.** Always fetch it fresh:
+```bash
+vastai show env-vars -s --raw
+```
+Extract the `DISCORD_WEBHOOK_URL` value from the JSON output and use it in the `-e` flags below. If the env var is missing, ask the user to set it via the Vast.ai web UI or `vastai create env-var DISCORD_WEBHOOK_URL "<url>"`.
+
 **Provisioning command — uses official Vast.ai ComfyUI image (pre-cached, instant boot):**
 
 **Without workflow (bare ComfyUI):**
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -196,7 +203,7 @@ vastai create instance <OFFER_ID> \
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -210,7 +217,7 @@ vastai create instance <OFFER_ID> \
 
 **Key env vars:**
 - `PROVISIONING_SCRIPT` — Bootstrap script URL. Runs after entrypoint. Handles system extras, portal fix, workflow, and Discord webhook.
-- `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
+- `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready. **Always fetch from account env vars via `vastai show env-vars -s --raw`. NEVER hardcode or use from memory.**
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
 - **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
 - **Cloudflare tunnel token:** `<CF_TUNNEL_TOKEN>`
