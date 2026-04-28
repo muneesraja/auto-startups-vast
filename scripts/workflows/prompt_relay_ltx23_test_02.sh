@@ -1,11 +1,11 @@
 #!/bin/bash
 # ---
 # name: LTX 2.3 Prompt Relay (prompt_relay_ltx23_test_02)
+# workflow: prltx23_002
 # aliases: [prompt-relay-ltx23-test-02, prompt_relay_ltx23_test_02, ltx23-prompt-relay, ltx23-oldman-redpanda]
 # description: Download LTX 2.3 models for prompt_relay_ltx23_test_02 workflow — old man & red panda, 4 segments (123+122+122+122 frames), PromptRelayEncodeTimeline
 # size: ~61.4GB
 # min_vram: 24GB
-# workflow: prompt_relay_ltx23_test_02.json
 # ---
 set -e
 
