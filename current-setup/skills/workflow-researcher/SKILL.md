@@ -23,6 +23,8 @@ description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CL
 > ⚠️ **ComfyUI workflows have TWO parallel node representations.** The `nodes[]` array uses `type` as the class field and stores widget values in `widgets_values`. The `extra.prompt` object uses `class_type` and `inputs`. **Always check BOTH** — `extra.prompt` may contain models not visible in the interactive nodes (e.g., vocoder checkpoints). The two representations can also describe completely different rendering paths.
 >
 > **Also check the `mode` field** — nodes with `"mode": 4` are collapsed/disabled in the UI. **Exclude them from the model manifest** unless explicitly told to include alternate paths.
+>
+> **extra.prompt alternate paths:** When `extra.prompt` contains a different rendering path (e.g., LTX multimodal with `CheckpointLoaderSimple` + `LTXVGemmaCLIPModelLoader` alongside a LTXV nodes-array path), treat them as separate rendering branches. Only include the models from the path you intend to run. If unsure, extract from both and deduplicate.
 
 ### 1.1 Identify Loader Nodes
 
@@ -53,7 +55,23 @@ Scan every node in the workflow JSON. Each node has a `class_type` and `inputs` 
 
 ### 1.2 Extract Unique Model Filenames
 
-For each matching node, extract the model filename from the relevant input field. **Deduplicate** — many workflows reuse the same model across multiple nodes (e.g., a shared VAE used by 10 scenes).
+> ⚠️ **Most ComfyUI loaders store filenames in `widgets_values`, NOT `inputs`.**
+> When a loader node has `inputs: []` (empty), the model filename is almost always in `widgets_values[0]`.
+> This applies to: `VAELoaderKJ`, `DualCLIPLoader`, `UNETLoader`, `LoraLoaderModelOnly`, `LTXVAudioVAELoader`, and most KJNodes loaders.
+>
+> **Rule:** If `inputs` is empty or contains only link references (e.g. `[[node_id, output_idx]]`), look in `widgets_values[0]`.
+
+**Extraction logic:**
+
+```python
+# For nodes where inputs[model_field] is a string → use it directly
+# For nodes where inputs is [] or only contains links → use widgets_values[0]
+wv = node.get("widgets_values", [])
+if isinstance(wv, list) and len(wv) > 0:
+    model_filename = wv[0]  # model name is always first
+```
+
+**Deduplicate** — many workflows reuse the same model across multiple nodes (e.g., a shared VAE used by 10 scenes).
 
 ### 1.3 Output a Model Manifest
 
@@ -148,9 +166,20 @@ split_files/loras/Qwen-Image-Edit-2509-Anything2RealAlpha.safetensors    609.6M
 hf download <org>/<repo> <path/to/file> --dry-run
 ```
 
-### 2.5 Comfy-Org LTX Repo Naming Gotcha
+### 2.5 LTX Repo Naming Gotcha
 
-The `Comfy-Org/ltx-2.3` repo **does not contain gemma text encoders**. The gemma fp4/fp8 text encoders for LTX video are in **`Comfy-Org/ltx-2`** (the v2 repo), not v2.3. If a dry-run returns no matching files for gemma, try `Comfy-Org/ltx-2` instead. Always verify with `curl -sI` HEAD request — 302 = valid redirect, 404 = wrong repo.
+**`Comfy-Org/ltx-2.3` vs `Comfy-Org/ltx-2`:**
+- `Comfy-Org/ltx-2.3` does NOT contain gemma text encoders. They are in **`Comfy-Org/ltx-2`** (the v2 repo), not v2.3.
+- In `Comfy-Org/ltx-2`, gemma files live under **`split_files/text_encoders/`** prefix (e.g. `split_files/text_encoders/gemma_3_12B_it.safetensors`), not `text_encoders/`.
+- Always verify with `curl -sI` HEAD request — 302 = valid redirect, 404 = wrong repo/path.
+
+**Gemma CLIP Search Tip:**
+`hf models ls --search` often returns no useful results for gemma text encoders because the repo naming doesn't match obvious keywords. **If a gemma search fails, skip the search and go directly to `Comfy-Org/ltx-2`** — it is the known home for all LTX gemma text encoders regardless of model version.
+
+**`Kijai/LTX2.3_comfy` vs `Lightricks/LTX-2.3`:**
+- `Kijai/LTX2.3_comfy` has VAEs, diffusion models, text projections, and someLORAs — all with ComfyUI-friendly paths (e.g. `vae/`, `diffusion_models/`).
+- **LoRA variants differ between repos.** `Kijai/LTX2.3_comfy` has dynamic fro9 rank variants. The official Lightricks repo (`Lightricks/LTX-2.3`) has different LoRA versions (e.g. `ltx-2.3-22b-distilled-lora-384-1.1.safetensors`). If a workflow's LoRA filename isn't in Kijai's repo, search `Lightricks/LTX-2.3` directly with `hf download Lightricks/LTX-2.3 --dry-run | grep lora`.
+- `Kijai/LTX2.3_comfy` does NOT have gemma text encoders — those always come from `Comfy-Org/ltx-2`.
 
 ### 2.6 Extract the Exact Download URL
 
@@ -462,12 +491,97 @@ All paths in this skill reference the repo root:
 REPO_ROOT="/root/repos/auto-startups-vast"
 ```
 
+## Phase 0: Workflow File Naming & Storage Conventions
+
+> ⚠️ **Before doing anything else**, establish the workflow's identity. This determines all subsequent file naming.
+
+### 0.1 Workflow Identity
+
+Every workflow has three identifiers:
+
+| Field | Source | Example |
+|---|---|---|
+| **Workflow filename** | User's original file name — preserve exactly | `prompt_relay_ltx23_test_02.json` |
+| **Script name** | Derived from workflow filename — same base, `.sh` extension | `prompt_relay_ltx23_test_02.sh` |
+| **Internal ID** | Auto-generated from filename — used in frontmatter `workflow:` field | `prltx23_001` |
+
+### 0.2 Script Naming Convention
+
+The download script name MUST match the workflow JSON filename (minus `.json`):
+
+```
+# Rule: script name = workflow name (no .json)
+workflow.json  →  workflow.sh
+prompt_relay_ltx23_test_02.json  →  prompt_relay_ltx23_test_02.sh
+ltx-2.3_t2v_i2v_single_stage.json  →  ltx-2.3_t2v_i2v_single_stage.sh
+```
+
+**Do NOT translate, rephrase, or abbreviate** the workflow name into the script name. If the user gives you `prompt_relay_ltx23_test_02.json`, the script is `prompt_relay_ltx23_test_02.sh` — not `ltx23-prompt-relay.sh` or `ltx23-download.sh`.
+
+### 0.3 Unique ID Convention
+
+When the repo scales to many workflows, frontmatter needs a unique `workflow:` tag for machine-readable identification. Derive it systematically from the filename:
+
+```
+# Format: <prefix>_<seq>
+# - Strip path separators and extensions
+# - Use first 3-4 letters of each meaningful word as prefix
+# - Sequence number padded to 3 digits, starting at 001
+
+prompt_relay_ltx23_test_02.json  →  prltx23_001
+ltx-2.3_t2v_i2v_single_stage    →  ltx23_001
+qwen_img_story_10scenes          →  qwen_001
+```
+
+If a workflow with the same base name already exists (e.g., `prompt_relay_ltx23_test_01.json` and `prompt_relay_ltx23_test_02.json`), increment the sequence: `_002`, `_003`, etc.
+
+### 0.4 Frontmatter Workflow ID
+
+Add a `workflow:` field to every script frontmatter:
+
+```bash
+# ---
+# name: LTX 2.3 Prompt Relay (prompt_relay_ltx23_test_02)
+# workflow: prltx23_002
+# aliases: [...]
+# description: Download LTX 2.3 models for prompt_relay_ltx23_test_02 workflow
+# size: ~61.4GB
+# min_vram: 24GB
+# ---
+```
+
+The `workflow:` field must match the filename of the corresponding JSON in `current-setup/comfyui-workflows/`.
+
+### 0.5 Workflow JSON Storage
+
+Store the original workflow JSON exactly as provided:
+
+```
+$REPO_ROOT/current-setup/comfyui-workflows/
+  └── <original_filename>.json   # e.g. prompt_relay_ltx23_test_02.json
+```
+
+- **Preserve the original filename** — do not rename, slugify, or otherwise modify the name the user gave it.
+- **One workflow JSON per file.**
+- If the user provides a file in a thread or chat (not a file path), save it to this directory using the name from `document` metadata or the name provided in the message.
+- The `id` field inside the JSON may be a UUID. Keep it as-is — do not regenerate or alter it.
+
+---
+
 ## File Locations
 
 | What | Where |
 |---|---|
 | Workflow JSONs (input) | `$REPO_ROOT/current-setup/comfyui-workflows/*.json` |
-| Download scripts (output) | `$REPO_ROOT/scripts/workflows/*.sh` |
+| Download scripts (output) | `$REPO_ROOT/scripts/workflows/<workflow_base_name>.sh` |
 | This skill | `$REPO_ROOT/current-setup/skills/workflow-researcher/SKILL.md` |
 | Provisioning skill | `$REPO_ROOT/current-setup/skills/vast-ai/SKILL.md` |
 | Bootstrap script | `$REPO_ROOT/scripts/comfyui-bootstrap.sh` |
+
+### Quick Reference: Unique ID Derivation
+
+| Workflow Filename | Script Name | `workflow:` ID |
+|---|---|---|
+| `prompt_relay_ltx23_test_02.json` | `prompt_relay_ltx23_test_02.sh` | `prltx23_002` |
+| `ltx-2.3_t2v_i2v_single_stage.json` | `ltx-2.3_t2v_i2v_single_stage.sh` | `ltx23_001` |
+| `qwen_img_story_10scenes.json` | `qwen_img_story_10scenes.sh` | `qwen_001` |
