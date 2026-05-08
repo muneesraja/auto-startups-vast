@@ -35,9 +35,9 @@ The relay runs as a systemd service (`discord-relay`) on the LXC. If it goes dow
 
 **Fix applied:** Write a standalone `/workspace/workflow-complete.sh` with the URL baked in via `sed`, then call that from the tmux session. The provisioning webhook (step 5/5) was unaffected — only the workflow-completion tmux webhook had the bug.
 
-**Workaround for instances with old bootstrap script:** SSH in and run manually (fetch webhook URL from `vastai show env-vars -s --raw` first):
+**Workaround for instances with old bootstrap script:** SSH in and run manually:
 ```bash
-WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>"
+WEBHOOK_URL="<DISCORD_WEBHOOK_URL>"
 curl -s -H "Content-Type: application/json" \
   -d '{"embeds": [{"title": "🟢 GPU Server Ready!", "description": "Instance up and running.", "color": 5763719}]}' \
   "$WEBHOOK_URL"
@@ -51,6 +51,9 @@ curl -s -H "Content-Type: application/json" \
 **⚠️ Known working hosts can still fail Docker — always wait for `actual_status: running`:**
 Even hosts previously verified as working (like Belgium host 148689) can exhibit the Docker "No such container" pattern on a given boot. The instance must transition to `actual_status: running` before it's truly ready — don't trust `cur_state: running` alone. Boots can take **4-5+ minutes** even with pre-cached images.
 
+**⚠️ SSH may not respond immediately after `actual_status: running`:**
+Even after `actual_status` transitions to `"running"`, the container's SSH daemon may take **20-60 seconds** to become available. SSH connection attempts will time out during this window. Always wait ~30s after first seeing `actual_status: running` before attempting SSH. Use `vastai ssh-url <id>` (not the raw JSON `ssh_port`) to get the correct direct port.
+
 **Docker daemon failure hosts (verified):**
 | Host ID | Location | Notes |
 |---------|----------|-------|
@@ -60,7 +63,7 @@ Even hosts previously verified as working (like Belgium host 148689) can exhibit
 | 37070 | Netherlands | RTX 3090 — Docker refuses to start |
 | 264182 | Bulgaria | `success: false` on create |
 | 446098 | Sweden | `success: false` on create |
-| 148689 | Belgium | **Was working previously — but can fail on new boots** (instance 35351926 failed) |
+| 148689 | Belgium | **Was working previously — but can fail on new boots** (instance 35351926 failed). Driver 565.x, CUDA cap 12.7 — incompatible with cuda-13.2 images |
 
 > **💡 Zram:** Use for RAM boost on low-memory hosts. See vault: `infrastructure/zram-notes.md`
 
@@ -147,7 +150,7 @@ If no match is found, tell the user: "I couldn't find a workflow script matching
 Construct a `vastai search offers` command using the exact parameters from Step 1. Wait to get the output.
 
 ```bash
-vastai search offers 'gpu_name=[GPU] num_gpus=[NUM] cpu_ram>=[RAM] disk_space>=[DISK] inet_down>=[DOWN] inet_up>=[UP] cpu_cores>=[CORES] reliability>[REL] dph<=[MAX_PRICE] inet_down_cost<[MAX_INET_DOWN_COST] inet_up_cost<[MAX_INET_UP_COST] rented=False' -o 'dph+' --limit 10
+vastai search offers 'gpu_name=[GPU] num_gpus=[NUM] cpu_ram>=[RAM] disk_space>=[DISK] inet_down>=[DOWN] inet_up>=[UP] cpu_cores>=[CORES] reliability>[REL] dph<=[MAX_PRICE] inet_down_cost<[MAX_INET_DOWN_COST] inet_up_cost<[MAX_INET_UP_COST] cuda_max_good>=12.9 rented=False' -o 'dph+' --limit 10
 ```
 *Note: Ensure NO spaces are around the `>=` or `<=` operators in the query string.*
 
@@ -177,20 +180,13 @@ If an offer is significantly cheaper than others, it may be unreliable. When in 
 **Instance Labeling (REQUIRED):**
 Always tag the instance with the requester's name using `--label`. Use lowercase, no spaces (e.g., `--label "balaji"`).
 
-**⚠️ Fetch `DISCORD_WEBHOOK_URL` from account env vars (REQUIRED before provisioning):**
-The Discord webhook URL is stored as a Vast.ai account-level env var. **Do NOT hardcode or memorize this URL.** Always fetch it fresh:
-```bash
-vastai show env-vars -s --raw
-```
-Extract the `DISCORD_WEBHOOK_URL` value from the JSON output and use it in the `-e` flags below. If the env var is missing, ask the user to set it via the Vast.ai web UI or `vastai create env-var DISCORD_WEBHOOK_URL "<url>"`.
-
 **Provisioning command — uses official Vast.ai ComfyUI image (pre-cached, instant boot):**
 
 **Without workflow (bare ComfyUI):**
 ```bash
 vastai create instance <OFFER_ID> \
-  --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --image vastai/comfy:v0.20.1-cuda-12.9-py312 \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -202,8 +198,8 @@ vastai create instance <OFFER_ID> \
 **With workflow (e.g., Wan 2.2) — add `WORKFLOW_SCRIPT` env var:**
 ```bash
 vastai create instance <OFFER_ID> \
-  --image vastai/comfy:v0.19.3-cuda-13.2-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<FETCHED_FROM_ACCOUNT_ENV_VARS>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
+  --image vastai/comfy:v0.20.1-cuda-12.9-py312 \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -217,7 +213,7 @@ vastai create instance <OFFER_ID> \
 
 **Key env vars:**
 - `PROVISIONING_SCRIPT` — Bootstrap script URL. Runs after entrypoint. Handles system extras, portal fix, workflow, and Discord webhook.
-- `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready. **Always fetch from account env vars via `vastai show env-vars -s --raw`. NEVER hardcode or use from memory.**
+- `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
 - **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
 - **Cloudflare tunnel token:** `<CF_TUNNEL_TOKEN>`
@@ -227,8 +223,11 @@ vastai create instance <OFFER_ID> \
 
 Capture the `new_contract` ID from the JSON output. This is your `INSTANCE_ID`.
 
-**⚠️ Why `vastai/comfy:v0.19.3-cuda-13.2-py312` with `entrypoint.sh`?**
-Vast.ai's official ComfyUI image — pre-cached on most hosts, instant boots. **Never override `--onstart-cmd`** — always use `entrypoint.sh` and pass customizations via env vars.
+**⚠️ Why `vastai/comfy:v0.20.1-cuda-12.9-py312` with `entrypoint.sh`?**
+Vast.ai's official ComfyUI image — pre-cached on most hosts, instant boots. Uses `cuda-12.9` for broad host driver compatibility (works with NV driver 565+). **Never override `--onstart-cmd`** — always use `entrypoint.sh` and pass customizations via env vars.
+
+**⚠️ CUDA version compatibility (learned 2026-04-30):**
+`cuda-13.2` images require NV driver 575+ (CUDA 13.2 cap). Many RTX 3090 hosts run older drivers (565.x = CUDA 12.7 cap). Always use `cuda-12.9` images and filter by `cuda_max_good>=12.9` in search queries.
 
 ### Step 5: Monitoring Loop
 
@@ -248,15 +247,28 @@ The image is pre-cached on most hosts — expect 1-2 min boots. If it takes long
    > - Image should be pre-cached — checking if host needs to pull it
    > - Current cost: ~$[Y] so far
 
-2. **Check instance logs:**
+2. **Check daemon logs FIRST (not container logs):**
    ```bash
-   vastai logs <INSTANCE_ID>
+   vastai logs <INSTANCE_ID> --daemon-logs
    ```
    Note: the command is `vastai logs`, NOT `vastai show logs` (that will error).
 
-3. **Continue monitoring until:**
+   **Interpreting daemon logs:**
+   - **Image pull in progress** (layers downloading, "Already exists", "Verifying Checksum") → **Healthy.** Host just needs to pull uncached layers. Keep waiting — can take 5+ min on slow connections.
+   - **"No such container: C.<ID>"** → Docker daemon failure. Container was never created. This is the actual failure pattern.
+   - **No output / empty logs** → Host hasn't started processing yet. Wait another 30s and retry.
+
+   ⚠️ **Do NOT assume Docker daemon failure based on slow loading alone.** Always check `--daemon-logs` first. A host pulling uncached image layers looks identical to a stuck host from `actual_status` alone — only the daemon logs tell the difference.
+
+3. **Only check container logs if daemon logs show errors:**
+   ```bash
+   vastai logs <INSTANCE_ID>
+   ```
+
+4. **Continue monitoring until:**
    - **`actual_status` = `"running"`** → Proceed to Step 6
-   - **Logs show unrecoverable errors** → Report error, ask user if they want to destroy
+   - **Daemon logs confirm "No such container"** → Docker daemon failure, destroy and try next offer
+   - **Logs show other unrecoverable errors** → Report error, ask user if they want to destroy
    - **User says `/stop` or asks to destroy** → Destroy the instance
    - **Duration exceeds 10 minutes with no progress** → Ask user whether to continue or destroy
 

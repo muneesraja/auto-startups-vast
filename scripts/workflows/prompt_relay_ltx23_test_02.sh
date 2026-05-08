@@ -7,43 +7,58 @@
 # size: ~61.4GB
 # min_vram: 24GB
 # ---
+# =============================================================================
+# LTX 2.3 Prompt Relay — Model Download (HF CLI, authenticated)
+# =============================================================================
 set -e
 
 BASE_DIR="/workspace/ComfyUI/models"
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/diffusion_models vae text_encoders loras
+mkdir -p "$BASE_DIR"/{diffusion_models,vae,text_encoders,loras}
 
-echo "==> Checking aria2..."
-if ! command -v aria2c &> /dev/null; then
-    echo "aria2 not found, installing..."
-    sudo apt update && sudo apt install -y aria2
+# Load shared HF download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/hf_download.sh" ]; then
+  source "$SCRIPT_DIR/hf_download.sh"
+elif [ -f "/workspace/hf_download.sh" ]; then
+  source "/workspace/hf_download.sh"
 else
-    echo "aria2 already installed"
+  echo "❌ hf_download.sh not found — falling back to aria2c"
+  # Fallback: install aria2 and use it
+  command -v aria2c &>/dev/null || apt-get update && apt-get install -y aria2
+  hf_download() {
+    local url="https://huggingface.co/$1/resolve/main/$2"
+    aria2c -x 16 -s 16 -k 1M -d "$3" -o "$(basename "$2")" "$url"
+  }
 fi
 
 echo "==> Starting downloads..."
 
-# UNET (LTX 2.3 Transformer, fp8 scaled)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/diffusion_models" -o "ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" &
+# UNET (LTX 2.3 Transformer, fp8 scaled) — ~24GB
+echo "[1/6] Transformer (fp8 scaled)..."
+hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
 
 # Video VAE (bf16)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_video_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors" &
+echo "[2/6] Video VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
 
 # Audio VAE (bf16)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_audio_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors" &
+echo "[3/6] Audio VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
 
 # Text Projection (bf16)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "LTX23_text_projection_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/text_encoders/ltx-2.3_text_projection_bf16.safetensors" &
+echo "[4/6] Text Projection..."
+hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/text_encoders"
 
 # Gemma 3 CLIP (12B text encoder)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "gemma_3_12B_it.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it.safetensors" &
+echo "[5/6] Gemma 3 12B text encoder..."
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it.safetensors" "$BASE_DIR/text_encoders"
 
 # LoRA (384-1.1)
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384-1.1.safetensors" &
+echo "[6/6] LoRA (384-1.1)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "$BASE_DIR/loras"
 
-wait
+echo ""
 echo "==> All downloads completed!"
-
-echo "==> Done!"
 echo "👉 Restart ComfyUI or click Refresh in the UI."

@@ -29,6 +29,18 @@ apt-get update && apt-get install -y \
   tmux \
   zip
 
+# Install huggingface_hub + hf_transfer for fast authenticated downloads
+pip install --quiet "huggingface_hub[cli]" hf_transfer 2>/dev/null || \
+  pip install --quiet huggingface_hub hf_transfer 2>/dev/null || true
+
+# Save HF token if provided (used by workflow download scripts)
+if [ -n "$HF_TOKEN" ]; then
+  mkdir -p /root/config
+  echo "{\"huggingface_token\": \"$HF_TOKEN\"}" > /root/config/token.json
+  echo "HF token saved to /root/config/token.json"
+  export HF_HUB_ENABLE_HF_TRANSFER=1
+fi
+
 # ── [2/5] Cloudflare tunnel (optional) ──────────────────────────────────────
 echo "=== [2/5] Cloudflare tunnel ==="
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
