@@ -240,22 +240,20 @@ BASE_DIR="/workspace/ComfyUI/models"
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{<comma-separated subdirectories needed>}
 
-echo "==> Checking aria2..."
-if ! command -v aria2c &> /dev/null; then
-    echo "aria2 not found, installing..."
-    sudo apt update && sudo apt install -y aria2
-else
-    echo "aria2 already installed"
-fi
+# Load shared HF download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+  [ -f "$f" ] && source "$f" && break
+done
 
 echo "==> Starting downloads..."
 
 # <Model Type Comment>
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/<subdirectory>" -o "<output_filename>" "<HuggingFace_URL>" &
+echo "[1/N] <Model Name>..."
+hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdirectory>"
 
 # ... more downloads ...
 
-wait
 echo "==> All downloads completed!"
 
 echo "==> Done!"
@@ -271,14 +269,14 @@ echo "👉 Restart ComfyUI or click Refresh in the UI."
 5. **`set -e`** — Script MUST exit on error
 6. **`BASE_DIR`** — Always `/workspace/ComfyUI/models`
 7. **`mkdir -p`** — Create all needed subdirectories in one command. Only include directories that are actually used
-8. **aria2 check** — Always include the apt-get install fallback
-9. **Downloads** — Use `aria2c -x 16 -s 16 -k 1M` for maximum download speed
-   - `-d` for output directory
-   - `-o` for output filename (the filename ComfyUI expects, from the workflow JSON)
-   - URL in quotes
-   - `&` at the end for parallel downloads
-10. **`wait`** — Always wait for all background downloads to finish
-11. **Comments** — Add a comment above each download line indicating the model type
+8. **HF download helper** — Source `hf_download.sh` from script directory or `/workspace/`. Provides `hf_download REPO_ID FILEPATH LOCAL_DIR` function
+9. **Downloads** — Use `hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"` for each model
+   - First arg: HuggingFace repo ID (e.g., `Kijai/LTX2.3_comfy`)
+   - Second arg: File path within repo (e.g., `vae/LTX23_video_vae_bf16.safetensors`)
+   - Third arg: Local directory to save to
+   - Sequential downloads (hf_transfer is fast enough, no need for `&` + `wait`)
+10. **Comments** — Add a comment above each download indicating the model type
+11. **Progress** — Use `echo "[N/Total] Description..."` before each download
 
 ### 3.3 Directory Mapping
 
@@ -346,10 +344,9 @@ Before finalizing the script, verify:
 - [ ] Script has the correct frontmatter block
 - [ ] Uses `set -e`
 - [ ] Uses `BASE_DIR="/workspace/ComfyUI/models"`
-- [ ] Has the aria2 check block
-- [ ] All downloads use `aria2c -x 16 -s 16 -k 1M`
-- [ ] All downloads end with `&` for parallel execution
-- [ ] Has `wait` before the completion messages
+- [ ] Sources `hf_download.sh` helper
+- [ ] All downloads use `hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"`
+- [ ] Has progress echoes (`[N/Total] Description...`)
 - [ ] Ends with restart hint
 
 ### 4.5 Cross-Reference with Existing Scripts
@@ -357,7 +354,7 @@ Before finalizing the script, verify:
 Check if any models are already downloaded by other workflow scripts. Document shared models:
 ```bash
 # Check for duplicate model filenames across existing scripts
-grep -r "safetensors" "$REPO_ROOT/scripts/workflows/" | grep -o '\-o "[^"]*"'
+grep -r "hf_download" "$REPO_ROOT/scripts/workflows/" | grep -o '"[^"]*\.safetensors\|"[^"]*\.gguf"'
 ```
 
 ---
@@ -480,7 +477,30 @@ hf models ls --search "qwen image lightning" --limit 5
 ```
 
 ### Step 3: Result → `$REPO_ROOT/scripts/workflows/qwen-image-download.sh`
-(See the existing script for the generated output)
+
+The generated script uses `hf_download` for each model:
+```bash
+#!/bin/bash
+# ---
+# name: Qwen Image Edit
+# aliases: [qwen, qwen image, qwen image edit, qwen-image]
+# ...
+set -e
+BASE_DIR="/workspace/ComfyUI/models"
+mkdir -p "$BASE_DIR"/{vae,text_encoders,diffusion_models,loras}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+  [ -f "$f" ] && source "$f" && break
+done
+
+echo "[1/4] VAE..."
+hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/vae/qwen_image_vae.safetensors" "$BASE_DIR/vae"
+
+echo "[2/4] Text Encoder..."
+hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
+# ... etc
+```
 
 ---
 
