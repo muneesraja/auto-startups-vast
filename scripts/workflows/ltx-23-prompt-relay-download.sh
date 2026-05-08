@@ -13,49 +13,35 @@ BASE_DIR="/workspace/ComfyUI/models"
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{unet,text_encoders,vae}
 
-echo "==> Checking aria2..."
-if ! command -v aria2c &> /dev/null; then
-    echo "aria2 not found, installing..."
-    sudo apt update && sudo apt install -y aria2
-else
-    echo "aria2 already installed"
-fi
+# Load shared HF download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+  [ -f "$f" ] && source "$f" && break
+done
 
 echo "==> Starting downloads..."
 
 # Diffusion Model (GGUF — UnetLoaderGGUF, node 608)
-aria2c -x 16 -s 16 -k 1M \
-  -d "$BASE_DIR/unet" \
-  -o "ltx-2.3-22b-distilled-Q5_K_M.gguf" \
-  "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/distilled/ltx-2.3-22b-distilled-Q5_K_M.gguf" &
+echo "[1/5] UNet (GGUF Q5_K_M)..."
+hf_download "unsloth/LTX-2.3-GGUF" "distilled/ltx-2.3-22b-distilled-Q5_K_M.gguf" "$BASE_DIR/unet"
 
 # Text Encoder — Gemma 3 fp4 (DualCLIPLoader, node 616)
-aria2c -x 16 -s 16 -k 1M \
-  -d "$BASE_DIR/text_encoders" \
-  -o "gemma_3_12B_it_fp4_mixed.safetensors" \
-  "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" &
+echo "[2/5] Text Encoder (Gemma FP4)..."
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/text_encoders"
 
 # Text Projection (DualCLIPLoader, node 616)
-aria2c -x 16 -s 16 -k 1M \
-  -d "$BASE_DIR/text_encoders" \
-  -o "ltx-2.3_text_projection_bf16.safetensors" \
-  "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/text_encoders/ltx-2.3_text_projection_bf16.safetensors" &
+echo "[3/5] Text Projection..."
+hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/text_encoders"
 
 # Video VAE (VAELoader, node 620)
-aria2c -x 16 -s 16 -k 1M \
-  -d "$BASE_DIR/vae" \
-  -o "LTX23_video_vae_bf16.safetensors" \
-  "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors" &
+echo "[4/5] Video VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
 
 # Audio VAE (VAELoaderKJ, node 619)
-aria2c -x 16 -s 16 -k 1M \
-  -d "$BASE_DIR/vae" \
-  -o "LTX23_audio_vae_bf16.safetensors" \
-  "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors" &
+echo "[5/5] Audio VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
 
-wait
 echo "==> All downloads completed!"
-
 echo ""
 echo "==> Done!"
 echo "    Total:  ~29.7GB across 5 files"

@@ -13,31 +13,34 @@ BASE_DIR="/workspace/ComfyUI/models"
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{checkpoints,loras,latent_upscale_models,text_encoders}
 
-echo "==> Checking aria2..."
-if ! command -v aria2c &> /dev/null; then
-    echo "aria2 not found, installing..."
-    sudo apt update && sudo apt install -y aria2
-else
-    echo "aria2 already installed"
-fi
+# Load shared HF download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+  [ -f "$f" ] && source "$f" && break
+done
 
 echo "==> Starting downloads..."
 
-# Checkpoints
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/checkpoints" -o "ltx-2.3-22b-dev-fp8.safetensors" "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-dev-fp8.safetensors" &
+# Checkpoint
+echo "[1/5] Checkpoint (FP8)..."
+hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/checkpoints"
 
-# Loras
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "ltx-2.3-22b-distilled-lora-384.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" &
+# LoRA (distilled)
+echo "[2/5] LoRA (distilled)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/loras"
 
-# Latent Upscale Models
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" &
+# LoRA (abliterated)
+echo "[3/5] LoRA (abliterated Gemma)..."
+hf_download "Comfy-Org/ltx-2" "split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" "$BASE_DIR/loras"
 
-# Text Encoders
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "gemma_3_12B_it_fp4_mixed.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" &
+# Spatial Upscaler
+echo "[4/5] Spatial Upscaler..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/latent_upscale_models"
 
-wait
+# Text Encoder (Gemma FP4)
+echo "[5/5] Text Encoder (Gemma FP4)..."
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/text_encoders"
+
 echo "==> All downloads completed!"
-
 echo "==> Done!"
 echo "👉 Restart ComfyUI or click Refresh in the UI."

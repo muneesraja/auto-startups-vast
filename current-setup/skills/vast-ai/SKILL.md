@@ -186,7 +186,7 @@ Always tag the instance with the requester's name using `--label`. Use lowercase
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.20.1-cuda-12.9-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e HF_TOKEN="<HF_TOKEN>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -199,7 +199,7 @@ vastai create instance <OFFER_ID> \
 ```bash
 vastai create instance <OFFER_ID> \
   --image vastai/comfy:v0.20.1-cuda-12.9-py312 \
-  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
+  --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<DISCORD_WEBHOOK_URL>" -e HF_TOKEN="<HF_TOKEN>" -e WORKFLOW_SCRIPT="<WORKFLOW_SCRIPT_URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="***"' \
   --disk <DISK> \
   --label "<requester_name>" \
   --direct \
@@ -214,6 +214,7 @@ vastai create instance <OFFER_ID> \
 **Key env vars:**
 - `PROVISIONING_SCRIPT` — Bootstrap script URL. Runs after entrypoint. Handles system extras, portal fix, workflow, and Discord webhook.
 - `DISCORD_WEBHOOK_URL` — Discord webhook for auto-notifications when server is ready.
+- `HF_TOKEN` — HuggingFace token for authenticated downloads (uncapped speed, resume support). Stored at `/root/config/token.json` on the server.
 - `WORKFLOW_SCRIPT` — (Optional) URL to a workflow download script. Runs in background tmux, sends a second webhook when complete.
 - **RTX 3090 template hash:** `21a9ec596c941d25556db58129ee7262` (verified working)
 - **Cloudflare tunnel token:** `<CF_TUNNEL_TOKEN>`

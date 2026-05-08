@@ -13,13 +13,11 @@ BASE_DIR="/workspace/ComfyUI/models"
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{loras/ltx2,unet,text_encoders,vae,latent_upscale_models,checkpoints}
 
-echo "==> Checking aria2..."
-if ! command -v aria2c &> /dev/null; then
-    echo "aria2 not found, installing..."
-    sudo apt update && sudo apt install -y aria2
-else
-    echo "aria2 already installed"
-fi
+# Load shared HF download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+  [ -f "$f" ] && source "$f" && break
+done
 
 echo "==> Setting up ComfyUI nodes..."
 cd /workspace/ComfyUI
@@ -37,19 +35,50 @@ fi
 
 echo "==> Starting downloads..."
 
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/unet" -o "ltx-2.3-22b-dev-nvfp4.safetensors" "https://huggingface.co/Lightricks/LTX-2.3-nvfp4/resolve/main/ltx-2.3-22b-dev-nvfp4.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/unet" -o "ltx-2.3-22b-dev-fp8.safetensors" "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-dev-fp8.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/text_encoders" -o "gemma_3_12B_it_fp4_mixed.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "ltx-2.3-22b-distilled-lora-384.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/loras" -o "gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_video_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "LTX23_audio_vae_bf16.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/latent_upscale_models" -o "ltx-2.3-temporal-upscaler-x2-1.0.safetensors" "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-temporal-upscaler-x2-1.0.safetensors" &
-aria2c -x 16 -s 16 -k 1M -d "$BASE_DIR/vae" -o "taeltx2_3.safetensors" "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors" &
+# UNet (NVFP4)
+echo "[1/11] UNet (NVFP4)..."
+hf_download "Lightricks/LTX-2.3-nvfp4" "ltx-2.3-22b-dev-nvfp4.safetensors" "$BASE_DIR/unet"
 
-wait
+# UNet (FP8)
+echo "[2/11] UNet (FP8)..."
+hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/unet"
+
+# Text Encoder (Gemma FP4)
+echo "[3/11] Text Encoder (Gemma FP4)..."
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/text_encoders"
+
+# LoRA (distilled)
+echo "[4/11] LoRA (distilled)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/loras"
+
+# LoRA (abliterated)
+echo "[5/11] LoRA (abliterated Gemma)..."
+hf_download "Comfy-Org/ltx-2" "split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors" "$BASE_DIR/loras"
+
+# Video VAE
+echo "[6/11] Video VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
+
+# Audio VAE
+echo "[7/11] Audio VAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
+
+# Spatial Upscaler x1.5
+echo "[8/11] Spatial Upscaler x1.5..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors" "$BASE_DIR/latent_upscale_models"
+
+# Spatial Upscaler x2
+echo "[9/11] Spatial Upscaler x2..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/latent_upscale_models"
+
+# Temporal Upscaler x2
+echo "[10/11] Temporal Upscaler x2..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-temporal-upscaler-x2-1.0.safetensors" "$BASE_DIR/latent_upscale_models"
+
+# TAE
+echo "[11/11] TAE..."
+hf_download "Kijai/LTX2.3_comfy" "vae/taeltx2_3.safetensors" "$BASE_DIR/vae"
+
 echo "==> All downloads completed!"
 
 echo "==> Creating symlinks and copies..."
@@ -61,7 +90,7 @@ echo "==> Applying patch..."
 PATCH_FILE="/workspace/ComfyUI/comfy/ldm/lightricks/symmetric_patchifier.py"
 if [ -f "$PATCH_FILE" ]; then
     if ! grep -q "audio_latents.dim()" "$PATCH_FILE"; then
-      sed -i "/b, _, t, _ = audio_latents.shape/i\        if audio_latents.dim() == 5:\n            audio_latents = audio_latents.squeeze(1)" "$PATCH_FILE"
+      sed -i "/b, _, t, _ = audio_latents.shape/i\\        if audio_latents.dim() == 5:\\n            audio_latents = audio_latents.squeeze(1)" "$PATCH_FILE"
     fi
 else
     echo "Patch file not found, skipping patch."
