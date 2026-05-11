@@ -29,6 +29,7 @@ DEFAULT_PORTS = "8188/http,22/tcp,8080/http"
 DEFAULT_CONTAINER_DISK_GB = 100
 DEFAULT_VOLUME_GB = 0
 HF_TOKEN_PATH = "/root/config/token.json"
+SSH_KEY_PATH = "/root/.runpod/ssh/RunPod-Key-Go"
 WORKFLOWS_REPO = "muneesraja/auto-startups-vast"
 WORKFLOWS_BRANCH = "main"
 WORKFLOWS_PATH = "scripts/workflows"
@@ -36,6 +37,29 @@ BOOTSTRAP_URL = (
     f"https://raw.githubusercontent.com/{WORKFLOWS_REPO}/"
     f"{WORKFLOWS_BRANCH}/scripts/comfyui-bootstrap.sh"
 )
+
+# HF download helper script to upload to pods
+HF_DOWNLOAD_HELPER = r'''#!/bin/bash
+# HuggingFace download helper — uses hf CLI (fastest) with aria2c fallback
+hf_download() {
+  local repo="$1"
+  local filename="$2"
+  local dest_dir="$3"
+  echo "  Downloading: $repo/$filename -> $dest_dir"
+  mkdir -p "$dest_dir"
+  if command -v hf &>/dev/null; then
+    hf download "$repo" "$filename" --local-dir "$dest_dir" 2>&1
+    return $?
+  elif command -v huggingface-cli &>/dev/null; then
+    huggingface-cli download "$repo" "$filename" --local-dir "$dest_dir" 2>&1
+    return $?
+  else
+    local url="https://huggingface.co/$repo/resolve/main/$filename"
+    command -v aria2c &>/dev/null || (apt-get update -qq && apt-get install -y -qq aria2)
+    aria2c -x 16 -s 16 -k 1M -d "$dest_dir" -o "$(basename "$filename")" "$url"
+  fi
+}
+'''
 
 GPU_PROFILES = {
     "3090": {
@@ -168,6 +192,19 @@ def load_discord_webhook() -> str:
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
     return ""
+
+
+def validate_hf_token(token: str) -> bool:
+    """Validate HF token by checking length and prefix."""
+    if not token:
+        return False
+    if not token.startswith("hf_"):
+        log("WARN", f"HF token doesn't start with 'hf_' — may be invalid")
+        return True  # Don't block, just warn
+    if len(token) < 20:
+        log("ERROR", f"HF token too short ({len(token)} chars) — likely corrupted")
+        return False
+    return True
 
 
 def workflow_filename(workflow_name: str) -> str:
@@ -309,7 +346,6 @@ def search_candidates(profile: dict[str, Any]) -> list[Candidate]:
 
 def build_env(workflow: Optional[str], hf_token: str, discord_webhook: str) -> str:
     env: dict[str, str] = {
-        "PROVISIONING_SCRIPT": BOOTSTRAP_URL,
         "COMFYUI_ARGS": "--disable-auto-launch --port 8188 --enable-cors-header",
         "DATA_DIRECTORY": "/workspace/",
         "JUPYTER_DIR": "/workspace",
@@ -432,11 +468,157 @@ def monitor_pod(pod_id: str, timeout: int) -> bool:
     return False
 
 
-def ssh_info(pod_id: str) -> str:
-    result = run_cmd(["runpodctl", "ssh", "info", pod_id], timeout=20)
-    if result["code"] == 0 and result["stdout"]:
-        return result["stdout"]
-    return result["stderr"] or "N/A"
+def get_ssh_info(pod_id: str) -> Optional[dict[str, str]]:
+    """Get SSH connection details from runpodctl."""
+    for attempt in range(5):
+        result = run_cmd(["runpodctl", "ssh", "info", pod_id], timeout=20)
+        if result["code"] == 0 and result["stdout"]:
+            try:
+                data = json.loads(result["stdout"])
+                if data.get("ssh_command"):
+                    return data
+            except json.JSONDecodeError:
+                pass
+        time.sleep(10)
+    return None
+
+
+def ssh_exec(host: str, port: str, command: str, timeout: int = 60) -> dict[str, Any]:
+    """Execute a command on a remote host via SSH."""
+    ssh_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "BatchMode=yes",
+        "-i", SSH_KEY_PATH,
+        "-p", port,
+        f"root@{host}",
+        command,
+    ]
+    try:
+        result = subprocess.run(
+            ssh_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return {
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "code": result.returncode,
+        }
+    except FileNotFoundError:
+        return {"stdout": "", "stderr": "ssh not found in PATH", "code": 127}
+    except subprocess.TimeoutExpired:
+        return {"stdout": "", "stderr": "SSH command timed out", "code": -1}
+
+
+def ssh_upload_file(host: str, port: str, remote_path: str, content: str) -> bool:
+    """Upload a file to remote host via SSH stdin."""
+    ssh_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "BatchMode=yes",
+        "-i", SSH_KEY_PATH,
+        "-p", port,
+        f"root@{host}",
+        f"cat > {remote_path}",
+    ]
+    try:
+        result = subprocess.run(
+            ssh_cmd,
+            input=content,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def bootstrap_pod(
+    pod_id: str,
+    ssh_info: dict[str, str],
+    hf_token: str,
+    discord_webhook: str,
+    workflow: Optional[str],
+) -> bool:
+    """Post-provisioning SSH bootstrap: set env vars, install deps, run workflow."""
+    host = ssh_info["ip"]
+    port = str(ssh_info["port"])
+
+    log("BOOTSTRAP", "Setting up environment on pod...")
+
+    # 1. Set env vars in SSH environment
+    env_lines = []
+    if hf_token:
+        env_lines.append(f'export HF_TOKEN="{hf_token}"')
+    env_lines.append("export HF_HUB_ENABLE_HF_TRANSFER=1")
+    if workflow:
+        env_lines.append(f'export WORKFLOW_SCRIPT="{workflow_url(workflow)}"')
+    if discord_webhook:
+        env_lines.append(f'export DISCORD_WEBHOOK_URL="{discord_webhook}"')
+
+    env_content = "\n".join(env_lines) + "\n"
+    if not ssh_upload_file(host, port, "/root/.ssh/environment", env_content):
+        log("WARN", "Failed to upload env vars — continuing anyway")
+
+    # 2. Upload hf_download.sh helper
+    if not ssh_upload_file(host, port, "/workspace/hf_download.sh", HF_DOWNLOAD_HELPER):
+        log("WARN", "Failed to upload hf_download.sh")
+    else:
+        ssh_exec(host, port, "chmod +x /workspace/hf_download.sh")
+
+    # 3. Install hf CLI + authenticate
+    if hf_token:
+        log("BOOTSTRAP", "Installing hf CLI and authenticating...")
+        install_result = ssh_exec(
+            host, port,
+            "pip install --quiet 'huggingface_hub[cli]' hf_transfer 2>&1 | tail -3",
+            timeout=120,
+        )
+        if install_result["code"] != 0:
+            log("WARN", f"pip install returned code {install_result['code']}")
+
+        # Authenticate with HF
+        auth_cmd = f'echo "{hf_token}" | hf auth login --token - 2>&1 | tail -3'
+        auth_result = ssh_exec(host, port, auth_command:=auth_cmd, timeout=30)
+        if "Logged in" in auth_result.get("stdout", ""):
+            log("BOOTSTRAP", "HF authentication successful")
+        else:
+            log("WARN", f"HF auth: {auth_result.get('stdout', '')[:100]}")
+
+    # 4. Download and run workflow script
+    if workflow:
+        log("BOOTSTRAP", f"Downloading workflow: {workflow}...")
+        wf_url = workflow_url(workflow)
+        download_cmd = f'curl -sSL "{wf_url}" -o /workspace/workflow-setup.sh && chmod +x /workspace/workflow-setup.sh'
+        dl_result = ssh_exec(host, port, download_cmd, timeout=30)
+        if dl_result["code"] != 0:
+            log("ERROR", f"Failed to download workflow: {dl_result.get('stderr', '')[:200]}")
+            return False
+
+        # Run workflow in tmux
+        log("BOOTSTRAP", "Starting workflow download in tmux session 'workflow'...")
+        tmux_cmd = (
+            "tmux kill-session -t workflow 2>/dev/null || true; "
+            f"tmux new-session -d -s workflow '"
+            f"export HF_TOKEN=\"{hf_token}\" && "
+            f"export HF_HUB_ENABLE_HF_TRANSFER=1 && "
+            f"bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log'"
+        )
+        tmux_result = ssh_exec(host, port, tmux_cmd, timeout=15)
+        if tmux_result["code"] == 0:
+            log("BOOTSTRAP", "Workflow started in tmux session 'workflow'")
+        else:
+            log("WARN", f"tmux start returned code {tmux_result['code']}")
+
+    log("BOOTSTRAP", "Bootstrap complete")
+    return True
 
 
 def print_candidates(candidates: list[Candidate], profile: dict[str, Any], workflow_gb: float) -> None:
@@ -458,14 +640,17 @@ def print_candidates(candidates: list[Candidate], profile: dict[str, Any], workf
     print("=" * 80)
 
 
-def print_ready(pod_id: str, profile: dict[str, Any], price_hr: float, workflow: Optional[str]) -> None:
+def print_ready(pod_id: str, profile: dict[str, Any], price_hr: float, workflow: Optional[str], ssh_data: Optional[dict] = None) -> None:
     print("\n" + "=" * 80)
     print("SERVER READY")
     print("=" * 80)
     print(f"  Pod ID:   {pod_id}")
     print(f"  GPU:      {profile['gpu_id']}")
     print(f"  Cost:     estimated ${price_hr:.4f}/hr")
-    print(f"  SSH:      {ssh_info(pod_id)}")
+    if ssh_data:
+        print(f"  SSH:      ssh -i {SSH_KEY_PATH} root@{ssh_data['ip']} -p {ssh_data['port']}")
+    else:
+        print(f"  SSH:      runpodctl ssh info {pod_id}")
     print(f"  ComfyUI:  https://{pod_id}-8188.runpod.app")
     print(f"  Jupyter:  https://{pod_id}-8080.runpod.app")
     if workflow:
@@ -482,6 +667,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Show candidates without provisioning")
     parser.add_argument("--max-price", type=float, default=None, help="Maximum estimated $/hr")
     parser.add_argument("--no-monitor", action="store_true", help="Skip post-create monitoring")
+    parser.add_argument("--no-bootstrap", action="store_true", help="Skip SSH bootstrap (env setup + workflow)")
     parser.add_argument("--timeout", type=int, default=600, help="Seconds to wait for RUNNING")
     parser.add_argument("--stop-after", default=None, help="Auto-stop duration, e.g. 4h, if CLI supports it")
     parser.add_argument("--terminate-after", default=None, help="Auto-terminate duration, e.g. 8h, if CLI supports it")
@@ -517,6 +703,11 @@ def main() -> int:
     discord_webhook = load_discord_webhook()
     log("INFO", f"HF_TOKEN: {'SET' if hf_token else 'MISSING'}")
     log("INFO", f"Discord webhook: {'SET' if discord_webhook else 'MISSING'}")
+
+    # Validate HF token before provisioning
+    if hf_token and not validate_hf_token(hf_token):
+        log("ERROR", "HF token validation failed — check /root/config/token.json")
+        return 1
 
     try:
         gpu = find_gpu(profile)
@@ -580,7 +771,16 @@ def main() -> int:
             return 0
 
         if monitor_pod(pod_id, args.timeout):
-            print_ready(pod_id, profile, profile["estimated_price_hr"], args.workflow)
+            # Wait for SSH to be ready
+            log("WAIT", "Waiting for SSH to be ready...")
+            time.sleep(15)
+            ssh_data = get_ssh_info(pod_id)
+
+            # Bootstrap the pod (env vars, hf auth, workflow)
+            if not args.no_bootstrap and ssh_data:
+                bootstrap_pod(pod_id, ssh_data, hf_token, discord_webhook, args.workflow)
+
+            print_ready(pod_id, profile, profile["estimated_price_hr"], args.workflow, ssh_data)
             return 0
 
         log("WARN", f"Pod {pod_id} did not become ready; trying next candidate if available")

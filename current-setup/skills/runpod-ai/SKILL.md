@@ -14,7 +14,7 @@ python3 ~/.hermes/skills/runpod-ai/scripts/runpod-provision.py \
   --gpu 3090 \
   --label <name> \
   [--workflow <script_name_or_alias>] \
-  [--auto] [--dry-run] [--max-price 0.25] [--no-monitor] \
+  [--auto] [--dry-run] [--max-price 0.25] [--no-monitor] [--no-bootstrap] \
   [--stop-after 4h] [--terminate-after 8h]
 ```
 
@@ -36,14 +36,21 @@ python3 ~/.hermes/skills/runpod-ai/scripts/runpod-provision.py --gpu 3090 --work
 
 What the script does:
 
-1. Verifies the GPU exists and is available on Community Cloud.
-2. Lists Community Cloud datacenter candidates for RTX 3090.
-3. Shows estimated hourly cost before provisioning.
-4. Creates a pod with `--cloud-type COMMUNITY --public-ip`.
-5. Sets env vars for `HF_TOKEN`, bootstrap URL, Discord webhook if present, and workflow URL.
-6. Opens ports `8188/http,22/tcp,8080/http` and allocates a 50GB container disk.
-7. Retries up to three datacenter candidates if provisioning fails.
-8. Monitors until the pod reaches `RUNNING`, then reports SSH and web URLs.
+1. **Validates** HF token format before provisioning (catches corrupted tokens early).
+2. **Verifies** the GPU exists and is available on Community Cloud.
+3. **Lists** Community Cloud datacenter candidates for RTX 3090.
+4. **Shows** estimated hourly cost before provisioning.
+5. **Creates** a pod with `--template-id cw3nka7d08` (ComfyUI pre-installed).
+6. **Sets env vars** for `HF_TOKEN`, `WORKFLOW_SCRIPT`, `DISCORD_WEBHOOK_URL`.
+7. **Opens ports** `8188/http,22/tcp,8080/http` and allocates 100GB container disk.
+8. **Retries** up to three datacenter candidates if provisioning fails.
+9. **Monitors** until the pod reaches `RUNNING`.
+10. **Bootstraps via SSH** (unless `--no-bootstrap`):
+    - Uploads env vars to `/root/.ssh/environment`
+    - Uploads `hf_download.sh` helper script
+    - Installs `hf` CLI and authenticates with HF token
+    - Downloads workflow script from GitHub
+    - Launches workflow in tmux session `workflow`
 
 Workflow aliases:
 
