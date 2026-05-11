@@ -24,6 +24,24 @@ else
   echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
 fi
 
+# Install required custom nodes
+COMFYUI_DIR="$(dirname "$BASE_DIR")"
+CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
+
+echo "==> Installing custom nodes..."
+
+# ComfyUI-PromptRelay (required for PromptRelayEncodeTimeline node)
+if [ ! -d "$CUSTOM_NODES_DIR/ComfyUI-PromptRelay" ]; then
+  echo "  Installing ComfyUI-PromptRelay..."
+  git clone https://github.com/kijai/ComfyUI-PromptRelay.git "$CUSTOM_NODES_DIR/ComfyUI-PromptRelay" 2>&1
+  if [ -f "$CUSTOM_NODES_DIR/ComfyUI-PromptRelay/requirements.txt" ]; then
+    pip install -r "$CUSTOM_NODES_DIR/ComfyUI-PromptRelay/requirements.txt" 2>&1 | tail -3
+  fi
+  echo "  ✅ ComfyUI-PromptRelay installed"
+else
+  echo "  ✅ ComfyUI-PromptRelay already installed"
+fi
+
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{diffusion_models,vae,text_encoders,loras}
 
