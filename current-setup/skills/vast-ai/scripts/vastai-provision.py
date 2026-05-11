@@ -189,6 +189,7 @@ class Offer:
     host_id: int
     nv_driver: str
     direct_port_count: int = 0
+    _is_verified: bool = False  # Verified or deverified host
 
     @property
     def inet_down_cost_tb(self) -> float:
@@ -280,6 +281,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
                 country=o.get("geolocation", "Unknown"),
                 host_id=int(o.get("host_id", 0)),
                 nv_driver=o.get("driver_version", "Unknown"),
+                _is_verified=o.get("verification") in ("verified", "deverified"),
             ))
         except (KeyError, ValueError, TypeError) as e:
             continue  # Skip malformed offers
@@ -303,10 +305,14 @@ def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0)
         log("⚠️", "No offers meet all specs — showing all available sorted by price")
         return sorted(offers, key=lambda o: o.dph_total)[:5]
 
-    # Score: dph + estimated inet cost for workflow download
+    # Score: dph + estimated inet cost for workflow
+    # Bonus: verified/deverified hosts are more reliable for Docker
     for o in valid:
         estimated_inet_cost = workflow_size_gb * o.inet_down_cost_gb if workflow_size_gb > 0 else 0
         o._total_cost = o.dph_total + (estimated_inet_cost / 10)  # Normalize inet cost (amortize over 10 hours)
+        # Penalty for unverified hosts (more likely to have Docker issues)
+        if not o._is_verified:
+            o._total_cost += 0.02  # $0.02/hr penalty — makes verified hosts preferred when close in price
 
     valid.sort(key=lambda o: o._total_cost)
     return valid
@@ -558,65 +564,89 @@ def main():
         log("🔍", "Dry run — exiting without provisioning")
         sys.exit(0)
 
-    # Select offer
-    best = ranked[0]
-    ok, issues = best.meets_specs(profile)
+    # Auto-retry: try up to 3 offers if Docker fails
+    MAX_RETRIES = 3
+    for attempt in range(MAX_RETRIES):
+        if attempt >= len(ranked):
+            log("❌", f"No more offers to try (attempted {attempt})")
+            sys.exit(1)
 
-    if not ok:
-        log("⚠️", f"Best offer has issues: {', '.join(issues)}")
-        if not args.auto:
-            print("\nProceed anyway? (y/N): ", end="", flush=True)
+        best = ranked[attempt]
+        ok, issues = best.meets_specs(profile)
+
+        if not ok:
+            log("⚠️", f"Offer #{attempt+1} has issues: {', '.join(issues)}")
+            if attempt < MAX_RETRIES - 1:
+                log("🔄", "Trying next offer...")
+                continue
+            if not args.auto:
+                print("\nProceed anyway? (y/N): ", end="", flush=True)
+                if input().strip().lower() != "y":
+                    log("🛑", "Aborted by user")
+                    sys.exit(1)
+
+        if not args.auto and attempt == 0:
+            print(f"\n🏗️  Provision on offer {best.id} (${best.dph_total:.4f}/hr, {best.country})? (y/N): ", end="", flush=True)
             if input().strip().lower() != "y":
                 log("🛑", "Aborted by user")
                 sys.exit(1)
 
-    if not args.auto:
-        print(f"\n🏗️  Provision on offer {best.id} (${best.dph_total:.4f}/hr, {best.country})? (y/N): ", end="", flush=True)
-        if input().strip().lower() != "y":
-            log("🛑", "Aborted by user")
+        log("🔄" if attempt > 0 else "🚀", f"Attempt {attempt+1}/{MAX_RETRIES}: {best.id} (${best.dph_total:.4f}/hr, {best.country})")
+
+        # Provision
+        instance_id = provision_instance(
+            offer=best,
+            profile=profile,
+            label=args.label,
+            workflow_url=workflow_url,
+            hf_token=hf_token,
+            discord_webhook=discord_webhook,
+        )
+
+        if not instance_id:
+            log("❌", f"Provisioning failed on host {best.host_id}")
+            save_failed_host(best.host_id)
+            if attempt < MAX_RETRIES - 1:
+                log("🔄", "Trying next offer...")
+                continue
             sys.exit(1)
 
-    # Provision
-    instance_id = provision_instance(
-        offer=best,
-        profile=profile,
-        label=args.label,
-        workflow_url=workflow_url,
-        hf_token=hf_token,
-        discord_webhook=discord_webhook,
-    )
+        # Monitor
+        if args.monitor and not args.no_monitor:
+            success = monitor_instance(instance_id, timeout=args.timeout, host_id=best.host_id)
+            if success:
+                info = get_instance_info(instance_id)
+                ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
+                ssh_url = ssh_url_result.get("stdout", "N/A")
 
-    if not instance_id:
-        log("❌", "Provisioning failed")
-        sys.exit(1)
-
-    # Monitor
-    if args.monitor and not args.no_monitor:
-        success = monitor_instance(instance_id, timeout=args.timeout, host_id=best.host_id)
-        if success:
-            info = get_instance_info(instance_id)
-            ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
-            ssh_url = ssh_url_result.get("stdout", "N/A")
-
-            print("\n" + "=" * 80)
-            log("🎉", "SERVER READY!")
-            print("=" * 80)
-            print(f"  Instance ID:  {instance_id}")
-            print(f"  GPU:          {best.gpu_name}")
-            print(f"  Cost:         ${best.dph_total:.4f}/hr")
-            print(f"  Location:     {best.country}")
-            print(f"  SSH:          {ssh_url}")
-            print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
-            if workflow_url:
-                print(f"  Workflow:     {args.workflow} (downloading in background)")
-            print("=" * 80)
+                print("\n" + "=" * 80)
+                log("🎉", "SERVER READY!")
+                print("=" * 80)
+                print(f"  Instance ID:  {instance_id}")
+                print(f"  GPU:          {best.gpu_name}")
+                print(f"  Cost:         ${best.dph_total:.4f}/hr")
+                print(f"  Location:     {best.country}")
+                print(f"  SSH:          {ssh_url}")
+                print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
+                if workflow_url:
+                    print(f"  Workflow:     {args.workflow} (downloading in background)")
+                print("=" * 80)
+                sys.exit(0)
+            else:
+                log("❌", f"Instance {instance_id} did not reach running status")
+                save_failed_host(best.host_id)
+                if attempt < MAX_RETRIES - 1:
+                    log("🔄", "Trying next offer...")
+                    continue
+                log("📋", f"Check: https://cloud.vast.ai/instances/{instance_id}")
+                sys.exit(1)
         else:
-            log("❌", f"Instance {instance_id} did not reach running status within {args.timeout}s")
-            log("📋", f"Check: https://cloud.vast.ai/instances/{instance_id}")
-            sys.exit(1)
-    else:
-        log("✅", f"Instance {instance_id} created — monitoring skipped")
-        log("📋", f"https://cloud.vast.ai/instances/{instance_id}")
+            log("✅", f"Instance {instance_id} created — monitoring skipped")
+            log("📋", f"https://cloud.vast.ai/instances/{instance_id}")
+            sys.exit(0)
+
+    log("❌", f"All {MAX_RETRIES} attempts failed")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
