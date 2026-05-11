@@ -73,7 +73,7 @@ RTX 3090 Community Cloud:
 - Estimated price target: about `$0.22/hr`; use `--max-price` to enforce a local cap.
 - Default safety timers: set with `--stop-after` and `--terminate-after` when supported by the installed `runpodctl`.
 - Default ports: `8188/http,22/tcp,8080/http`
-- Default container disk: `50GB`
+- Default container disk: `100GB`
 - Default persistent volume: `0GB`
 
 Community Cloud availability is limited. If no RTX 3090 candidates appear, check later or consider a different GPU.

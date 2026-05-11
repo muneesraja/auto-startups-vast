@@ -26,7 +26,7 @@ from typing import Any, Optional
 DEFAULT_IMAGE = "runpod/comfyui:latest"
 DEFAULT_TEMPLATE_ID = "cw3nka7d08"  # ComfyUI template
 DEFAULT_PORTS = "8188/http,22/tcp,8080/http"
-DEFAULT_CONTAINER_DISK_GB = 50
+DEFAULT_CONTAINER_DISK_GB = 100
 DEFAULT_VOLUME_GB = 0
 HF_TOKEN_PATH = "/root/config/token.json"
 WORKFLOWS_REPO = "muneesraja/auto-startups-vast"
