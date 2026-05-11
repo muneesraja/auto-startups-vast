@@ -8,7 +8,17 @@
 # ---
 set -e
 
-BASE_DIR="/workspace/ComfyUI/models"
+# Platform-aware base directory detection
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI/models"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI/models"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{vae,text_encoders,diffusion_models,loras}

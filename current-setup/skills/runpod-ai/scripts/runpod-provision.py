@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
-DEFAULT_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+DEFAULT_IMAGE = "runpod/comfyui:latest"
+DEFAULT_TEMPLATE_ID = "cw3nka7d08"  # ComfyUI template
 DEFAULT_PORTS = "8188/http,22/tcp,8080/http"
 DEFAULT_CONTAINER_DISK_GB = 50
 DEFAULT_VOLUME_GB = 0
@@ -152,8 +153,21 @@ def load_hf_token() -> str:
 
 
 def load_discord_webhook() -> str:
+    # Try env var first
     value = os.environ.get("DISCORD_WEBHOOK_URL", "")
-    return value.strip()
+    if value.strip():
+        return value.strip()
+    # Fall back to config file
+    try:
+        with open(HF_TOKEN_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for key in ("discord_webhook_url", "DISCORD_WEBHOOK_URL", "webhook_url"):
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return ""
 
 
 def workflow_filename(workflow_name: str) -> str:
@@ -325,8 +339,8 @@ def build_create_command(
         "create",
         "--name",
         label,
-        "--image",
-        DEFAULT_IMAGE,
+        "--template-id",
+        DEFAULT_TEMPLATE_ID,
         "--gpu-id",
         profile["gpu_id"],
         "--gpu-count",

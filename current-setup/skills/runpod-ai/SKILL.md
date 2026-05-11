@@ -52,11 +52,15 @@ Workflow aliases:
 - `qwen`, `qwen-image` -> `qwen-image-download.sh`
 - `kijai-ltx2.3`, `ltx2.3-img2video`, `ltx2-keyframing`, etc.
 
-Default image:
+Default template:
 
 ```text
-runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+runpod/comfyui:latest (template ID: cw3nka7d08)
 ```
+
+The provisioning script uses the RunPod ComfyUI template which comes with ComfyUI pre-installed. Workflow scripts auto-detect the platform and use the correct base directory:
+- RunPod: `/workspace/runpod-slim/ComfyUI/models`
+- Vast.ai: `/workspace/ComfyUI/models`
 
 ## GPU Profile
 
@@ -134,7 +138,7 @@ runpodctl datacenter list -o json
 ```bash
 runpodctl pod create \
   --name "<label>" \
-  --image runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04 \
+  --template-id cw3nka7d08 \
   --gpu-id "NVIDIA GeForce RTX 3090" \
   --gpu-count 1 \
   --cloud-type COMMUNITY \
@@ -197,6 +201,24 @@ Cost control:
 - Prefer `--terminate-after` for disposable daily pods.
 - Stop or delete pods immediately after use.
 - Use `runpodctl user -o json` to check balance and current spend.
+
+## Credentials
+
+The provisioning script reads credentials from `/root/config/token.json`:
+
+```json
+{
+  "huggingface_token": "hf_...",
+  "runpod_api_key": "rpa_...",
+  "discord_webhook_url": "https://discord.com/api/webhooks/..."
+}
+```
+
+- `huggingface_token` — Required for authenticated HF downloads (faster, no rate limits)
+- `runpod_api_key` — Required for RunPod API access
+- `discord_webhook_url` — Optional; used for pod-ready notifications
+
+Environment variables (`HF_TOKEN`, `RUNPOD_API_KEY`, `DISCORD_WEBHOOK_URL`) take precedence over config file values.
 
 ## Available References
 
