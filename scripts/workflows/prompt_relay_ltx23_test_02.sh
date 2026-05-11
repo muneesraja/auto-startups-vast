@@ -42,6 +42,11 @@ else
   echo "  ✅ ComfyUI-PromptRelay already installed"
 fi
 
+# Install sageattention (required for PatchSageAttentionKJ node)
+echo "  Installing sageattention..."
+pip install sageattention 2>&1 | tail -3
+echo "  ✅ sageattention installed"
+
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{diffusion_models,vae,text_encoders,loras}
 
