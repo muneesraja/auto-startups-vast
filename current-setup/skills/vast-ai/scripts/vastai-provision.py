@@ -397,6 +397,7 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         f"--disk {disk} "
         f"--label \"{label}\" "
         f"--direct --ssh --jupyter "
+        f"--cancel-unavail "
         f"--onstart-cmd 'entrypoint.sh'"
     )
 
@@ -456,14 +457,33 @@ def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> 
                 log("✅", "Instance is running!")
                 return True
 
-            if actual_status == "loading" and duration > 180:
+            if actual_status == "loading" and duration > 120:
                 # Check daemon logs for Docker failure
                 logs = run_cmd(f"vastai logs {instance_id} --daemon-logs", timeout=10)
-                if "No such container" in logs.get("stdout", ""):
-                    log("❌", "Docker daemon failure detected — container never created")
+                log_output = logs.get("stdout", "") + logs.get("stderr", "")
+
+                # Detect host agent (kaalia) failures
+                failure_reason = None
+                if "No such container" in log_output:
+                    failure_reason = "Docker daemon failure — container never created"
+                elif "instance_extra_logs/C." in log_output and "No such file" in log_output:
+                    failure_reason = "Host agent (kaalia) broken — can't create instance data"
+                elif "image" in log_output.lower() and ("pull" in log_output.lower() or "not found" in log_output.lower()):
+                    failure_reason = "Docker image pull failed"
+
+                if failure_reason:
+                    log("❌", f"{failure_reason}")
+                    log("📋", f"Host agent logs: {log_output[:300]}")
                     if host_id:
                         save_failed_host(host_id)
                     return False
+
+            # If still loading after 300s with null image, host agent is dead
+            if actual_status == "loading" and duration > 300:
+                log("❌", f"Instance stuck loading for {duration}s (no image pulled) — host agent likely broken")
+                if host_id:
+                    save_failed_host(host_id)
+                return False
 
         except json.JSONDecodeError:
             pass
