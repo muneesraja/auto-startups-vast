@@ -36,31 +36,31 @@ GPU_PROFILES = {
     "3090": {
         "name": "RTX_3090",
         "num_gpus": 1,
-        "min_ram_gb": 48,
+        "min_ram_gb": 24,           # VRAM is bottleneck, not system RAM
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 500,
-        "min_inet_up_mbps": 500,
-        "min_cpu_cores": 4,
-        "min_reliability": 0.99,
-        "cuda_min": 12.9,
-        "max_price_hr": 0.25,
-        "max_inet_down_cost_tb": 0.03,  # $30/TB — relaxed from $10/TB for more options
+        "min_inet_down_mbps": 200,  # 200 Mbps sufficient for most workflows
+        "min_inet_up_mbps": 200,
+        "min_cpu_cores": 2,
+        "min_reliability": 0.95,    # 95% — host must be mostly reliable
+        "cuda_min": 12.7,           # cuda-12.9 image works on 12.7+ drivers
+        "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
+        "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
-        "skip_countries": ["CN"],  # China — slow HF downloads
-        "notes": "CUDA 12.9 image works with NV driver 565+ (CUDA 12.7 cap hosts may still work)",
+        "skip_countries": ["CN"],    # China — slow HF downloads
+        "notes": "32GB system RAM is fine for ComfyUI. CUDA 12.9 image works with NV driver 565+",
     },
     "4090": {
         "name": "RTX_4090",
         "num_gpus": 1,
-        "min_ram_gb": 48,
+        "min_ram_gb": 24,
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 500,
-        "min_inet_up_mbps": 500,
-        "min_cpu_cores": 4,
-        "min_reliability": 0.99,
-        "cuda_min": 12.8,
-        "max_price_hr": 0.40,
-        "max_inet_down_cost_tb": 0.03,
+        "min_inet_down_mbps": 200,
+        "min_inet_up_mbps": 200,
+        "min_cpu_cores": 2,
+        "min_reliability": 0.95,
+        "cuda_min": 12.7,
+        "max_price_hr": 0.50,       # Relaxed from 0.40
+        "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
         "skip_countries": ["CN"],
         "notes": "4090 has 24GB VRAM, better perf/$ than 3090 for many workloads",
@@ -214,7 +214,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
     )
 
     log("🔍", f"Searching offers: {query}")
-    result = run_cmd(f"vastai search offers '{query}' --raw -o 'dph+' --limit 30", timeout=30)
+    result = run_cmd(f"vastai search offers -n '{query}' --raw -o 'dph+' --limit 30", timeout=30)
 
     if result["code"] != 0:
         log("❌", f"Search failed: {result['stderr']}")
@@ -244,7 +244,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
                 dph_total=float(o.get("dph_total", 0)),
                 inet_down_mbps=float(o.get("inet_down", 0)),
                 inet_up_mbps=float(o.get("inet_up", 0)),
-                reliability=float(o.get("reliability", 0)),
+                reliability=float(o.get("reliability", 0)) * 100,  # API returns 0-1, convert to 0-100%
                 inet_down_cost_gb=float(o.get("inet_down_cost", 0)),
                 inet_up_cost_gb=float(o.get("inet_up_cost", 0)),
                 country=o.get("geolocation", "Unknown"),
