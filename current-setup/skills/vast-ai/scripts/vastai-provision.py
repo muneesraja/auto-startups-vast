@@ -100,6 +100,7 @@ WORKFLOW_ALIASES = {
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HF_TOKEN_PATH = "/root/config/token.json"
+FAILED_HOSTS_PATH = "/root/.hermes/skills/vast-ai/scripts/failed_hosts.json"
 
 # =============================================================================
 # Helpers
@@ -142,6 +143,27 @@ def load_discord_webhook() -> str:
     except Exception:
         pass
     return ""
+
+
+def load_failed_hosts() -> dict:
+    """Load failed hosts tracker. Returns {host_id: last_failure_timestamp}."""
+    try:
+        with open(FAILED_HOSTS_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_failed_host(host_id: int):
+    """Record a host as failed."""
+    failed = load_failed_hosts()
+    failed[str(host_id)] = time.time()
+    # Clean up entries older than 24 hours
+    cutoff = time.time() - 86400
+    failed = {k: v for k, v in failed.items() if v > cutoff}
+    with open(FAILED_HOSTS_PATH, "w") as f:
+        json.dump(failed, f, indent=2)
+    log("📝", f"Host {host_id} marked as failed (will be skipped for 24h)")
 
 
 # =============================================================================
@@ -203,6 +225,7 @@ class Offer:
 def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offer]:
     """Search Vast.ai for offers matching GPU profile."""
     price = max_price or profile["max_price_hr"]
+    failed_hosts = load_failed_hosts()
 
     # Build search query — start broad, we filter in Python
     query = (
@@ -227,8 +250,15 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
         return []
 
     offers = []
+    skipped_failed = 0
     for o in raw_data:
         try:
+            # Skip failed hosts
+            host_id = int(o.get("host_id", 0))
+            if str(host_id) in failed_hosts:
+                skipped_failed += 1
+                continue
+
             ram = o.get("gpu_ram", 0)
             if isinstance(ram, (int, float)) and ram > 1000:
                 ram = ram / 1024  # MB to GB
@@ -253,6 +283,9 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
             ))
         except (KeyError, ValueError, TypeError) as e:
             continue  # Skip malformed offers
+
+    if skipped_failed > 0:
+        log("🚫", f"Skipped {skipped_failed} previously failed hosts")
 
     return offers
 
@@ -388,7 +421,7 @@ def provision_instance(offer: Offer, profile: dict, label: str,
 # Monitoring
 # =============================================================================
 
-def monitor_instance(instance_id: int, timeout: int = 600) -> bool:
+def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> bool:
     """Monitor instance until it's running. Returns True if successful."""
     log("⏳", f"Monitoring instance {instance_id} (timeout: {timeout}s)...")
 
@@ -422,6 +455,8 @@ def monitor_instance(instance_id: int, timeout: int = 600) -> bool:
                 logs = run_cmd(f"vastai logs {instance_id} --daemon-logs", timeout=10)
                 if "No such container" in logs.get("stdout", ""):
                     log("❌", "Docker daemon failure detected — container never created")
+                    if host_id:
+                        save_failed_host(host_id)
                     return False
 
         except json.JSONDecodeError:
@@ -557,7 +592,7 @@ def main():
 
     # Monitor
     if args.monitor and not args.no_monitor:
-        success = monitor_instance(instance_id, timeout=args.timeout)
+        success = monitor_instance(instance_id, timeout=args.timeout, host_id=best.host_id)
         if success:
             info = get_instance_info(instance_id)
             ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
