@@ -692,7 +692,7 @@ def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str,
         req = urllib.request.Request(
             webhook_url,
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json", "User-Agent": "HermesBot/1.0"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status == 204

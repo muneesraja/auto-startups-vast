@@ -187,11 +187,16 @@ fi
 if [ -n "$WORKFLOW_SCRIPT" ]; then
     echo "Downloading workflow script: $WORKFLOW_SCRIPT"
     curl -sSL "$WORKFLOW_SCRIPT" -o /tmp/workflow.sh
+    # Also download the shared HF download helper — workflow scripts source it
+    HF_HELPER_URL="$(dirname "$WORKFLOW_SCRIPT")/_hf_download.sh"
+    echo "Downloading HF helper: $HF_HELPER_URL"
+    curl -sSL "$HF_HELPER_URL" -o /workspace/_hf_download.sh 2>/dev/null || true
     if [ -f "/tmp/workflow.sh" ]; then
         chmod +x /tmp/workflow.sh
         echo "✅ Workflow script downloaded"
         # Run in background — model downloads can take time
-        nohup bash /tmp/workflow.sh > /workspace/workflow.log 2>&1 &
+        # Source the _hf_download.sh helper first so it's available to the workflow
+        nohup bash -c 'source /workspace/_hf_download.sh 2>/dev/null; bash /tmp/workflow.sh' > /workspace/workflow.log 2>&1 &
         echo "✅ Workflow script running in background (PID $!)"
     else
         echo "⚠️ Failed to download workflow script"
