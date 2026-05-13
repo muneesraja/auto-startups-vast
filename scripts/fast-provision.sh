@@ -60,6 +60,10 @@ elif [ -d "/opt/workspace-internal/ComfyUI" ]; then
 fi
 
 # Create portal config (indented format for grep compatibility)
+# NOTE: Must include "instance portal" (with space) in addition to "instance_portal"
+# (with underscore) because the image's exit_portal.sh greps for the PROC_NAME which
+# is "instance portal" with a space. Without the space form, the grep check fails and
+# the portal process is skipped.
 mkdir -p /etc/portal
 cat > /etc/portal.yaml << 'EOF'
 # Portal configuration
@@ -73,6 +77,8 @@ services:
   instance_portal:
     enabled: true
     port: 11111
+  instance portal:
+    enabled: true
 EOF
 echo "✅ Created /etc/portal.yaml"
 
@@ -206,8 +212,43 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
 fi
 
 # =============================================================================
-# [6/8] Start Supervisor
+# [6/8] Fix Jupyter & Portal, then Start Supervisor
 # =============================================================================
+
+# --- Fix Portal: bind 0.0.0.0 instead of 127.0.0.1 ---
+# The image's instance_portal.sh uses --host 127.0.0.1, which makes it unreachable via FRP.
+PORTAL_SCRIPT="/opt/supervisor-scripts/instance_portal.sh"
+if [ -f "$PORTAL_SCRIPT" ]; then
+    sed -i 's/--host 127.0.0.1/--host 0.0.0.0/g' "$PORTAL_SCRIPT"
+    echo "✅ Patched instance_portal.sh to bind 0.0.0.0"
+fi
+
+# --- Fix Jupyter: start plain HTTP on port 18080 ---
+# The image starts Jupyter with HTTPS (certfile/keyfile) on port 8080.
+# FRP only proxies HTTP, so we need to kill the TLS Jupyter and start a plain-HTTP one on 18080.
+# Also update the supervisor config so it doesn't try to restart the TLS version.
+JUPYTER_SCRIPT="/opt/supervisor-scripts/jupyter.sh"
+if [ -f "$JUPYTER_SCRIPT" ]; then
+    # Patch the supervisor script to remove TLS args and change port to 18080
+    sed -i 's/--port 8080/--port 18080/g' "$JUPYTER_SCRIPT"
+    sed -i 's/--NotebookApp.certfile=[^ ]*//g' "$JUPYTER_SCRIPT"
+    sed -i 's/--NotebookApp.keyfile=[^ ]*//g' "$JUPYTER_SCRIPT"
+    sed -i 's/--NotebookApp.ip=[^ ]*/--NotebookApp.ip=0.0.0.0/g' "$JUPYTER_SCRIPT"
+    # Remove token requirement for convenience (behind FRP tunnel)
+    sed -i 's/--NotebookApp.token=[^ ]*/--NotebookApp.token=/g' "$JUPYTER_SCRIPT"
+    sed -i 's/--NotebookApp.password=[^ ]*/--NotebookApp.password=/g' "$JUPYTER_SCRIPT"
+    echo "✅ Patched jupyter.sh for plain HTTP on port 18080"
+elif [ -f "/etc/supervisor/conf.d/jupyter.conf" ] || [ -f "/etc/supervisor/conf.d/jupyter.ini" ]; then
+    # Alternative: patch supervisor config directly
+    for f in /etc/supervisor/conf.d/jupyter.*; do
+        if [ -f "$f" ]; then
+            sed -i 's/--port 8080/--port 18080/g' "$f"
+            sed -i 's/--NotebookApp.certfile=[^ ]*//g' "$f"
+            sed -i 's/--NotebookApp.keyfile=[^ ]*//g' "$f"
+            echo "✅ Patched $f"
+        fi
+    done
+fi
 echo "=== [6/8] Starting Supervisor ==="
 
 # supervisord may already be running from image init, or may need starting.
