@@ -483,22 +483,28 @@ def provision_instance(offer: Offer, profile: dict, label: str,
 
     json_str = raw_output[json_start:]
 
-    try:
-        data = json.loads(json_str)
-        if data.get("success"):
-            instance_id = data.get("new_contract")
-            log("✅", f"Instance created: {instance_id}")
-            return instance_id
-        else:
-            log("❌", f"Instance creation returned success=false: {data}")
-            # Check for error codes
-            error_msg = data.get("error", "") or data.get("message", "")
-            if "no_such_ask" in str(data) or "not available" in error_msg:
-                log("⚠️", "Offer no longer available — will try next offer")
-            return None
-    except json.JSONDecodeError:
-        log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
-        return None
+    # Try JSON first, fall back to Python literal_eval (vastai CLI can return Python dicts)
+    import ast
+    for parser_name, parser in [("json", json.loads), ("ast", ast.literal_eval)]:
+        try:
+            data = parser(json_str)
+            if isinstance(data, dict) and data.get("success"):
+                instance_id = data.get("new_contract")
+                log("✅", f"Instance created: {instance_id}")
+                return instance_id
+            elif isinstance(data, dict):
+                # Parsed but not successful
+                error_msg = str(data.get("error", "")) or str(data.get("message", ""))
+                if "no_such_ask" in str(data) or "not available" in error_msg:
+                    log("⚠️", "Offer no longer available — will try next offer")
+                else:
+                    log("❌", f"Instance creation returned success=false: {data}")
+                return None
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            continue
+
+    log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
+    return None
 
 
 # =============================================================================
