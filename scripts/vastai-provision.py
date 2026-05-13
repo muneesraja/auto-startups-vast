@@ -142,12 +142,14 @@ def load_discord_webhook() -> str:
     """Load Discord webhook URL from env or config."""
     if DISCORD_WEBHOOK_URL:
         return DISCORD_WEBHOOK_URL
-    # Try loading from hermes config
+    # Try loading from token.json (JSON format)
     try:
-        result = run_cmd("grep -r 'DISCORD_WEBHOOK' /root/config/ 2>/dev/null | head -1")
-        if result["code"] == 0 and "=" in result["stdout"]:
-            return result["stdout"].split("=", 1)[1].strip().strip('"')
-    except Exception:
+        with open(HF_TOKEN_PATH) as f:
+            data = json.load(f)
+            url = data.get("discord_webhook_url", "")
+            if url:
+                return url
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
         pass
     return ""
 
@@ -384,7 +386,7 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
 
     env_parts = [
         "-p 8188:8188",
-        '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header"',
+        '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header --listen 0.0.0.0"',
         f'-e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/{WORKFLOWS_REPO}/{WORKFLOWS_BRANCH}/scripts/comfyui-bootstrap.sh"',
     ]
 

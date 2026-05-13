@@ -142,12 +142,14 @@ def load_discord_webhook() -> str:
     """Load Discord webhook URL from env or config."""
     if DISCORD_WEBHOOK_URL:
         return DISCORD_WEBHOOK_URL
-    # Try loading from hermes config
+    # Try loading from token.json (JSON format)
     try:
-        result = run_cmd("grep -r 'DISCORD_WEBHOOK' /root/config/ 2>/dev/null | head -1")
-        if result["code"] == 0 and "=" in result["stdout"]:
-            return result["stdout"].split("=", 1)[1].strip().strip('"')
-    except Exception:
+        with open(HF_TOKEN_PATH) as f:
+            data = json.load(f)
+            url = data.get("discord_webhook_url", "")
+            if url:
+                return url
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
         pass
     return ""
 
@@ -384,7 +386,7 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
 
     env_parts = [
         "-p 8188:8188",
-        '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header"',
+        '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header --listen 0.0.0.0"',
         f'-e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/{WORKFLOWS_REPO}/{WORKFLOWS_BRANCH}/scripts/comfyui-bootstrap.sh"',
     ]
 
@@ -471,17 +473,31 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         log("❌", f"Provisioning failed: {result['stderr']}")
         return None
 
+    # Vast.ai API sometimes returns "Started. {json}" — strip non-JSON prefix
+    raw_output = result["stdout"].strip()
+    # Find the first '{' and parse from there
+    json_start = raw_output.find("{")
+    if json_start == -1:
+        log("❌", f"No JSON in provisioning response: {raw_output[:200]}")
+        return None
+
+    json_str = raw_output[json_start:]
+
     try:
-        data = json.loads(result["stdout"])
+        data = json.loads(json_str)
         if data.get("success"):
             instance_id = data.get("new_contract")
             log("✅", f"Instance created: {instance_id}")
             return instance_id
         else:
             log("❌", f"Instance creation returned success=false: {data}")
+            # Check for error codes
+            error_msg = data.get("error", "") or data.get("message", "")
+            if "no_such_ask" in str(data) or "not available" in error_msg:
+                log("⚠️", "Offer no longer available — will try next offer")
             return None
     except json.JSONDecodeError:
-        log("❌", f"Failed to parse provisioning response: {result['stdout'][:200]}")
+        log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
         return None
 
 
@@ -565,6 +581,67 @@ def get_instance_info(instance_id: int) -> dict:
         return json.loads(result["stdout"])
     except json.JSONDecodeError:
         return {}
+
+
+def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
+    """Post-provision health check: verify ComfyUI is responding via SSH.
+    
+    Checks that:
+    1. /workspace/ComfyUI exists (workspace symlink)
+    2. ComfyUI is responding on port 8188 or 18188
+    3. If not, attempt manual fix and retry
+    """
+    log("🏥", f"Running health check on instance {instance_id}...")
+    
+    # Get SSH URL
+    ssh_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
+    if ssh_result["code"] != 0:
+        log("⚠️", f"Cannot get SSH URL for health check: {ssh_result['stderr']}")
+        return False
+    
+    ssh_url = ssh_result["stdout"].strip()
+    # Parse ssh://root@host:port
+    import re
+    match = re.match(r"ssh://root@([^:]+):(\d+)", ssh_url)
+    if not match:
+        log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
+        return False
+    
+    ssh_host, ssh_port = match.group(1), match.group(2)
+    ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
+    
+    # Check 1: Workspace symlink
+    log("🔍", "Checking /workspace/ComfyUI...")
+    result = run_cmd(f'{ssh_cmd} "ls -la /workspace/ComfyUI 2>/dev/null || echo MISSING"', timeout=15)
+    if "MISSING" in result["stdout"]:
+        log("⚠️", "/workspace/ComfyUI missing — attempting fix...")
+        run_cmd(f'{ssh_cmd} "mkdir -p /workspace && ln -sf /opt/workspace-internal/ComfyUI /workspace/ComfyUI"', timeout=15)
+        log("✅", "Created symlink /opt/workspace-internal/ComfyUI -> /workspace/ComfyUI")
+    else:
+        log("✅", "/workspace/ComfyUI exists")
+    
+    # Check 2: ComfyUI responding
+    log("🔍", "Checking if ComfyUI is responding...")
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        result = run_cmd(f'{ssh_cmd} "curl -s -o /dev/null -w \'%{{http_code}}\' http://localhost:8188/system_stats 2>/dev/null || curl -s -o /dev/null -w \'%{{http_code}}\' http://localhost:18188/system_stats 2>/dev/null"', timeout=15)
+        if "200" in result["stdout"]:
+            log("✅", "ComfyUI is responding!")
+            return True
+        time.sleep(10)
+    
+    # Auto-fix: restart ComfyUI via supervisor
+    log("⚠️", f"ComfyUI not responding after {timeout}s — attempting restart...")
+    run_cmd(f'{ssh_cmd} "supervisorctl restart comfyui 2>/dev/null || true"', timeout=15)
+    time.sleep(15)
+    
+    result = run_cmd(f'{ssh_cmd} "curl -s -o /dev/null -w \'%{{http_code}}\' http://localhost:8188/system_stats 2>/dev/null"', timeout=15)
+    if "200" in result["stdout"]:
+        log("✅", "ComfyUI responding after restart!")
+        return True
+    
+    log("❌", "Health check failed — ComfyUI not responding")
+    return False
 
 
 # =============================================================================
@@ -653,8 +730,8 @@ def main():
         log("🔍", "Dry run — exiting without provisioning")
         sys.exit(0)
 
-    # Auto-retry: try up to 3 offers if Docker fails
-    MAX_RETRIES = 3
+    # Auto-retry: try up to 5 offers if Docker fails (competitive market needs more retries)
+    MAX_RETRIES = 5 if args.auto else 3
     for attempt in range(MAX_RETRIES):
         if attempt >= len(ranked):
             log("❌", f"No more offers to try (attempted {attempt})")
@@ -674,6 +751,8 @@ def main():
                     log("🛑", "Aborted by user")
                     sys.exit(1)
 
+        # In auto mode: no confirmation needed — provision immediately.
+        # In manual mode: ask for confirmation on first offer only.
         if not args.auto and attempt == 0:
             print(f"\n🏗️  Provision on offer {best.id} (${best.dph_total:.4f}/hr, {best.country})? (y/N): ", end="", flush=True)
             if input().strip().lower() != "y":
@@ -706,6 +785,12 @@ def main():
         if args.monitor and not args.no_monitor:
             success = monitor_instance(instance_id, timeout=args.timeout, host_id=best.host_id)
             if success:
+                # Post-provision health check
+                health_ok = health_check_instance(instance_id, timeout=120)
+                if not health_ok:
+                    log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
+                    log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
+
                 info = get_instance_info(instance_id)
                 ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
                 ssh_url = ssh_url_result.get("stdout", "N/A")
