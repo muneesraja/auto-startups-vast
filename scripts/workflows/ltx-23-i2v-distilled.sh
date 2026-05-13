@@ -1,8 +1,8 @@
 #!/bin/bash
 # ---
-# name: Kijai LTX 2.3
-# aliases: [kijai-ltx2.3, ltx-kijai, kijai-ltx, ltx2.3-distilled]
-# description: Downloads all models required for the Kijai LTX 2.3 workflow (Distilled 1.1 FP8 Scaled).
+# name: LTX 2.3 I2V Distilled
+# aliases: [ltx-23-i2v-distilled, ltx-distilled, kijai-ltx, ltx2.3-distilled]
+# description: Downloads all models for the LTX 2.3 Image-to-Video workflow (Distilled 1.1 FP8 Scaled transformer).
 # size: ~35GB
 # min_vram: 24GB
 # ---
@@ -25,7 +25,7 @@ mkdir -p "$BASE_DIR"/{checkpoints,vae,loras,latent_upscale_models,text_encoders}
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
   [ -f "$f" ] && source "$f" && break
 done
 

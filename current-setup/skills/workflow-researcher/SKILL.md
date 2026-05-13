@@ -525,18 +525,37 @@ Every workflow has three identifiers:
 | **Script name** | Derived from workflow filename — same base, `.sh` extension | `prompt_relay_ltx23_test_02.sh` |
 | **Internal ID** | Auto-generated from filename — used in frontmatter `workflow:` field | `prltx23_001` |
 
-### 0.2 Script Naming Convention
+### 0.2 Canonical Naming Convention
 
-The download script name MUST match the workflow JSON filename (minus `.json`):
+All workflow JSON files and their paired download scripts **MUST** follow this format:
 
 ```
-# Rule: script name = workflow name (no .json)
-workflow.json  →  workflow.sh
-prompt_relay_ltx23_test_02.json  →  prompt_relay_ltx23_test_02.sh
-ltx-2.3_t2v_i2v_single_stage.json  →  ltx-2.3_t2v_i2v_single_stage.sh
+<model-family>-<version>-<variant>.json   ← ComfyUI workflow
+<model-family>-<version>-<variant>.sh     ← download script
 ```
 
-**Do NOT translate, rephrase, or abbreviate** the workflow name into the script name. If the user gives you `prompt_relay_ltx23_test_02.json`, the script is `prompt_relay_ltx23_test_02.sh` — not `ltx23-prompt-relay.sh` or `ltx23-download.sh`.
+**Rules:**
+
+| Rule | Detail | Example |
+|------|--------|---------|
+| All lowercase, hyphen-separated | No underscores, no dots, no spaces | `ltx-23-i2v-keyframe` |
+| Model family first | Short canonical name for the model family | `ltx`, `wan`, `qwen` |
+| Version next | No dots, no `v` prefix | `23` for 2.3, `22` for 2.2 |
+| Variant/mode last | Describes the workflow type | `i2v`, `t2v`, `keyframe`, `prompt-relay`, `image-edit` |
+| JSON and script share identical base name | Always | `ltx-23-i2v-keyframe.json` ↔ `ltx-23-i2v-keyframe.sh` |
+| Shared helper scripts prefixed with `_` | Not a workflow entry point | `_hf_download.sh` |
+
+**Current canonical names (reference):**
+
+| Script | JSON | Description |
+|--------|------|-------------|
+| `ltx-23-i2v-distilled.sh` | `ltx-23-i2v-distilled.json` | LTX 2.3 distilled FP8 I2V |
+| `ltx-23-i2v-keyframe.sh` | `ltx-23-i2v-keyframe.json` | LTX 2.3 first/last-frame keyframing |
+| `ltx-23-prompt-relay.sh` | `ltx-23-prompt-relay.json` | LTX 2.3 PromptRelay multi-segment |
+| `qwen-image-edit.sh` | `qwen-image-edit.json` | Qwen image editing |
+| `wan-22-i2v-keyframe.sh` | *(no JSON yet)* | Wan 2.2 multi-keyframe I2V |
+
+**Do NOT** use the old convention of mirroring the raw JSON filename into the script name (e.g., `prompt_relay_ltx23_test_02.sh`). Always derive the canonical kebab-case name from the model family + version + variant.
 
 ### 0.3 Unique ID Convention
 

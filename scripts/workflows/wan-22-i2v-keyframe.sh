@@ -1,8 +1,8 @@
 #!/bin/bash
 # ---
-# name: Wan 2.2
-# aliases: [wan, wan 2.1, wan 2.2, wan2.2, wanvideo, wan video]
-# description: Downloads all Wan 2.2 models for multi-keyframe i2v video generation in ComfyUI
+# name: Wan 2.2 I2V Keyframe
+# aliases: [wan-22-i2v-keyframe, wan, wan2.2, wanvideo]
+# description: Downloads all Wan 2.2 models for multi-keyframe I2V video generation in ComfyUI.
 # size: ~25GB
 # min_vram: 24GB
 # ---
@@ -28,7 +28,7 @@ mkdir -p "$BASE_DIR"/{text_encoders,diffusion_models,loras,vae}
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
   [ -f "$f" ] && source "$f" && break
 done
 

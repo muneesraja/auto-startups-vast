@@ -1,7 +1,7 @@
 #!/bin/bash
 # ---
 # name: Qwen Image Edit
-# aliases: [qwen, qwen image, qwen image edit, qwen-image]
+# aliases: [qwen-image-edit, qwen, qwen-image]
 # description: Downloads all models needed for Qwen image editing workflow in ComfyUI (VAE, Text Encoder, Diffusion, LoRA).
 # size: ~15-20GB
 # min_vram: 24GB
@@ -25,7 +25,7 @@ mkdir -p "$BASE_DIR"/{vae,text_encoders,diffusion_models,loras}
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
   [ -f "$f" ] && source "$f" && break
 done
 

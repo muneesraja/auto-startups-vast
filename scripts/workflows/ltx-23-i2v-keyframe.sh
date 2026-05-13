@@ -1,8 +1,8 @@
 #!/bin/bash
 # ---
-# name: LTX 2.3 Keyframing
-# aliases: [ltx, ltx 2.3, ltx2.3, ltx-2.3, ltx2-keyframing, keyframing]
-# description: Downloads all models required for LTX 2.3 Keyframing workflow and applies requisite patch.
+# name: LTX 2.3 I2V Keyframe
+# aliases: [ltx-23-i2v-keyframe, ltx-keyframe, ltx2.3-keyframing]
+# description: Downloads all models for the LTX 2.3 first/last-frame keyframing workflow and applies requisite patch.
 # size: ~60GB
 # min_vram: 24GB
 # ---
@@ -25,7 +25,7 @@ mkdir -p "$BASE_DIR"/{loras/ltx2,unet,text_encoders,vae,latent_upscale_models,ch
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
   [ -f "$f" ] && source "$f" && break
 done
 

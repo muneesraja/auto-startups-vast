@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# hf_download.sh — Shared HuggingFace download helper
+# _hf_download.sh — Shared HuggingFace download helper
 # =============================================================================
-# Source this from workflow scripts: source /workspace/hf_download.sh
+# Source this from workflow scripts: source /workspace/_hf_download.sh
 #
 # Provides: hf_download REPO_ID FILENAME LOCAL_DIR
 # - Authenticated with HF token (uncapped speed)

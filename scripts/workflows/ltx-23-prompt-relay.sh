@@ -1,9 +1,8 @@
 #!/bin/bash
 # ---
-# name: LTX 2.3 Prompt Relay (prompt_relay_ltx23_test_02)
-# workflow: prltx23_002
-# aliases: [prompt-relay-ltx23-test-02, prompt_relay_ltx23_test_02, ltx23-prompt-relay, ltx23-oldman-redpanda]
-# description: Download LTX 2.3 models for prompt_relay_ltx23_test_02 workflow — old man & red panda, 4 segments (123+122+122+122 frames), PromptRelayEncodeTimeline
+# name: LTX 2.3 Prompt Relay
+# aliases: [ltx-23-prompt-relay, ltx-prompt-relay, ltx23-pr]
+# description: Downloads models for the LTX 2.3 PromptRelay workflow — fp8 transformer, Gemma text encoder, text projection, audio/video VAE, LoRA. Installs ComfyUI-PromptRelay node.
 # size: ~61.4GB
 # min_vram: 24GB
 # ---
@@ -52,12 +51,12 @@ mkdir -p "$BASE_DIR"/{diffusion_models,vae,text_encoders,loras}
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/hf_download.sh" ]; then
-  source "$SCRIPT_DIR/hf_download.sh"
-elif [ -f "/workspace/hf_download.sh" ]; then
-  source "/workspace/hf_download.sh"
+if [ -f "$SCRIPT_DIR/_hf_download.sh" ]; then
+  source "$SCRIPT_DIR/_hf_download.sh"
+elif [ -f "/workspace/_hf_download.sh" ]; then
+  source "/workspace/_hf_download.sh"
 else
-  echo "❌ hf_download.sh not found — falling back to aria2c"
+  echo "❌ _hf_download.sh not found — falling back to aria2c"
   # Fallback: install aria2 and use it
   command -v aria2c &>/dev/null || apt-get update && apt-get install -y aria2
   hf_download() {
