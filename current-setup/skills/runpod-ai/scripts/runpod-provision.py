@@ -344,7 +344,25 @@ def search_candidates(profile: dict[str, Any]) -> list[Candidate]:
     return candidates
 
 
-def build_env(workflow: Optional[str], hf_token: str, discord_webhook: str) -> str:
+def frp_allocate_index(label: str) -> str:
+    """Allocate a unique FRP subdomain index for this instance."""
+    import subprocess
+    result = subprocess.run(
+        ["/usr/local/bin/frp-allocate-port", "allocate", label],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode == 0:
+        try:
+            data = json.loads(result.stdout)
+            return str(data.get("index", ""))
+        except json.JSONDecodeError:
+            log("WARN", f"Failed to parse frp-allocate-port output: {result.stdout[:100]}")
+    else:
+        log("WARN", f"frp-allocate-port failed: {result.stderr[:100]}")
+    return ""
+
+
+def build_env(workflow: Optional[str], hf_token: str, discord_webhook: str, frp_index: str = "") -> str:
     env: dict[str, str] = {
         "COMFYUI_ARGS": "--disable-auto-launch --port 8188 --enable-cors-header",
         "DATA_DIRECTORY": "/workspace/",
@@ -356,9 +374,31 @@ def build_env(workflow: Optional[str], hf_token: str, discord_webhook: str) -> s
         env["HF_TOKEN"] = hf_token
     if discord_webhook:
         env["DISCORD_WEBHOOK_URL"] = discord_webhook
+    if frp_index:
+        env["FRP_INDEX"] = frp_index
+        env["FRP_SERVER_ADDR"] = "159.195.52.130"
+        env["FRP_SERVER_PORT"] = "7000"
+        # FRP_TOKEN loaded from VPS config
+        frp_token = _load_frp_token()
+        if frp_token:
+            env["FRP_TOKEN"] = frp_token
     if workflow:
         env["WORKFLOW_SCRIPT"] = workflow_url(workflow)
     return json.dumps(env, separators=(",", ":"))
+
+
+def _load_frp_token() -> str:
+    """Load FRP token from VPS config."""
+    try:
+        with open("/etc/frp/frps.toml", "r", encoding="utf-8") as f:
+            for line in f:
+                if "auth.token" in line:
+                    match = re.search(r'auth\.token\s*=\s*["\']?([^"\'\s]+)', line)
+                    if match:
+                        return match.group(1)
+    except (FileNotFoundError, IOError):
+        pass
+    return ""
 
 
 def build_create_command(
@@ -546,6 +586,7 @@ def bootstrap_pod(
     hf_token: str,
     discord_webhook: str,
     workflow: Optional[str],
+    frp_index: str = "",
 ) -> bool:
     """Post-provisioning SSH bootstrap: set env vars, install deps, run workflow."""
     host = ssh_info["ip"]
@@ -562,6 +603,13 @@ def bootstrap_pod(
         env_lines.append(f'export WORKFLOW_SCRIPT="{workflow_url(workflow)}"')
     if discord_webhook:
         env_lines.append(f'export DISCORD_WEBHOOK_URL="{discord_webhook}"')
+    if frp_index:
+        env_lines.append(f"export FRP_INDEX={frp_index}")
+        env_lines.append('export FRP_SERVER_ADDR="159.195.52.130"')
+        env_lines.append("export FRP_SERVER_PORT=7000")
+        frp_token = _load_frp_token()
+        if frp_token:
+            env_lines.append(f'export FRP_TOKEN="{frp_token}"')
 
     env_content = "\n".join(env_lines) + "\n"
     if not ssh_upload_file(host, port, "/root/.ssh/environment", env_content):
@@ -750,7 +798,10 @@ def main() -> int:
             return 1
 
     help_text = pod_create_help()
-    env_json = build_env(args.workflow, hf_token, discord_webhook)
+    frp_index = frp_allocate_index(args.label)
+    if frp_index:
+        log("FRP", f"Allocated FRP index {frp_index}")
+    env_json = build_env(args.workflow, hf_token, discord_webhook, frp_index)
     attempts = candidates[:3]
 
     for index, candidate in enumerate(attempts, start=1):
@@ -778,7 +829,7 @@ def main() -> int:
 
             # Bootstrap the pod (env vars, hf auth, workflow)
             if not args.no_bootstrap and ssh_data:
-                bootstrap_pod(pod_id, ssh_data, hf_token, discord_webhook, args.workflow)
+                bootstrap_pod(pod_id, ssh_data, hf_token, discord_webhook, args.workflow, frp_index)
 
             print_ready(pod_id, profile, profile["estimated_price_hr"], args.workflow, ssh_data)
             return 0

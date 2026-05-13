@@ -4,6 +4,12 @@
 # =============================================================================
 # This script bypasses the image's slow provisioner and sets up ComfyUI directly.
 # Works with vastai/comfy template images.
+#
+# CRITICAL: This runs as --onstart-cmd, which means the image's normal
+# PROVISIONING_SCRIPT flow is skipped. We must handle:
+#   1. Workspace symlink (/opt/workspace-internal/ComfyUI -> /workspace/ComfyUI)
+#   2. /.provisioning marker removal (so comfyui.sh doesn't hang)
+#   3. Supervisor startup AFTER workspace is ready
 # =============================================================================
 
 set -e
@@ -22,9 +28,9 @@ HF_TOKEN="${HF_TOKEN:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 
 # =============================================================================
-# [1/7] Wait for SSH
+# [1/8] Wait for SSH
 # =============================================================================
-echo "=== [1/7] Waiting for SSH ==="
+echo "=== [1/8] Waiting for SSH ==="
 for i in {1..30}; do
     if timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/22" 2>/dev/null; then
         echo "✅ SSH ready"
@@ -35,14 +41,16 @@ for i in {1..30}; do
 done
 
 # =============================================================================
-# [2/7] Fast Workspace Setup
+# [2/8] Workspace Setup (MUST happen before supervisord starts ComfyUI)
 # =============================================================================
-echo "=== [2/7] Workspace Setup ==="
+echo "=== [2/8] Workspace Setup ==="
 
 # Create /workspace if it doesn't exist
 mkdir -p /workspace
 
 # Create workspace symlink if needed
+# The image stores ComfyUI at /opt/workspace-internal/ComfyUI
+# but $WORKSPACE=/workspace, so comfyui.sh looks for /workspace/ComfyUI
 if [ ! -e "/workspace/ComfyUI" ] && [ -d "/opt/workspace-internal/ComfyUI" ]; then
     rm -rf /workspace/ComfyUI 2>/dev/null || true
     ln -sf /opt/workspace-internal/ComfyUI /workspace/ComfyUI
@@ -68,13 +76,25 @@ services:
 EOF
 echo "✅ Created /etc/portal.yaml"
 
-# Remove provisioning marker if exists
+# Remove provisioning marker — this is CRITICAL.
+# Without this, comfyui.sh will loop forever waiting for external provisioning.
+# The image creates /.provisioning early; we must remove it so supervisord
+# can start ComfyUI without hanging on the wait loop in comfyui.sh.
 rm -f /.provisioning 2>/dev/null || true
+echo "✅ Removed /.provisioning marker"
 
 # =============================================================================
-# [3/7] FRP Tunnel Setup
+# [3/8] System Packages
 # =============================================================================
-echo "=== [3/7] FRP Tunnel ==="
+echo "=== [3/8] System Packages ==="
+
+apt-get update -qq && apt-get install -y -qq ffmpeg aria2 tmux zip curl wget > /dev/null 2>&1 || true
+echo "✅ System packages installed"
+
+# =============================================================================
+# [4/8] FRP Tunnel Setup
+# =============================================================================
+echo "=== [4/8] FRP Tunnel ==="
 
 if [ -n "$FRP_INDEX" ]; then
     echo "FRP_INDEX=$FRP_INDEX — setting up self-hosted FRP tunnel..."
@@ -151,84 +171,107 @@ else
 fi
 
 # =============================================================================
-# [4/7] Start Supervisor
+# [5/8] HF Token & Workflow
 # =============================================================================
-echo "=== [4/7] Starting Supervisor ==="
+echo "=== [5/8] HF Token & Workflow ==="
 
+# Save HF token if provided
+if [ -n "$HF_TOKEN" ]; then
+    mkdir -p /root/config
+    echo "{\"huggingface_token\": \"$HF_TOKEN\"}" > /root/config/token.json
+    export HF_HUB_ENABLE_HF_TRANSFER=1
+    echo "✅ HF token saved"
+fi
+
+# Run workflow script if provided
+if [ -n "$WORKFLOW_SCRIPT" ]; then
+    echo "Downloading workflow script: $WORKFLOW_SCRIPT"
+    curl -sSL "$WORKFLOW_SCRIPT" -o /tmp/workflow.sh
+    if [ -f "/tmp/workflow.sh" ]; then
+        chmod +x /tmp/workflow.sh
+        echo "✅ Workflow script downloaded"
+        # Run in background — model downloads can take time
+        nohup bash /tmp/workflow.sh > /workspace/workflow.log 2>&1 &
+        echo "✅ Workflow script running in background (PID $!)"
+    else
+        echo "⚠️ Failed to download workflow script"
+    fi
+fi
+
+# =============================================================================
+# [6/8] Start Supervisor
+# =============================================================================
+echo "=== [6/8] Starting Supervisor ==="
+
+# supervisord may already be running from image init, or may need starting.
+# Only start if not running — never kill it (PID 1 manages it).
 if pgrep supervisord > /dev/null; then
-    echo "Supervisor already running"
+    echo "Supervisor already running — restarting ComfyUI with new workspace"
+    # Remove provisioning marker again (supervisor may have recreated it)
+    rm -f /.provisioning 2>/dev/null || true
+    supervisorctl restart comfyui 2>/dev/null || true
+    echo "✅ ComfyUI restarted with workspace"
 else
-    # Start supervisord if config exists
     if [ -f /etc/supervisor/supervisord.conf ]; then
         supervisord -c /etc/supervisor/supervisord.conf
         echo "✅ Supervisor started"
     else
-        echo "⚠️ No supervisor config found"
+        echo "⚠️ No supervisor config found — will try manual start"
     fi
 fi
 
 # =============================================================================
-# [5/7] Install Requirements
+# [7/8] Wait for ComfyUI
 # =============================================================================
-echo "=== [5/7] Installing Requirements ==="
+echo "=== [7/8] Waiting for ComfyUI ==="
 
-if [ -f "/venv/main/bin/pip" ] && [ -d "/workspace/ComfyUI" ]; then
-    echo "Installing ComfyUI requirements..."
-    /venv/main/bin/pip install -q sqlalchemy 2>/dev/null || true
-    cd /workspace/ComfyUI
-    /venv/main/bin/pip install -q -r requirements.txt 2>/dev/null || echo "⚠️ Some requirements may have failed"
-    echo "✅ Requirements installed"
-else
-    echo "⚠️ No venv found — skipping pip install"
-fi
-
-# =============================================================================
-# [6/7] Restart Services
-# =============================================================================
-echo "=== [6/7] Restarting Services ==="
-
-# Wait for portal.yaml to be read
-sleep 2
-
-# Restart supervisor services if available
-if command -v supervisorctl &> /dev/null; then
-    supervisorctl restart comfyui jupyter instance_portal 2>/dev/null || true
-    echo "✅ Services restarted"
-fi
-
-# =============================================================================
-# [7/7] Wait for ComfyUI
-# =============================================================================
-echo "=== [7/7] Waiting for ComfyUI ==="
-
+# Try port 18188 (image default) first, then 8188 (fallback)
+COMFY_PORT=""
 for i in {1..60}; do
-    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:18188" 2>/dev/null | grep -q "200\|404"; then
-        echo "✅ ComfyUI is responding on port 18188"
-        break
-    fi
+    for port in 18188 8188; do
+        if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}" 2>/dev/null | grep -q "200\|404"; then
+            COMFY_PORT=$port
+            break 2
+        fi
+    done
     echo "Waiting... $i"
     sleep 2
 done
 
+if [ -n "$COMFY_PORT" ]; then
+    echo "✅ ComfyUI is responding on port $COMFY_PORT"
+else
+    echo "⚠️ ComfyUI did not respond within 120s — manual check required"
+fi
+
 # =============================================================================
-# Discord Notification
+# [8/8] Discord Notification & Summary
 # =============================================================================
-if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-    FRP_STATUS=""
-    if [ -n "$FRP_INDEX" ]; then
-        SUFFIX="${FRP_INDEX}"
-        if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
-        FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
+echo "=== [8/8] Notification ==="
+
+INSTANCE_INFO="Instance: $(hostname)"
+FRP_STATUS=""
+if [ -n "$FRP_INDEX" ]; then
+    SUFFIX="${FRP_INDEX}"
+    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
+    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
 Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
 Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
-    fi
-    
+fi
+
+if [ -n "$DISCORD_WEBHOOK_URL" ]; then
     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
-        -d "{\"content\": \"🚀 **Server Ready**\\n\\nInstance: $(hostname)\\n${FRP_STATUS}\\n\\nFast provisioning complete!\"}" \
+        -d "{\"content\": \"🚀 **Server Ready**\\n\\n${INSTANCE_INFO}\\n${FRP_STATUS}\\n\\nFast provisioning complete!\"}" \
         > /dev/null 2>&1 || true
+    echo "✅ Discord notification sent"
 fi
 
 echo "============================================"
 echo "  Fast Provisioning Complete!"
+echo "============================================"
+echo "  ComfyUI port: ${COMFY_PORT:-unknown}"
+echo "  Workspace: /workspace/ComfyUI"
+[ -n "$FRP_INDEX" ] && echo "  FRP tunnels: Active" || true
+echo "  Logs: /workspace/workflow.log (if workflow set)"
 echo "============================================"

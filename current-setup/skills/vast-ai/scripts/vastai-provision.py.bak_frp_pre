@@ -43,7 +43,6 @@ GPU_PROFILES = {
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
         "cuda_min": 12.7,           # cuda-12.9 image works on 12.7+ drivers
-        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9 (see references/driver-version-requirements.md)
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
@@ -60,7 +59,6 @@ GPU_PROFILES = {
         "min_cpu_cores": 2,
         "min_reliability": 0.95,
         "cuda_min": 12.7,
-        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9
         "max_price_hr": 0.50,       # Relaxed from 0.40
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
@@ -103,11 +101,6 @@ WORKFLOW_ALIASES = {
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HF_TOKEN_PATH = "/root/config/token.json"
 FAILED_HOSTS_PATH = "/root/.hermes/skills/vast-ai/scripts/failed_hosts.json"
-FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
-FRP_SERVER_ADDR = "159.195.52.130"
-FRP_SERVER_PORT = 7000
-FAST_PROVISION_URL = "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/fast-provision.sh"
-# FRP token loaded from VPS config
 
 # =============================================================================
 # Helpers
@@ -158,21 +151,6 @@ def load_failed_hosts() -> dict:
         with open(FAILED_HOSTS_PATH) as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def allocate_frp_index(label: str) -> dict:
-    """Allocate an FRP subdomain index for a new GPU instance.
-    Returns dict with index, domains, and frpc config template.
-    """
-    result = run_cmd(f"{FRP_ALLOCATE_SCRIPT} allocate '{label}'", timeout=10)
-    if result["code"] != 0:
-        log("⚠️", f"FRP allocation failed: {result['stderr']}")
-        return {}
-    try:
-        return json.loads(result["stdout"])
-    except json.JSONDecodeError:
-        log("⚠️", f"Failed to parse FRP allocation response: {result['stdout']}")
         return {}
 
 
@@ -251,15 +229,12 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
     failed_hosts = load_failed_hosts()
 
     # Build search query — start broad, we filter in Python
-    # Include driver_version filter to avoid hosts with outdated CUDA drivers
-    driver_min = profile.get("driver_min", "560.0.0")  # Default: CUDA 12.9 compatible
     query = (
         f"gpu_name={profile['name']} "
         f"num_gpus={profile['num_gpus']} "
         f"rented=False "
         f"dph<={price + 0.10} "  # Slightly above max to catch borderline offers
-        f"cuda_max_good>={profile['cuda_min'] - 0.5} "  # Slightly below to catch borderline
-        f"driver_version>={driver_min}"  # Filter out hosts with old drivers
+        f"cuda_max_good>={profile['cuda_min'] - 0.5}"  # Slightly below to catch borderline
     )
 
     log("🔍", f"Searching offers: {query}")
@@ -377,8 +352,7 @@ def get_workflow_size(workflow_name: str) -> float:
     return 0
 
 
-def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, 
-                           discord_webhook: str, frp_config: Optional[dict] = None) -> str:
+def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, discord_webhook: str) -> str:
     """Build the --env string for vastai create instance."""
     docker_image = profile["docker_image"]
 
@@ -397,16 +371,6 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     if workflow_url:
         env_parts.append(f'-e WORKFLOW_SCRIPT="{workflow_url}"')
 
-    # FRP tunneling configuration (self-hosted alternative to Cloudflare)
-    if frp_config:
-        env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
-        env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
-        env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
-        # Read FRP token from VPS config
-        frp_token = _load_frp_token()
-        if frp_token:
-            env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
-
     env_parts.extend([
         '-e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal"',
         '-e OPEN_BUTTON_PORT="1111"',
@@ -418,38 +382,13 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     return " ".join(env_parts)
 
 
-def _load_frp_token() -> str:
-    """Load FRP token from VPS config."""
-    try:
-        with open("/etc/frp/frps.toml") as f:
-            for line in f:
-                if 'auth.token' in line:
-                    # Parse: auth.token = "value" or auth.token = 'value'
-                    match = re.search(r'auth\.token\s*=\s*["\']?([^"\'\s]+)', line)
-                    if match:
-                        return match.group(1)
-    except (FileNotFoundError, IOError):
-        pass
-    return ""
-
-
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str, frp_config: Optional[dict] = None,
-                       fast_mode: bool = True) -> Optional[int]:
+                       discord_webhook: str) -> Optional[int]:
     """Provision a Vast.ai instance. Returns instance ID or None."""
-    env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook)
 
     disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))  # Use 80% of available disk
-    
-    # Fast mode: use fast-provision.sh (default)
-    # Slow mode: let image's internal provisioner run
-    if fast_mode:
-        onstart_cmd = f"curl -sSL '{FAST_PROVISION_URL}' | bash"
-        log("⚡", "Using FAST provisioning mode")
-    else:
-        onstart_cmd = "entrypoint.sh"
-        log("🐢", "Using SLOW image provisioner")
 
     cmd = (
         f"vastai create instance {offer.id} "
@@ -459,7 +398,7 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         f"--label \"{label}\" "
         f"--direct --ssh --jupyter "
         f"--cancel-unavail "
-        f"--onstart-cmd '{onstart_cmd}'"
+        f"--onstart-cmd 'entrypoint.sh'"
     )
 
     log("🚀", f"Provisioning instance on host {offer.host_id} (${offer.dph_total:.4f}/hr)...")
@@ -468,7 +407,15 @@ def provision_instance(offer: Offer, profile: dict, label: str,
     result = run_cmd(cmd, timeout=60)
 
     if result["code"] != 0:
-        log("❌", f"Provisioning failed: {result['stderr']}")
+        stderr = result.get("stderr", "")
+        stdout = result.get("stdout", "")
+        # no_such_ask = offer was taken by someone else between search and create
+        # Don't mark host as failed for this transient error
+        if "no_such_ask" in stderr or "no_such_ask" in stdout:
+            log("⚠️", f"Offer {offer.id} was taken (no_such_ask) — skipping retry on this specific offer")
+            # Return a sentinel so caller knows to try next offer without penalizing host
+            return -1
+        log("❌", f"Provisioning failed: {stderr}")
         return None
 
     try:
@@ -581,7 +528,6 @@ def parse_args():
     parser.add_argument("--max-price", type=float, default=None, help="Override max $/hr")
     parser.add_argument("--monitor", action="store_true", default=True, help="Monitor after provisioning")
     parser.add_argument("--no-monitor", action="store_true", help="Skip monitoring")
-    parser.add_argument("--slow", action="store_true", help="Use slow image provisioner (default: fast)")
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
     return parser.parse_args()
 
@@ -609,13 +555,6 @@ def main():
     discord_webhook = load_discord_webhook()
     log("🔑", f"HF Token: {'SET' if hf_token else 'MISSING'}")
     log("📬", f"Discord Webhook: {'SET' if discord_webhook else 'MISSING'}")
-
-    # Allocate FRP tunnel subdomain index
-    frp_config = allocate_frp_index(f"instance_{args.label}")
-    if frp_config:
-        log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={list(frp_config.get('custom_domains', {}).values())}")
-    else:
-        log("⚠️", "FRP allocation failed — will fall back to Cloudflare quick tunnels")
 
     # Search offers
     offers = search_offers(profile, args.max_price)
@@ -690,9 +629,12 @@ def main():
             workflow_url=workflow_url,
             hf_token=hf_token,
             discord_webhook=discord_webhook,
-            frp_config=frp_config,
-            fast_mode=not args.slow,
         )
+
+        if instance_id == -1:
+            # Offer was taken by someone else (no_such_ask) — don't penalize host, try next
+            log("⚠️", f"Offer {best.id} was taken — trying next offer...")
+            continue
 
         if not instance_id:
             log("❌", f"Provisioning failed on host {best.host_id}")
@@ -719,10 +661,6 @@ def main():
                 print(f"  Location:     {best.country}")
                 print(f"  SSH:          {ssh_url}")
                 print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
-                if frp_config and frp_config.get("custom_domains"):
-                    print("  FRP Tunnels:")
-                    for service, url in frp_config["custom_domains"].items():
-                        print(f"    {service}: {url}")
                 if workflow_url:
                     print(f"  Workflow:     {args.workflow} (downloading in background)")
                 print("=" * 80)
