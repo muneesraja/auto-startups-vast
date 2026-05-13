@@ -184,6 +184,7 @@ if [ -n "$HF_TOKEN" ]; then
 fi
 
 # Run workflow script if provided
+WORKFLOW_PID=""
 if [ -n "$WORKFLOW_SCRIPT" ]; then
     echo "Downloading workflow script: $WORKFLOW_SCRIPT"
     curl -sSL "$WORKFLOW_SCRIPT" -o /tmp/workflow.sh
@@ -197,7 +198,8 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
         # Run in background — model downloads can take time
         # Source the _hf_download.sh helper first so it's available to the workflow
         nohup bash -c 'source /workspace/_hf_download.sh 2>/dev/null; bash /tmp/workflow.sh' > /workspace/workflow.log 2>&1 &
-        echo "✅ Workflow script running in background (PID $!)"
+        WORKFLOW_PID=$!
+        echo "✅ Workflow script running in background (PID $WORKFLOW_PID)"
     else
         echo "⚠️ Failed to download workflow script"
     fi
@@ -253,6 +255,29 @@ fi
 # [8/8] Discord Notification & Summary
 # =============================================================================
 echo "=== [8/8] Notification ==="
+
+# If a workflow is downloading, wait for it to complete before notifying
+if [ -n "$WORKFLOW_PID" ] && kill -0 "$WORKFLOW_PID" 2>/dev/null; then
+    echo "⏳ Waiting for workflow download to complete (PID $WORKFLOW_PID)..."
+    # Poll every 10s, show progress from log
+    LAST_LINE=""
+    while kill -0 "$WORKFLOW_PID" 2>/dev/null; do
+        CURRENT_LINE="$(tail -1 /workspace/workflow.log 2>/dev/null)"
+        if [ "$CURRENT_LINE" != "$LAST_LINE" ]; then
+            echo "  $CURRENT_LINE"
+            LAST_LINE="$CURRENT_LINE"
+        fi
+        sleep 10
+    done
+    # Wait a moment for the process to fully exit and flush output
+    wait "$WORKFLOW_PID" 2>/dev/null || true
+    EXIT_CODE=$?
+    if [ "$EXIT_CODE" -eq 0 ]; then
+        echo "✅ Workflow download completed successfully"
+    else
+        echo "⚠️ Workflow download exited with code $EXIT_CODE — check /workspace/workflow.log"
+    fi
+fi
 
 INSTANCE_INFO="Instance: $(hostname)"
 FRP_STATUS=""
