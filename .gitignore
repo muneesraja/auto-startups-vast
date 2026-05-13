@@ -20,3 +20,5 @@ Thumbs.db
 
 # Temp files
 *.tmp
+temp.md
+config/
