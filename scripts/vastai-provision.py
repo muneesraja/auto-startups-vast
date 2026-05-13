@@ -471,17 +471,31 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         log("❌", f"Provisioning failed: {result['stderr']}")
         return None
 
+    # Vast.ai API sometimes returns "Started. {json}" — strip non-JSON prefix
+    raw_output = result["stdout"].strip()
+    # Find the first '{' and parse from there
+    json_start = raw_output.find("{")
+    if json_start == -1:
+        log("❌", f"No JSON in provisioning response: {raw_output[:200]}")
+        return None
+
+    json_str = raw_output[json_start:]
+
     try:
-        data = json.loads(result["stdout"])
+        data = json.loads(json_str)
         if data.get("success"):
             instance_id = data.get("new_contract")
             log("✅", f"Instance created: {instance_id}")
             return instance_id
         else:
             log("❌", f"Instance creation returned success=false: {data}")
+            # Check for error codes
+            error_msg = data.get("error", "") or data.get("message", "")
+            if "no_such_ask" in str(data) or "not available" in error_msg:
+                log("⚠️", "Offer no longer available — will try next offer")
             return None
     except json.JSONDecodeError:
-        log("❌", f"Failed to parse provisioning response: {result['stdout'][:200]}")
+        log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
         return None
 
 
