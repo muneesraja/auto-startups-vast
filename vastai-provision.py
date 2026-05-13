@@ -104,6 +104,7 @@ FAILED_HOSTS_PATH = "/root/.hermes/skills/vast-ai/scripts/failed_hosts.json"
 FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
 FRP_SERVER_ADDR = "159.195.52.130"
 FRP_SERVER_PORT = 7000
+FAST_PROVISION_URL = "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/fast-provision.sh"
 # FRP token loaded from VPS config
 
 # =============================================================================
@@ -429,11 +430,21 @@ def _load_frp_token() -> str:
 
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str, frp_config: Optional[dict] = None) -> Optional[int]:
+                       discord_webhook: str, frp_config: Optional[dict] = None,
+                       fast_mode: bool = True) -> Optional[int]:
     """Provision a Vast.ai instance. Returns instance ID or None."""
     env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
 
     disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))  # Use 80% of available disk
+    
+    # Fast mode: use fast-provision.sh (default)
+    # Slow mode: let image's internal provisioner run
+    if fast_mode:
+        onstart_cmd = f"curl -sSL '{FAST_PROVISION_URL}' | bash"
+        log("⚡", "Using FAST provisioning mode")
+    else:
+        onstart_cmd = "entrypoint.sh"
+        log("🐢", "Using SLOW image provisioner")
 
     cmd = (
         f"vastai create instance {offer.id} "
@@ -443,7 +454,7 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         f"--label \"{label}\" "
         f"--direct --ssh --jupyter "
         f"--cancel-unavail "
-        f"--onstart-cmd 'entrypoint.sh'"
+        f"--onstart-cmd '{onstart_cmd}'"
     )
 
     log("🚀", f"Provisioning instance on host {offer.host_id} (${offer.dph_total:.4f}/hr)...")
@@ -565,6 +576,7 @@ def parse_args():
     parser.add_argument("--max-price", type=float, default=None, help="Override max $/hr")
     parser.add_argument("--monitor", action="store_true", default=True, help="Monitor after provisioning")
     parser.add_argument("--no-monitor", action="store_true", help="Skip monitoring")
+    parser.add_argument("--slow", action="store_true", help="Use slow image provisioner (default: fast)")
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
     return parser.parse_args()
 
@@ -674,6 +686,7 @@ def main():
             hf_token=hf_token,
             discord_webhook=discord_webhook,
             frp_config=frp_config,
+            fast_mode=not args.slow,
         )
 
         if not instance_id:
