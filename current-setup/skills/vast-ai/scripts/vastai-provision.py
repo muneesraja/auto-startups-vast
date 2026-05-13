@@ -381,7 +381,7 @@ def get_workflow_size(workflow_name: str) -> float:
 
 
 def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, 
-                           discord_webhook: str, frp_config: Optional[dict] = None) -> str:
+                           discord_webhook: str, frp_config: dict) -> str:
     """Build the --env string for vastai create instance."""
     docker_image = profile["docker_image"]
 
@@ -400,15 +400,15 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     if workflow_url:
         env_parts.append(f'-e WORKFLOW_SCRIPT="{workflow_url}"')
 
-    # FRP tunneling configuration (self-hosted alternative to Cloudflare)
-    if frp_config:
-        env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
-        env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
-        env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
-        # Read FRP token from VPS config
-        frp_token = _load_frp_token()
-        if frp_token:
-            env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
+    # FRP tunneling configuration — MANDATORY
+    # frp_config is guaranteed to be present (the caller exits if allocation fails)
+    env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
+    env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
+    env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
+    # Read FRP token from VPS config
+    frp_token = _load_frp_token()
+    if frp_token:
+        env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
 
     env_parts.extend([
         '-e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal"',
@@ -438,7 +438,7 @@ def _load_frp_token() -> str:
 
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str, frp_config: Optional[dict] = None,
+                       discord_webhook: str, frp_config: dict,
                        fast_mode: bool = True) -> Optional[int]:
     """Provision a Vast.ai instance. Returns instance ID or None."""
     env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
@@ -672,13 +672,13 @@ def parse_args():
 
 def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str, cost: str,
                                location: str, ssh_url: str, frp_domains: dict = None,
-                               workflow_status: str = "") -> bool:
-    """Send a provisioning success notification to Discord."""
+                               workflow_status: str = "", emoji: str = "🖥️", title: str = "Vast.ai Server Ready") -> bool:
+    """Send a notification to Discord."""
     if not webhook_url:
         return False
 
     lines = [
-        "🖥️ **Vast.ai Server Ready**",
+        f"{emoji} **{title}**",
         f"**Instance:** {instance_id} | **GPU:** {gpu_name} | **Cost:** {cost}",
         f"📍 {location}",
         f"🔑 SSH: `{ssh_url}`",
@@ -803,11 +803,13 @@ def main():
     log("📬", f"Discord Webhook: {'SET' if discord_webhook else 'MISSING'}")
 
     # Allocate FRP tunnel subdomain index
+    # FRP is MANDATORY — exit if allocation fails
     frp_config = allocate_frp_index(f"instance_{args.label}")
-    if frp_config:
-        log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={list(frp_config.get('custom_domains', {}).values())}")
-    else:
-        log("⚠️", "FRP allocation failed — will fall back to Cloudflare quick tunnels")
+    if not frp_config:
+        log("❌", "FRP allocation failed. FRP is mandatory — cannot provision without it.")
+        log("❌", "Ensure frp-allocate-port script is available at /usr/local/bin/frp-allocate-port")
+        sys.exit(1)
+    log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={frp_config.get('custom_domains', {})}")
 
     # Search offers
     offers = search_offers(profile, args.max_price)
@@ -906,20 +908,11 @@ def main():
                     log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
                     log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
 
-                # Wait for workflow model downloads to complete before notifying
-                if workflow_url and health_ok:
-                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
-                    if workflow_done:
-                        workflow_status = f"{args.workflow} ✅ models downloaded"
-                    else:
-                        workflow_status = f"{args.workflow} ⚠️ still downloading"
-                else:
-                    workflow_status = ""
-
                 info = get_instance_info(instance_id)
                 ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
                 ssh_url = ssh_url_result.get("stdout", "N/A")
 
+                # === Notification 1: Server Ready (immediate) ===
                 print("\n" + "=" * 80)
                 log("🎉", "SERVER READY!")
                 print("=" * 80)
@@ -929,28 +922,50 @@ def main():
                 print(f"  Location:     {best.country}")
                 print(f"  SSH:          {ssh_url}")
                 print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
-                if frp_config and frp_config.get("custom_domains"):
+                if frp_config.get("custom_domains"):
                     print("  FRP Tunnels:")
                     for service, url in frp_config["custom_domains"].items():
                         print(f"    {service}: {url}")
                 if workflow_url:
-                    if workflow_status:
-                        print(f"  Workflow:     {workflow_status}")
-                    else:
-                        print(f"  Workflow:     {args.workflow} (skipped wait)")
+                    print(f"  Workflow:     {args.workflow} (downloading in background)")
                 print("=" * 80)
-                # Send Discord notification
+
                 if discord_webhook:
-                    frp_domains = frp_config.get("custom_domains") if frp_config else None
+                    frp_domains = frp_config.get("custom_domains")
+                    workflow_note = f"{args.workflow} — models downloading in background" if workflow_url else ""
                     sent = send_discord_notification(
                         discord_webhook, instance_id, best.gpu_name,
                         f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
-                        workflow_status=workflow_status
+                        workflow_status=workflow_note,
+                        emoji="🟢", title="Server Ready"
                     )
                     if sent:
-                        log("📬", "Discord notification sent")
+                        log("📬", "Discord notification sent (Server Ready)")
                     else:
-                        log("⚠️", "Discord notification failed")
+                        log("⚠️", "Discord notification failed (Server Ready)")
+
+                # === Wait for workflow downloads, then Notification 2: Models Ready ===
+                if workflow_url and health_ok:
+                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
+                    if workflow_done:
+                        workflow_status = f"{args.workflow} ✅ models downloaded"
+                    else:
+                        workflow_status = f"{args.workflow} ⚠️ still downloading"
+                else:
+                    workflow_status = ""
+
+                if workflow_url and discord_webhook and workflow_status:
+                    sent2 = send_discord_notification(
+                        discord_webhook, instance_id, best.gpu_name,
+                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
+                        workflow_status=workflow_status,
+                        emoji="📦", title="Models Ready"
+                    )
+                    if sent2:
+                        log("📬", "Discord notification sent (Models Ready)")
+                    else:
+                        log("⚠️", "Discord notification failed (Models Ready)")
+
                 sys.exit(0)
             else:
                 log("❌", f"Instance {instance_id} did not reach running status")

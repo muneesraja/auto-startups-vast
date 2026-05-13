@@ -169,11 +169,16 @@ EOF
     if pgrep frpc > /dev/null; then
         echo "✅ frpc started (PID $(pgrep frpc))"
     else
-        echo "❌ frpc failed to start — check /var/log/frpc.log"
+        echo "❌ FRP client failed to start — check /var/log/frpc.log"
         cat /var/log/frpc.log
+        echo "FATAL: Without FRP tunnel, this instance cannot be accessed by users."
+        exit 1
     fi
 else
-    echo "No FRP_INDEX set — skipping FRP setup"
+    echo "❌ FATAL: FRP_INDEX not set. FRP tunneling is MANDATORY."
+    echo "   The provisioning script MUST pass FRP_INDEX via env vars."
+    echo "   Instance will NOT be usable without FRP URLs."
+    exit 1
 fi
 
 # =============================================================================
@@ -297,21 +302,18 @@ fi
 # =============================================================================
 
 INSTANCE_INFO="Instance: $(hostname)"
-FRP_STATUS=""
-if [ -n "$FRP_INDEX" ]; then
-    SUFFIX="${FRP_INDEX}"
-    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
-    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
+SUFFIX="${FRP_INDEX}"
+if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
+FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
 Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
 Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
-fi
 
 # --- Notification 1: Server Ready (ComfyUI up, SSH/FRP available) ---
 echo "=== [8/8] Notification 1: Server Ready ==="
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then
     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
-        -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n${FRP_STATUS}\\n\\nModels downloading in background...\"}" \
+        -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n\\n${FRP_STATUS}\\n\\n⏳ Models downloading in background...\"}" \
         > /dev/null 2>&1 || true
     echo "✅ Discord notification sent (Server Ready)"
 fi
@@ -348,13 +350,13 @@ if [ -n "$DISCORD_WEBHOOK_URL" ] && [ -n "$WORKFLOW_PID" ]; then
     if [ "$WORKFLOW_RESULT" = "✅" ]; then
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\nComfyUI: https://comfy${SUFFIX:-}.lxc.muneesraja.com\"}" \
+            -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\n\\n${FRP_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Ready)"
     else
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\nComfyUI: https://comfy${SUFFIX:-}.lxc.muneesraja.com\"}" \
+            -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\n\\n${FRP_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Issue)"
     fi
@@ -365,6 +367,6 @@ echo "  Fast Provisioning Complete!"
 echo "============================================"
 echo "  ComfyUI port: ${COMFY_PORT:-unknown}"
 echo "  Workspace: /workspace/ComfyUI"
-[ -n "$FRP_INDEX" ] && echo "  FRP tunnels: Active" || true
+echo "  FRP tunnels: Active"
 echo "  Logs: /workspace/workflow.log (if workflow set)"
 echo "============================================"
