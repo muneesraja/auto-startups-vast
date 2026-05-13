@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -669,6 +670,37 @@ def parse_args():
     return parser.parse_args()
 
 
+def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str, cost: str,
+                               location: str, ssh_url: str, frp_domains: dict = None) -> bool:
+    """Send a provisioning success notification to Discord."""
+    if not webhook_url:
+        return False
+
+    lines = [
+        "🖥️ **Vast.ai Server Ready**",
+        f"**Instance:** {instance_id} | **GPU:** {gpu_name} | **Cost:** {cost}",
+        f"📍 {location}",
+        f"🔑 SSH: `{ssh_url}`",
+    ]
+    if frp_domains:
+        for service, url in frp_domains.items():
+            lines.append(f"🔗 {service.capitalize()}: {url}")
+
+    payload = {"content": "\n".join(lines)}
+
+    try:
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 204
+    except Exception as e:
+        log("⚠️", f"Discord notification failed: {e}")
+        return False
+
+
 def main():
     args = parse_args()
     profile = GPU_PROFILES[args.gpu]
@@ -817,6 +849,17 @@ def main():
                 if workflow_url:
                     print(f"  Workflow:     {args.workflow} (downloading in background)")
                 print("=" * 80)
+                # Send Discord notification
+                if discord_webhook:
+                    frp_domains = frp_config.get("custom_domains") if frp_config else None
+                    sent = send_discord_notification(
+                        discord_webhook, instance_id, best.gpu_name,
+                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains
+                    )
+                    if sent:
+                        log("📬", "Discord notification sent")
+                    else:
+                        log("⚠️", "Discord notification failed")
                 sys.exit(0)
             else:
                 log("❌", f"Instance {instance_id} did not reach running status")
