@@ -672,13 +672,13 @@ def parse_args():
 
 def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str, cost: str,
                                location: str, ssh_url: str, frp_domains: dict = None,
-                               workflow_status: str = "") -> bool:
-    """Send a provisioning success notification to Discord."""
+                               workflow_status: str = "", emoji: str = "🖥️", title: str = "Vast.ai Server Ready") -> bool:
+    """Send a notification to Discord."""
     if not webhook_url:
         return False
 
     lines = [
-        "🖥️ **Vast.ai Server Ready**",
+        f"{emoji} **{title}**",
         f"**Instance:** {instance_id} | **GPU:** {gpu_name} | **Cost:** {cost}",
         f"📍 {location}",
         f"🔑 SSH: `{ssh_url}`",
@@ -906,20 +906,11 @@ def main():
                     log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
                     log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
 
-                # Wait for workflow model downloads to complete before notifying
-                if workflow_url and health_ok:
-                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
-                    if workflow_done:
-                        workflow_status = f"{args.workflow} ✅ models downloaded"
-                    else:
-                        workflow_status = f"{args.workflow} ⚠️ still downloading"
-                else:
-                    workflow_status = ""
-
                 info = get_instance_info(instance_id)
                 ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
                 ssh_url = ssh_url_result.get("stdout", "N/A")
 
+                # === Notification 1: Server Ready (immediate) ===
                 print("\n" + "=" * 80)
                 log("🎉", "SERVER READY!")
                 print("=" * 80)
@@ -934,23 +925,45 @@ def main():
                     for service, url in frp_config["custom_domains"].items():
                         print(f"    {service}: {url}")
                 if workflow_url:
-                    if workflow_status:
-                        print(f"  Workflow:     {workflow_status}")
-                    else:
-                        print(f"  Workflow:     {args.workflow} (skipped wait)")
+                    print(f"  Workflow:     {args.workflow} (downloading in background)")
                 print("=" * 80)
-                # Send Discord notification
+
                 if discord_webhook:
                     frp_domains = frp_config.get("custom_domains") if frp_config else None
+                    workflow_note = f"{args.workflow} — models downloading in background" if workflow_url else ""
                     sent = send_discord_notification(
                         discord_webhook, instance_id, best.gpu_name,
                         f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
-                        workflow_status=workflow_status
+                        workflow_status=workflow_note,
+                        emoji="🟢", title="Server Ready"
                     )
                     if sent:
-                        log("📬", "Discord notification sent")
+                        log("📬", "Discord notification sent (Server Ready)")
                     else:
-                        log("⚠️", "Discord notification failed")
+                        log("⚠️", "Discord notification failed (Server Ready)")
+
+                # === Wait for workflow downloads, then Notification 2: Models Ready ===
+                if workflow_url and health_ok:
+                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
+                    if workflow_done:
+                        workflow_status = f"{args.workflow} ✅ models downloaded"
+                    else:
+                        workflow_status = f"{args.workflow} ⚠️ still downloading"
+                else:
+                    workflow_status = ""
+
+                if workflow_url and discord_webhook and workflow_status:
+                    sent2 = send_discord_notification(
+                        discord_webhook, instance_id, best.gpu_name,
+                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
+                        workflow_status=workflow_status,
+                        emoji="📦", title="Models Ready"
+                    )
+                    if sent2:
+                        log("📬", "Discord notification sent (Models Ready)")
+                    else:
+                        log("⚠️", "Discord notification failed (Models Ready)")
+
                 sys.exit(0)
             else:
                 log("❌", f"Instance {instance_id} did not reach running status")

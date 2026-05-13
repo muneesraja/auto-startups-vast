@@ -252,11 +252,30 @@ else
 fi
 
 # =============================================================================
-# [8/8] Discord Notification & Summary
+# [8/8] Notifications — Server Ready + Models Ready
 # =============================================================================
-echo "=== [8/8] Notification ==="
 
-# If a workflow is downloading, wait for it to complete before notifying
+INSTANCE_INFO="Instance: $(hostname)"
+FRP_STATUS=""
+if [ -n "$FRP_INDEX" ]; then
+    SUFFIX="${FRP_INDEX}"
+    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
+    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
+Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
+Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
+fi
+
+# --- Notification 1: Server Ready (ComfyUI up, SSH/FRP available) ---
+echo "=== [8/8] Notification 1: Server Ready ==="
+if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+    curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+        -H "Content-Type: application/json" \
+        -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n${FRP_STATUS}\\n\\nModels downloading in background...\"}" \
+        > /dev/null 2>&1 || true
+    echo "✅ Discord notification sent (Server Ready)"
+fi
+
+# --- Wait for workflow downloads, then notify Models Ready ---
 if [ -n "$WORKFLOW_PID" ] && kill -0 "$WORKFLOW_PID" 2>/dev/null; then
     echo "⏳ Waiting for workflow download to complete (PID $WORKFLOW_PID)..."
     # Poll every 10s, show progress from log
@@ -274,27 +293,30 @@ if [ -n "$WORKFLOW_PID" ] && kill -0 "$WORKFLOW_PID" 2>/dev/null; then
     EXIT_CODE=$?
     if [ "$EXIT_CODE" -eq 0 ]; then
         echo "✅ Workflow download completed successfully"
+        WORKFLOW_RESULT="✅"
     else
         echo "⚠️ Workflow download exited with code $EXIT_CODE — check /workspace/workflow.log"
+        WORKFLOW_RESULT="⚠️"
     fi
+else
+    WORKFLOW_RESULT=""
 fi
 
-INSTANCE_INFO="Instance: $(hostname)"
-FRP_STATUS=""
-if [ -n "$FRP_INDEX" ]; then
-    SUFFIX="${FRP_INDEX}"
-    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
-    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
-Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
-Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
-fi
-
-if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-    curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-        -H "Content-Type: application/json" \
-        -d "{\"content\": \"🚀 **Server Ready**\\n\\n${INSTANCE_INFO}\\n${FRP_STATUS}\\n\\nFast provisioning complete!\"}" \
-        > /dev/null 2>&1 || true
-    echo "✅ Discord notification sent"
+# --- Notification 2: Models Ready ---
+if [ -n "$DISCORD_WEBHOOK_URL" ] && [ -n "$WORKFLOW_PID" ]; then
+    if [ "$WORKFLOW_RESULT" = "✅" ]; then
+        curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\nComfyUI: https://comfy${SUFFIX:-}.lxc.muneesraja.com\"}" \
+            > /dev/null 2>&1 || true
+        echo "✅ Discord notification sent (Models Ready)"
+    else
+        curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\nComfyUI: https://comfy${SUFFIX:-}.lxc.muneesraja.com\"}" \
+            > /dev/null 2>&1 || true
+        echo "✅ Discord notification sent (Models Issue)"
+    fi
 fi
 
 echo "============================================"

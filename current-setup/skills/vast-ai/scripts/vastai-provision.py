@@ -671,7 +671,8 @@ def parse_args():
 
 
 def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str, cost: str,
-                               location: str, ssh_url: str, frp_domains: dict = None) -> bool:
+                               location: str, ssh_url: str, frp_domains: dict = None,
+                               workflow_status: str = "") -> bool:
     """Send a provisioning success notification to Discord."""
     if not webhook_url:
         return False
@@ -685,6 +686,8 @@ def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str,
     if frp_domains:
         for service, url in frp_domains.items():
             lines.append(f"🔗 {service.capitalize()}: {url}")
+    if workflow_status:
+        lines.append(f"📦 Workflow: {workflow_status}")
 
     payload = {"content": "\n".join(lines)}
 
@@ -699,6 +702,80 @@ def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str,
     except Exception as e:
         log("⚠️", f"Discord notification failed: {e}")
         return False
+
+
+def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
+    """Wait for the onstart workflow script to finish downloading models via SSH.
+
+    Polls /workspace/workflow.log every 30s until it sees 'All downloads completed'
+    or 'Done!', or until timeout. Returns True if workflow completed successfully.
+    """
+    if not ssh_url or ssh_url == "N/A":
+        log("⚠️", "No SSH URL — skipping workflow wait")
+        return False
+
+    log("⏳", f"Waiting for workflow downloads to complete (timeout: {timeout}s)...")
+
+    # Parse SSH URL: ssh://root@host:port
+    import re
+    match = re.match(r'ssh://root@([^:]+):(\d+)', ssh_url)
+    if not match:
+        log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
+        return False
+
+    host, port = match.group(1), match.group(2)
+    ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {port} root@{host}"
+
+    elapsed = 0
+    interval = 30
+    while elapsed < timeout:
+        # Check if workflow process is still running
+        result = run_cmd(
+            f'{ssh_cmd} "ps aux | grep -v grep | grep \\"workflow.sh\\" | head -1"',
+            timeout=15
+        )
+        output = result.get("stdout", "").strip()
+
+        # Check the log for completion
+        log_result = run_cmd(
+            f'{ssh_cmd} "tail -5 /workspace/workflow.log 2>/dev/null"',
+            timeout=15
+        )
+        log_output = log_result.get("stdout", "").strip()
+
+        if "All downloads completed" in log_output or "Done!" in log_output:
+            log("✅", "Workflow downloads completed successfully")
+            return True
+
+        # Show progress
+        if log_output:
+            last_line = [l for l in log_output.split("\n") if l.strip()][-1]
+            log("📥", f"Workflow progress: {last_line}")
+        else:
+            log("📥", "Workflow log not yet available...")
+
+        # If no workflow process running, check log one more time
+        if not output:
+            log_result2 = run_cmd(
+                f'{ssh_cmd} "tail -5 /workspace/workflow.log 2>/dev/null"',
+                timeout=15
+            )
+            final_log = log_result2.get("stdout", "").strip()
+            if "All downloads completed" in final_log or "Done!" in final_log:
+                log("✅", "Workflow downloads completed successfully")
+                return True
+            if "error" in final_log.lower() or "failed" in final_log.lower():
+                log("⚠️", f"Workflow may have failed: {final_log[-200:]}")
+                return False
+            # No process and no completion marker — likely no workflow
+            log("ℹ️", "No workflow process running and no completion marker — assuming no workflow")
+            return True
+
+        time.sleep(interval)
+        elapsed += interval
+
+    log("⚠️", f"Workflow wait timed out after {timeout}s")
+    return False
 
 
 def main():
@@ -829,6 +906,16 @@ def main():
                     log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
                     log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
 
+                # Wait for workflow model downloads to complete before notifying
+                if workflow_url and health_ok:
+                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
+                    if workflow_done:
+                        workflow_status = f"{args.workflow} ✅ models downloaded"
+                    else:
+                        workflow_status = f"{args.workflow} ⚠️ still downloading"
+                else:
+                    workflow_status = ""
+
                 info = get_instance_info(instance_id)
                 ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
                 ssh_url = ssh_url_result.get("stdout", "N/A")
@@ -847,14 +934,18 @@ def main():
                     for service, url in frp_config["custom_domains"].items():
                         print(f"    {service}: {url}")
                 if workflow_url:
-                    print(f"  Workflow:     {args.workflow} (downloading in background)")
+                    if workflow_status:
+                        print(f"  Workflow:     {workflow_status}")
+                    else:
+                        print(f"  Workflow:     {args.workflow} (skipped wait)")
                 print("=" * 80)
                 # Send Discord notification
                 if discord_webhook:
                     frp_domains = frp_config.get("custom_domains") if frp_config else None
                     sent = send_discord_notification(
                         discord_webhook, instance_id, best.gpu_name,
-                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains
+                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
+                        workflow_status=workflow_status
                     )
                     if sent:
                         log("📬", "Discord notification sent")
