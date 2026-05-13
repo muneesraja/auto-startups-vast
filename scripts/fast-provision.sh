@@ -39,24 +39,32 @@ done
 # =============================================================================
 echo "=== [2/7] Workspace Setup ==="
 
+# Create /workspace if it doesn't exist
+mkdir -p /workspace
+
 # Create workspace symlink if needed
-if [ ! -d "/workspace/ComfyUI" ] && [ -d "/opt/workspace-internal/ComfyUI" ]; then
+if [ ! -e "/workspace/ComfyUI" ] && [ -d "/opt/workspace-internal/ComfyUI" ]; then
+    rm -rf /workspace/ComfyUI 2>/dev/null || true
     ln -sf /opt/workspace-internal/ComfyUI /workspace/ComfyUI
     echo "✅ Linked /opt/workspace-internal/ComfyUI -> /workspace/ComfyUI"
+elif [ -d "/opt/workspace-internal/ComfyUI" ]; then
+    echo "✅ ComfyUI already available at /workspace/ComfyUI"
 fi
 
-# Create portal config to enable services
+# Create portal config (indented format for grep compatibility)
 mkdir -p /etc/portal
 cat > /etc/portal.yaml << 'EOF'
-comfyui:
-  enabled: true
-  port: 18188
-jupyter:
-  enabled: true
-  port: 18080
-instance_portal:
-  enabled: true
-  port: 11111
+# Portal configuration
+services:
+  comfyui:
+    enabled: true
+    port: 18188
+  jupyter:
+    enabled: true
+    port: 18080
+  instance_portal:
+    enabled: true
+    port: 11111
 EOF
 echo "✅ Created /etc/portal.yaml"
 
@@ -96,6 +104,7 @@ if [ -n "$FRP_INDEX" ]; then
         curl -sL "https://github.com/fatedier/frp/releases/download/v0.68.1/frp_0.68.1_linux_${ARCH}.tar.gz" | tar xzf - -C /tmp
         mv "/tmp/frp_0.68.1_linux_${ARCH}/frpc" /usr/local/bin/frpc
         chmod +x /usr/local/bin/frpc
+        rm -rf "/tmp/frp_0.68.1_linux_${ARCH}"
         echo "✅ frpc installed"
     fi
     
@@ -174,18 +183,17 @@ else
 fi
 
 # =============================================================================
-# [6/7] Workflow Script
+# [6/7] Restart Services
 # =============================================================================
-echo "=== [6/7] Workflow Script ==="
+echo "=== [6/7] Restarting Services ==="
 
-if [ -n "$WORKFLOW_SCRIPT" ]; then
-    echo "Downloading workflow: $WORKFLOW_SCRIPT"
-    curl -sSL "$WORKFLOW_SCRIPT" -o /tmp/workflow.sh
-    chmod +x /tmp/workflow.sh
-    /tmp/workflow.sh > /var/log/workflow.log 2>&1 &
-    echo "✅ Workflow started in background"
-else
-    echo "No WORKFLOW_SCRIPT set — skipping"
+# Wait for portal.yaml to be read
+sleep 2
+
+# Restart supervisor services if available
+if command -v supervisorctl &> /dev/null; then
+    supervisorctl restart comfyui jupyter instance_portal 2>/dev/null || true
+    echo "✅ Services restarted"
 fi
 
 # =============================================================================
