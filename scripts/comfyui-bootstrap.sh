@@ -124,6 +124,11 @@ if [ -n "$WORKFLOW_SCRIPT" ]; then
   curl --fail -sSL "$WORKFLOW_SCRIPT" -o /workspace/workflow-setup.sh
   chmod +x /workspace/workflow-setup.sh
 
+  # Also fetch the shared HF download helper alongside the workflow script
+  WORKFLOW_BASE=$(dirname "$WORKFLOW_SCRIPT")
+  HF_HELPER_URL="${WORKFLOW_BASE}/hf_download.sh"
+  curl --fail -sSL "$HF_HELPER_URL" -o /workspace/hf_download.sh 2>/dev/null && chmod +x /workspace/hf_download.sh && echo "hf_download.sh helper downloaded" || echo "Warning: could not download hf_download.sh helper (${HF_HELPER_URL})"
+
   # Write workflow-completion webhook as a separate script with full retry/relay support
   # (tmux session runs in a subprocess — bake all needed values via sed)
   WEBHOOK_URL="${DISCORD_WEBHOOK_URL}"

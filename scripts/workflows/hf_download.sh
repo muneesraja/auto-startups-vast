@@ -11,6 +11,11 @@
 # =============================================================================
 set -euo pipefail
 
+# Activate ComfyUI venv if available (hf/huggingface_hub need torch)
+for VENV in /venv/main/bin/activate /workspace/ComfyUI/.venv-cu128/bin/activate; do
+  [ -f "$VENV" ] && source "$VENV" && break
+done
+
 # Load HF token from shared config
 HF_TOKEN=""
 for TOKEN_PATH in /root/config/token.json /workspace/config/token.json; do
