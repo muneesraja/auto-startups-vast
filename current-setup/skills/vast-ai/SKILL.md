@@ -80,8 +80,10 @@ If the script is broken or unavailable, follow these steps manually:
 
 ### 1. Search offers
 ```bash
-vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.25 cuda_max_good>=12.9 rented=False' -o 'dph+' --limit 10
+vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.25 cuda_max_good>=12.7 driver_version>=560.0.0 rented=False' -o 'dph+' --limit 10
 ```
+
+**Note:** `driver_version>=560.0.0` filters out hosts with old NVIDIA drivers that can't run CUDA 12.9.
 
 ### 2. Confirm with user
 Present cheapest valid offer, ask permission to spend money. **DO NOT PROCEED WITHOUT YES.**
@@ -116,3 +118,4 @@ SSH: `vastai ssh-url <ID>` | Portal: `https://cloud.vast.ai/instances/<ID>`
 | File | When to use |
 |------|-------------|
 | `references/china-host-download-speed.md` | China host download slowdowns, HF CLI vs aria2c benchmarks, hf-mirror.com mitigation |
+| `references/driver-version-requirements.md` | NVIDIA driver version filtering to avoid CUDA errors on old drivers |
