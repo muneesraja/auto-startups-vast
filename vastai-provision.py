@@ -101,6 +101,10 @@ WORKFLOW_ALIASES = {
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HF_TOKEN_PATH = "/root/config/token.json"
 FAILED_HOSTS_PATH = "/root/.hermes/skills/vast-ai/scripts/failed_hosts.json"
+FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
+FRP_SERVER_ADDR = "159.195.52.130"
+FRP_SERVER_PORT = 7000
+# FRP token loaded from VPS config
 
 # =============================================================================
 # Helpers
@@ -151,6 +155,21 @@ def load_failed_hosts() -> dict:
         with open(FAILED_HOSTS_PATH) as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def allocate_frp_index(label: str) -> dict:
+    """Allocate an FRP subdomain index for a new GPU instance.
+    Returns dict with index, domains, and frpc config template.
+    """
+    result = run_cmd(f"{FRP_ALLOCATE_SCRIPT} allocate '{label}'", timeout=10)
+    if result["code"] != 0:
+        log("⚠️", f"FRP allocation failed: {result['stderr']}")
+        return {}
+    try:
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        log("⚠️", f"Failed to parse FRP allocation response: {result['stdout']}")
         return {}
 
 
@@ -352,7 +371,8 @@ def get_workflow_size(workflow_name: str) -> float:
     return 0
 
 
-def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, discord_webhook: str) -> str:
+def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, 
+                           discord_webhook: str, frp_config: Optional[dict] = None) -> str:
     """Build the --env string for vastai create instance."""
     docker_image = profile["docker_image"]
 
@@ -371,6 +391,16 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     if workflow_url:
         env_parts.append(f'-e WORKFLOW_SCRIPT="{workflow_url}"')
 
+    # FRP tunneling configuration (self-hosted alternative to Cloudflare)
+    if frp_config:
+        env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
+        env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
+        env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
+        # Read FRP token from VPS config
+        frp_token = _load_frp_token()
+        if frp_token:
+            env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
+
     env_parts.extend([
         '-e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal"',
         '-e OPEN_BUTTON_PORT="1111"',
@@ -382,11 +412,26 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     return " ".join(env_parts)
 
 
+def _load_frp_token() -> str:
+    """Load FRP token from VPS config."""
+    try:
+        with open("/etc/frp/frps.toml") as f:
+            for line in f:
+                if 'auth.token' in line:
+                    # Parse: auth.token = "value" or auth.token = 'value'
+                    match = re.search(r'auth\.token\s*=\s*["\']?([^"\'\s]+)', line)
+                    if match:
+                        return match.group(1)
+    except (FileNotFoundError, IOError):
+        pass
+    return ""
+
+
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str) -> Optional[int]:
+                       discord_webhook: str, frp_config: Optional[dict] = None) -> Optional[int]:
     """Provision a Vast.ai instance. Returns instance ID or None."""
-    env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook)
+    env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
 
     disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))  # Use 80% of available disk
 
@@ -548,6 +593,13 @@ def main():
     log("🔑", f"HF Token: {'SET' if hf_token else 'MISSING'}")
     log("📬", f"Discord Webhook: {'SET' if discord_webhook else 'MISSING'}")
 
+    # Allocate FRP tunnel subdomain index
+    frp_config = allocate_frp_index(f"instance_{args.label}")
+    if frp_config:
+        log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={list(frp_config.get('custom_domains', {}).values())}")
+    else:
+        log("⚠️", "FRP allocation failed — will fall back to Cloudflare quick tunnels")
+
     # Search offers
     offers = search_offers(profile, args.max_price)
     if not offers:
@@ -621,6 +673,7 @@ def main():
             workflow_url=workflow_url,
             hf_token=hf_token,
             discord_webhook=discord_webhook,
+            frp_config=frp_config,
         )
 
         if not instance_id:
@@ -648,6 +701,10 @@ def main():
                 print(f"  Location:     {best.country}")
                 print(f"  SSH:          {ssh_url}")
                 print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
+                if frp_config and frp_config.get("custom_domains"):
+                    print("  FRP Tunnels:")
+                    for service, url in frp_config["custom_domains"].items():
+                        print(f"    {service}: {url}")
                 if workflow_url:
                     print(f"  Workflow:     {args.workflow} (downloading in background)")
                 print("=" * 80)
