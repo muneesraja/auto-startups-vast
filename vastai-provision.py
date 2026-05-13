@@ -43,6 +43,7 @@ GPU_PROFILES = {
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
         "cuda_min": 12.7,           # cuda-12.9 image works on 12.7+ drivers
+        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9 (see references/driver-version-requirements.md)
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
@@ -59,6 +60,7 @@ GPU_PROFILES = {
         "min_cpu_cores": 2,
         "min_reliability": 0.95,
         "cuda_min": 12.7,
+        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9
         "max_price_hr": 0.50,       # Relaxed from 0.40
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
@@ -249,12 +251,15 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
     failed_hosts = load_failed_hosts()
 
     # Build search query — start broad, we filter in Python
+    # Include driver_version filter to avoid hosts with outdated CUDA drivers
+    driver_min = profile.get("driver_min", "560.0.0")  # Default: CUDA 12.9 compatible
     query = (
         f"gpu_name={profile['name']} "
         f"num_gpus={profile['num_gpus']} "
         f"rented=False "
         f"dph<={price + 0.10} "  # Slightly above max to catch borderline offers
-        f"cuda_max_good>={profile['cuda_min'] - 0.5}"  # Slightly below to catch borderline
+        f"cuda_max_good>={profile['cuda_min'] - 0.5} "  # Slightly below to catch borderline
+        f"driver_version>={driver_min}"  # Filter out hosts with old drivers
     )
 
     log("🔍", f"Searching offers: {query}")
