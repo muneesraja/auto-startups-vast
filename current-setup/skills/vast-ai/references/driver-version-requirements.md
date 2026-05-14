@@ -11,18 +11,45 @@ RuntimeError: Unexpected error from cudaGetDeviceCount(). Did you run some cuda 
 
 ## Driver vs CUDA Compatibility
 
-| Driver Version | CUDA Support | Hardware Support |
-|----------------|--------------|------------------|
-| 525.x | CUDA 12.0 | RTX 30/40 series |
-| 535.x | CUDA 12.2 | RTX 30/40 series |
-| 550.x | CUDA 12.4 | RTX 30/40 series |
-| 560.x | CUDA 12.6 | RTX 30/40 series |
-| 570.x | CUDA 12.8 | RTX 30/40 series |
-| 580.x | CUDA 13.0 | RTX 40/50 series |
+| Driver Version | CUDA Support | Hardware Support | Notes |
+|----------------|--------------|------------------|-------|
+| 525.x | CUDA 12.0 | RTX 30/40 series | ❌ Too old for CUDA 12.9 |
+| 535.x | CUDA 12.2 | RTX 30/40 series | ❌ Too old for CUDA 12.9 |
+| 550.x | CUDA 12.4 | RTX 30/40 series | ❌ Too old for CUDA 12.9 |
+| 560.x | CUDA 12.6 | RTX 30/40 series | ❌ Too old - fails with CUDA 12.9 |
+| 565.x | CUDA 12.7 | RTX 30/40 series | ⚠️ May work - test needed |
+| 570.x | CUDA 12.8 | RTX 30/40 series | ✅ Works (may need compat lib fix) |
+| 580.x | CUDA 13.0 | RTX 40/50 series | ✅ **RECOMMENDED** - native support |
+| 590.x | CUDA 13.1 | RTX 40/50 series | ✅ Native support |
 
 **For CUDA 12.9 (vastai/comfy:v0.20.1):**
-- Minimum driver: **560.0.0** (CUDA 12.6 with forward compatibility)
-- Recommended: **570.x+** (full CUDA 12.9 support)
+- Minimum driver: **570.0.0** (CUDA 12.8 + forward compat layer)
+- Recommended: **580.x+** (CUDA 13.0 native - NO WORKAROUND NEEDED)
+- Avoid: **≤565.x** (compat layer conflicts with CUDA 12.9)
+- If driver 570.x fails with CUDA Error 804: remove compat libs: `rm -f /usr/local/cuda-12.9/compat/libcuda.so* && ldconfig`
+
+## CUDA Version Filter
+
+Vast.ai exposes `cuda_max_good` in offers — this is the **GPU hardware capability**, NOT the driver's supported CUDA version.
+
+```bash
+# ❌ WRONG - cuda_max_good is hardware capability, not driver version
+vastai search offers 'cuda_max_good>=12.9'  # Doesn't filter driver!
+
+# ✅ CORRECT - filter by driver version
+vastai search offers 'driver_version>=570.0.0'
+```
+
+**Critical distinction:**
+- `driver_version` — actual NVIDIA driver on host ("580.126.09")
+- `cuda_max_good` — GPU hardware capability (3090 shows 12.8 or 13.0)
+- A host can have `cuda_max_good: 13.0` (GPU capability) but `driver_version: 525.x` (only supports CUDA 12.0)
+
+**Search filter for CUDA 12.9 image:**
+```bash
+# Both filters needed for safety
+vastai search offers 'gpu_name=RTX_3090 driver_version>=570.0.0 cuda_max_good>=12.8'
+```
 
 ## Vast.ai Search Filter
 

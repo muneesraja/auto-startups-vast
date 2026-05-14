@@ -43,13 +43,13 @@ GPU_PROFILES = {
         "min_inet_up_mbps": 200,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
-        "cuda_min": 12.7,           # cuda-12.9 image works on 12.7+ drivers
-        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9 (see references/driver-version-requirements.md)
+        "cuda_min": 12.8,           # cuda-12.9 image requires CUDA 12.8+ hardware capability
+        "driver_min": "570.0.0",    # NV driver 570+ REQUIRED for CUDA 12.9 (560/565 fail with Error 804)
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
         "skip_countries": ["CN"],    # China — slow HF downloads
-        "notes": "32GB system RAM is fine for ComfyUI. CUDA 12.9 image works with NV driver 565+",
+        "notes": "32GB system RAM is fine for ComfyUI. Driver 580.x preferred (native CUDA 13.0). Driver 570.x works but may need compat lib fix.",
     },
     "4090": {
         "name": "RTX_4090",
@@ -60,8 +60,8 @@ GPU_PROFILES = {
         "min_inet_up_mbps": 200,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,
-        "cuda_min": 12.7,
-        "driver_min": "560.0.0",    # NV driver 560+ required for CUDA 12.9
+        "cuda_min": 12.8,
+        "driver_min": "570.0.0",    # NV driver 570+ REQUIRED for CUDA 12.9
         "max_price_hr": 0.50,       # Relaxed from 0.40
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
@@ -239,6 +239,19 @@ class Offer:
         if self.cuda_max_good < profile["cuda_min"]:
             issues.append(f"CUDA {self.cuda_max_good} < {profile['cuda_min']}")
 
+        # Driver version check (570.0.0+ required for CUDA 12.9)
+        driver_min = profile.get("driver_min", "570.0.0")
+        if self.nv_driver and self.nv_driver != "Unknown":
+            # Parse driver version (e.g., "580.126.09" -> [580, 126, 9])
+            try:
+                parts = [int(x) for x in self.nv_driver.split(".")]
+                min_parts = [int(x) for x in driver_min.split(".")]
+                # Compare major version
+                if parts[0] < min_parts[0]:
+                    issues.append(f"Driver {self.nv_driver} < {driver_min} (CUDA 12.9 incompatible)")
+            except (ValueError, IndexError):
+                pass  # Unknown format, skip check
+
         # Country skip
         for skip in profile.get("skip_countries", []):
             if skip.lower() in (self.country or "").lower():
@@ -255,7 +268,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
 
     # Build search query — start broad, we filter in Python
     # Include driver_version filter to avoid hosts with outdated CUDA drivers
-    driver_min = profile.get("driver_min", "560.0.0")  # Default: CUDA 12.9 compatible
+    driver_min = profile.get("driver_min", "570.0.0")  # Default: driver 570+ for CUDA 12.9
     query = (
         f"gpu_name={profile['name']} "
         f"num_gpus={profile['num_gpus']} "

@@ -80,10 +80,10 @@ If the script is broken or unavailable, follow these steps manually:
 
 ### 1. Search offers
 ```bash
-vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.25 cuda_max_good>=12.7 driver_version>=560.0.0 rented=False' -o 'dph+' --limit 10
+vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.25 cuda_max_good>=12.8 driver_version>=570.0.0 rented=False' -o 'dph+' --limit 10
 ```
 
-**Note:** `driver_version>=560.0.0` filters out hosts with old NVIDIA drivers that can't run CUDA 12.9.
+**Note:** `driver_version>=570.0.0` filters out hosts with drivers that fail CUDA 12.9 (Error 804). Drivers 560.x-565.x have compat lib conflicts. Driver 580.x+ preferred (native CUDA 13.0).
 
 ### 2. Confirm with user
 Present cheapest valid offer, ask permission to spend money. **DO NOT PROCEED WITHOUT YES.**
