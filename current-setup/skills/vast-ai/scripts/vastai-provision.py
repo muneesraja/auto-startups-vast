@@ -19,7 +19,6 @@ Options:
 """
 
 import argparse
-import ast
 import json
 import os
 import re
@@ -30,6 +29,12 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+# Vast.ai Python SDK — pip install vastai>=0.4.0
+from vastai import VastAI
+
+# Optional: enable SDK request/response tracing
+SDK_EXPLAIN = os.environ.get("VAST_SDK_EXPLAIN", "").lower() in ("1", "true", "yes")
 
 
 def _load_dotenv():
@@ -53,6 +58,19 @@ def _load_dotenv():
 _load_dotenv()
 
 # =============================================================================
+# SDK Client — initialized after dotenv so VAST_API_KEY is available
+# =============================================================================
+
+VAST_API_KEY = os.environ.get("VAST_API_KEY", "")
+# raw=True ensures all methods return plain dicts/lists rather than formatted text
+# explain=True (via VAST_SDK_EXPLAIN=1 env var) prints every request/response for debugging
+vast = VastAI(
+    api_key=VAST_API_KEY if VAST_API_KEY else None,
+    raw=True,
+    explain=SDK_EXPLAIN,
+)
+
+# =============================================================================
 # GPU Profiles
 # =============================================================================
 
@@ -62,8 +80,8 @@ GPU_PROFILES = {
         "num_gpus": 1,
         "min_ram_gb": 24,           # VRAM is bottleneck, not system RAM
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 500,  # 500 Mbps min — critical for 25GB+ model downloads
-        "min_inet_up_mbps": 500,
+        "min_inet_down_mbps": 400,  # 400 Mbps min — still good for 25GB+ model downloads
+        "min_inet_up_mbps": 300,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
         "cuda_min": 12.8,           # cuda-12.9 image requires CUDA 12.8+ hardware capability
@@ -71,7 +89,7 @@ GPU_PROFILES = {
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
-        "skip_countries": ["CN"],    # China — slow HF downloads
+        "skip_countries": [],        # No country exclusions
         "notes": "32GB system RAM is fine for ComfyUI. Driver 580.x preferred (native CUDA 13.0). Driver 570.x works but may need compat lib fix.",
     },
     "4090": {
@@ -79,8 +97,8 @@ GPU_PROFILES = {
         "num_gpus": 1,
         "min_ram_gb": 24,
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 500,
-        "min_inet_up_mbps": 500,
+        "min_inet_down_mbps": 400,
+        "min_inet_up_mbps": 300,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,
         "cuda_min": 12.8,
@@ -88,7 +106,7 @@ GPU_PROFILES = {
         "max_price_hr": 0.50,       # Relaxed from 0.40
         "max_inet_down_cost_tb": 0.05,
         "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
-        "skip_countries": ["CN"],
+        "skip_countries": [],
         "notes": "4090 has 24GB VRAM, better perf/$ than 3090 for many workloads",
     },
 }
@@ -191,12 +209,110 @@ def load_discord_webhook() -> str:
 
 
 def load_failed_hosts() -> dict:
-    """Load failed hosts tracker. Returns {host_id: last_failure_timestamp}."""
+    """Load failed hosts tracker.
+    Returns dict with host_id -> {timestamp, count, permanent, last_error}.
+    Backward-compatible with old {host_id: timestamp} format.
+    """
     try:
         with open(FAILED_HOSTS_PATH) as f:
-            return json.load(f)
+            data = json.load(f)
+            # Migrate old flat format to new structured format
+            migrated = {}
+            for host_id, value in data.items():
+                if isinstance(value, (int, float)):
+                    migrated[host_id] = {
+                        "timestamp": value,
+                        "count": 1,
+                        "permanent": False,
+                        "last_error": "",
+                    }
+                elif isinstance(value, dict):
+                    migrated[host_id] = value
+            return migrated
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def classify_host_failure(instance_info: dict) -> tuple[str, bool]:
+    """Classify why an instance failed. Returns (reason_code, is_permanent).
+    Permanent failures mean the host itself is broken and will never work.
+    Transient failures may succeed on a different day/offer.
+    """
+    status_msg = str(instance_info.get("status_msg", "")).lower()
+    actual_status = str(instance_info.get("actual_status", "")).lower()
+
+    # Permanent host failures — these will happen every time on this host
+    permanent_patterns = [
+        ("cdi device", "CDI GPU injection failure — host NVIDIA runtime broken"),
+        ("oci runtime", "OCI runtime failure — container spec invalid"),
+        ("failed to start containers", "Docker daemon permanently broken"),
+        ("no such container", "Docker daemon failure — container never created"),
+        ("kaalia", "Host agent (kaalia) broken"),
+        ("nvidia-smi", "NVIDIA driver/CUDA incompatibility"),
+        ("cuda error 804", "CUDA Error 804 — driver too old"),
+        ("insufficient resources", "Host has insufficient GPU resources"),
+    ]
+
+    for pattern, description in permanent_patterns:
+        if pattern in status_msg:
+            return (description, True)
+
+    # Docker image pull timeout — may succeed later
+    if "pull" in status_msg and ("timeout" in status_msg or "deadline" in status_msg):
+        return ("Docker image pull timeout — may succeed later", False)
+
+    # Generic loading timeout — may be network congestion
+    if actual_status == "loading" and not status_msg:
+        return ("Instance stuck loading — possible slow network/host", False)
+
+    # Unknown/uncategorized
+    return (f"Unknown failure: {status_msg[:100]}", False)
+
+
+def save_failed_host(host_id: int, instance_info: dict = None):
+    """Record a host as failed. If instance_info provided, classify the failure."""
+    failed = load_failed_hosts()
+    host_id_str = str(host_id)
+    now = time.time()
+
+    # Classify if we have instance info
+    reason = "Unknown"
+    permanent = False
+    if instance_info:
+        reason, permanent = classify_host_failure(instance_info)
+
+    if host_id_str in failed:
+        # Increment failure count
+        failed[host_id_str]["count"] = failed[host_id_str].get("count", 1) + 1
+        failed[host_id_str]["timestamp"] = now
+        failed[host_id_str]["last_error"] = reason
+        # Once marked permanent, always permanent
+        if permanent:
+            failed[host_id_str]["permanent"] = True
+    else:
+        failed[host_id_str] = {
+            "timestamp": now,
+            "count": 1,
+            "permanent": permanent,
+            "last_error": reason,
+        }
+
+    # Clean up transient entries older than 24 hours (keep permanent forever)
+    cutoff = now - 86400
+    cleaned = {}
+    for hid, record in failed.items():
+        if record.get("permanent", False):
+            cleaned[hid] = record
+        elif record.get("timestamp", 0) > cutoff:
+            cleaned[hid] = record
+
+    with open(FAILED_HOSTS_PATH, "w") as f:
+        json.dump(cleaned, f, indent=2)
+
+    if permanent:
+        log("🚫", f"Host {host_id} PERMANENTLY blacklisted: {reason}")
+    else:
+        log("📝", f"Host {host_id} marked as failed (skipped for 24h): {reason}")
 
 
 def allocate_frp_index(label: str) -> dict:
@@ -212,18 +328,6 @@ def allocate_frp_index(label: str) -> dict:
     except json.JSONDecodeError:
         log("⚠️", f"Failed to parse FRP allocation response: {result['stdout']}")
         return {}
-
-
-def save_failed_host(host_id: int):
-    """Record a host as failed."""
-    failed = load_failed_hosts()
-    failed[str(host_id)] = time.time()
-    # Clean up entries older than 24 hours
-    cutoff = time.time() - 86400
-    failed = {k: v for k, v in failed.items() if v > cutoff}
-    with open(FAILED_HOSTS_PATH, "w") as f:
-        json.dump(failed, f, indent=2)
-    log("📝", f"Host {host_id} marked as failed (will be skipped for 24h)")
 
 
 # =============================================================================
@@ -259,9 +363,9 @@ class Offer:
         """Check if offer meets GPU profile requirements. Returns (ok, reasons)."""
         issues = []
 
-        if self.ram_gb < profile["min_ram_gb"]:
+        if self.ram_gb <= profile["min_ram_gb"]:
             issues.append(f"RAM {self.ram_gb:.0f}GB < {profile['min_ram_gb']}GB")
-        if self.disk_gb < profile["min_disk_gb"]:
+        if self.disk_gb <= profile["min_disk_gb"]:
             issues.append(f"Disk {self.disk_gb:.0f}GB < {profile['min_disk_gb']}GB")
         if self.inet_down_mbps < profile["min_inet_down_mbps"]:
             issues.append(f"Download {self.inet_down_mbps:.0f}Mbps < {profile['min_inet_down_mbps']}Mbps")
@@ -297,16 +401,15 @@ class Offer:
 
 
 def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offer]:
-    """Search Vast.ai for offers matching GPU profile.
-    
-    Always searches both verified and unverified hosts (via -n flag).
-    Ranking handles preference (unverified preferred by default).
+    """Search Vast.ai for offers matching GPU profile using the Python SDK.
+
+    Uses no_default=True to mirror the CLI -n flag behaviour — returns both
+    verified and unverified hosts. Ranking then handles preference.
     """
     price = max_price or profile["max_price_hr"]
     failed_hosts = load_failed_hosts()
 
-    # Build search query — filter at API level to avoid fetching unsuitable hosts
-    # -n flag disables default 'verified=true', so we get both verified + unverified
+    # Build query string — the SDK accepts the same syntax as the CLI
     driver_min = profile.get("driver_min", "570.0.0")
     min_inet = profile.get("min_inet_down_mbps", 500)
     query = (
@@ -320,30 +423,43 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
         f"inet_up>={min_inet}"
     )
 
-    log("🔍", f"Searching offers: {query}")
-    result = run_cmd(f"vastai search offers -n '{query}' --raw -o 'dph+' --limit 30", timeout=30)
-
-    if result["code"] != 0:
-        log("❌", f"Search failed: {result['stderr']}")
+    log("🔍", f"Searching offers via SDK: {query}")
+    try:
+        # no_default=True → skip verified=True default (mirrors CLI -n flag)
+        # order="dph_total" → cheapest first
+        raw_data = vast.search_offers(
+            query=query,
+            no_default=True,
+            order="dph_total",
+            limit=30,
+        )
+    except Exception as e:
+        log("❌", f"SDK search_offers failed: {e}")
         return []
 
-    try:
-        raw_data = json.loads(result["stdout"])
-    except json.JSONDecodeError:
-        log("❌", f"Failed to parse search results")
+    if not isinstance(raw_data, list):
+        log("❌", f"Unexpected search result type: {type(raw_data)}")
         return []
 
     offers = []
     skipped_failed = 0
+    now = time.time()
     for o in raw_data:
         try:
-            # Skip failed hosts
             host_id = int(o.get("host_id", 0))
-            if str(host_id) in failed_hosts:
-                skipped_failed += 1
-                continue
+            host_id_str = str(host_id)
+            if host_id_str in failed_hosts:
+                record = failed_hosts[host_id_str]
+                # Permanent blacklists are forever
+                if record.get("permanent", False):
+                    skipped_failed += 1
+                    continue
+                # Transient failures expire after 24 hours
+                if record.get("timestamp", 0) > (now - 86400):
+                    skipped_failed += 1
+                    continue
 
-            ram = o.get("gpu_ram", 0)
+            ram = o.get("cpu_ram", 0)
             if isinstance(ram, (int, float)) and ram > 1000:
                 ram = ram / 1024  # MB to GB
 
@@ -358,7 +474,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
                 dph_total=float(o.get("dph_total", 0)),
                 inet_down_mbps=float(o.get("inet_down", 0)),
                 inet_up_mbps=float(o.get("inet_up", 0)),
-                reliability=float(o.get("reliability", 0)) * 100,  # API returns 0-1, convert to 0-100%
+                reliability=float(o.get("reliability", 0)) * 100,  # API returns 0-1
                 inet_down_cost_gb=float(o.get("inet_down_cost", 0)),
                 inet_up_cost_gb=float(o.get("inet_up_cost", 0)),
                 country=o.get("geolocation", "Unknown"),
@@ -366,7 +482,7 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
                 nv_driver=o.get("driver_version", "Unknown"),
                 _is_verified=o.get("verification") in ("verified", "deverified"),
             ))
-        except (KeyError, ValueError, TypeError) as e:
+        except (KeyError, ValueError, TypeError):
             continue  # Skip malformed offers
 
     if skipped_failed > 0:
@@ -440,45 +556,46 @@ def get_workflow_size(workflow_name: str) -> float:
     return 0
 
 
-def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, 
-                           discord_webhook: str, frp_config: Optional[dict] = None) -> str:
-    """Build the --env string for vastai create instance."""
-    env_parts = [
-        "-p 8188:8188",
-        '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header --listen 0.0.0.0"',
-        f'-e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/{WORKFLOWS_REPO}/{WORKFLOWS_BRANCH}/scripts/comfyui-bootstrap.sh"',
-    ]
+def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str,
+                           discord_webhook: str, frp_config: Optional[dict] = None) -> dict:
+    """Build the env dict for vast.create_instance().
+
+    Returns a plain {KEY: VALUE} dict. The SDK's create_instance() accepts
+    this directly as its `env` parameter — no shell escaping needed.
+    Note: port mapping (-p 8188:8188) is handled by the Docker image and the
+    --direct flag (passed via extra={"direct": True} in provision_instance).
+    """
+    env = {
+        "COMFYUI_ARGS": "--disable-auto-launch --port 18188 --enable-cors-header --listen 0.0.0.0",
+        "PROVISIONING_SCRIPT": f"https://raw.githubusercontent.com/{WORKFLOWS_REPO}/{WORKFLOWS_BRANCH}/scripts/comfyui-bootstrap.sh",
+        "PORTAL_CONFIG": "localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal",
+        "OPEN_BUTTON_PORT": "1111",
+        "JUPYTER_DIR": "/",
+        "DATA_DIRECTORY": "/workspace/",
+        "OPEN_BUTTON_TOKEN": "1",
+    }
 
     if discord_webhook:
-        env_parts.append(f'-e DISCORD_WEBHOOK_URL="{discord_webhook}"')
+        env["DISCORD_WEBHOOK_URL"] = discord_webhook
 
     if hf_token:
-        env_parts.append(f'-e HF_TOKEN="{hf_token}"')
+        env["HF_TOKEN"] = hf_token
 
     if workflow_url:
-        env_parts.append(f'-e WORKFLOW_SCRIPT="{workflow_url}"')
+        env["WORKFLOW_SCRIPT"] = workflow_url
 
-    # FRP tunneling configuration — OPTIONAL
-    # Falls back to Cloudflare quick tunnels if FRP is not available
+    # FRP tunneling — OPTIONAL, falls back to Cloudflare quick tunnels
     if frp_config:
-        env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
-        env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
-        env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
+        env["FRP_INDEX"] = str(frp_config.get("index", 0))
+        env["FRP_SERVER_ADDR"] = FRP_SERVER_ADDR
+        env["FRP_SERVER_PORT"] = str(FRP_SERVER_PORT)
         frp_token = _load_frp_token()
         if frp_token:
-            env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
+            env["FRP_TOKEN"] = frp_token
     else:
         log("⚠️", "No FRP config — instance will use Cloudflare quick tunnels")
 
-    env_parts.extend([
-        '-e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal"',
-        '-e OPEN_BUTTON_PORT="1111"',
-        '-e JUPYTER_DIR="/"',
-        '-e DATA_DIRECTORY="/workspace/"',
-        '-e OPEN_BUTTON_TOKEN="1"',
-    ])
-
-    return " ".join(env_parts)
+    return env
 
 
 def _load_frp_token() -> str:
@@ -499,91 +616,215 @@ def _load_frp_token() -> str:
     return ""
 
 
+def _build_onstart_cmd(fast_mode: bool) -> str:
+    """Return the onstart command string."""
+    if fast_mode:
+        return f"curl -sSL '{FAST_PROVISION_URL}' | bash"
+    return "entrypoint.sh"
+
+
+def provision_instance_launch(
+    profile: dict,
+    label: str,
+    workflow_url: Optional[str],
+    hf_token: str,
+    discord_webhook: str,
+    frp_config: Optional[dict] = None,
+    fast_mode: bool = True,
+    max_price: Optional[float] = None,
+) -> tuple[Optional[int], Optional[Offer]]:
+    """Atomic search-and-provision using launch_instance API.
+
+    Uses the /launch_instance/ endpoint which searches and creates in a single
+    API call, eliminating the race condition between search and create that
+    causes 400 Bad Request (offer no longer available).
+
+    Returns (instance_id, offer_used) or (None, None).
+    """
+    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    disk = profile["min_disk_gb"]
+    onstart_cmd = _build_onstart_cmd(fast_mode)
+
+    if fast_mode:
+        log("⚡", "Using FAST provisioning mode (atomic launch)")
+    else:
+        log("🐢", "Using SLOW image provisioner (atomic launch)")
+
+    # Build a query dict matching our search filters so launch_instance
+    # internally finds the same quality hosts we would have picked manually.
+    price = max_price or profile["max_price_hr"]
+    driver_min = profile.get("driver_min", "570.0.0")
+    min_inet = profile.get("min_inet_down_mbps", 400)
+    query_str = (
+        f"gpu_name={profile['name']} "
+        f"num_gpus={profile['num_gpus']} "
+        f"rented=False "
+        f"dph<={price + 0.10} "
+        f"cuda_max_good>={profile['cuda_min'] - 0.5} "
+        f"driver_version>={driver_min} "
+        f"inet_down>={min_inet} "
+        f"inet_up>={min_inet}"
+    )
+
+    log("🚀", f"Atomic launch via SDK: {profile['name']} ≤ ${price:.2f}/hr")
+
+    try:
+        data = vast.launch_instance(
+            gpu_name=profile["name"],
+            num_gpus=str(profile["num_gpus"]),
+            image=profile["docker_image"],
+            disk=disk,
+            env=env_dict,
+            label=label,
+            onstart_cmd=onstart_cmd,
+            cancel_unavail=True,
+            runtype="ssh",
+            jupyter_lab=True,
+            jupyter_dir="/",
+            extra="-p 8188:8188",
+            order="dph_total",
+            limit=5,
+        )
+    except Exception as e:
+        error_text = str(e)
+        api_error = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                resp_json = e.response.json()
+                api_error = resp_json.get("msg", resp_json.get("error", ""))
+            except Exception:
+                api_error = e.response.text[:200]
+
+        if "no_such_ask" in error_text.lower() or "not available" in (api_error or "").lower():
+            log("⚠️", f"Atomic launch: no offers available — falling back to manual search")
+        elif "insufficient" in (api_error or "").lower():
+            log("🚫", f"Atomic launch: insufficient resources — {api_error[:100]}")
+        else:
+            log("❌", f"Atomic launch failed: {error_text}")
+            if api_error:
+                log("📋", f"API detail: {api_error[:200]}")
+        return None, None
+
+    if not isinstance(data, dict):
+        log("❌", f"Unexpected launch_instance response type: {type(data)}")
+        return None, None
+
+    instance_id = data.get("new_contract")
+    if instance_id:
+        if not data.get("success"):
+            log("⚠️", "API returned success=False but instance was created (known API quirk)")
+        log("✅", f"Instance created via atomic launch: {instance_id}")
+
+        # Reconstruct an Offer from the launch response if available
+        offer = None
+        offer_data = data.get("offer") or {}
+        if offer_data:
+            try:
+                ram = offer_data.get("cpu_ram", 0)
+                if isinstance(ram, (int, float)) and ram > 1000:
+                    ram = ram / 1024
+                offer = Offer(
+                    id=offer_data.get("id", 0),
+                    gpu_name=offer_data.get("gpu_name", profile["name"]),
+                    cuda_max_good=float(offer_data.get("cuda_max_good", 0)),
+                    cpu_ghz=float(offer_data.get("cpu_ghz", 0)),
+                    vcpus=float(offer_data.get("num_cpus", 0)),
+                    ram_gb=ram,
+                    disk_gb=float(offer_data.get("disk_space", 0)),
+                    dph_total=float(offer_data.get("dph_total", 0)),
+                    inet_down_mbps=float(offer_data.get("inet_down", 0)),
+                    inet_up_mbps=float(offer_data.get("inet_up", 0)),
+                    reliability=float(offer_data.get("reliability", 0)) * 100,
+                    inet_down_cost_gb=float(offer_data.get("inet_down_cost", 0)),
+                    inet_up_cost_gb=float(offer_data.get("inet_up_cost", 0)),
+                    country=offer_data.get("geolocation", "Unknown"),
+                    host_id=int(offer_data.get("host_id", 0)),
+                    nv_driver=offer_data.get("driver_version", "Unknown"),
+                    _is_verified=offer_data.get("verification") in ("verified", "deverified"),
+                )
+            except (KeyError, ValueError, TypeError):
+                pass
+        return instance_id, offer
+
+    error_msg = str(data.get("error", "")) or str(data.get("msg", ""))
+    if "no_such_ask" in str(data) or "not available" in error_msg:
+        log("⚠️", "Atomic launch: no offers available")
+    else:
+        log("❌", f"Atomic launch failed: {data}")
+    return None, None
+
+
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
                        discord_webhook: str, frp_config: Optional[dict] = None,
                        fast_mode: bool = True) -> Optional[int]:
-    """Provision a Vast.ai instance. Returns instance ID or None."""
-    env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    """Provision a Vast.ai instance via the Python SDK using a specific offer ID.
+    This is the fallback path when atomic launch_instance is unavailable or
+    when the user wants to pick a specific offer in manual mode."""
+    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))
+    onstart_cmd = _build_onstart_cmd(fast_mode)
 
-    disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))  # Use 80% of available disk
-    
-    # Fast mode: use fast-provision.sh (default)
-    # Slow mode: let image's internal provisioner run
     if fast_mode:
-        onstart_cmd = f"curl -sSL '{FAST_PROVISION_URL}' | bash"
         log("⚡", "Using FAST provisioning mode")
     else:
-        onstart_cmd = "entrypoint.sh"
         log("🐢", "Using SLOW image provisioner")
 
-    cmd = (
-        f"vastai create instance {offer.id} "
-        f"--image {profile['docker_image']} "
-        f"--env '{env_str}' "
-        f"--disk {disk} "
-        f"--label \"{label}\" "
-        f"--direct --ssh --jupyter "
-        f"--cancel-unavail "
-        f"--onstart-cmd '{onstart_cmd}'"
-    )
+    log("🚀", f"Provisioning instance on host {offer.host_id} (${offer.dph_total:.4f}/hr) via SDK...")
 
-    log("🚀", f"Provisioning instance on host {offer.host_id} (${offer.dph_total:.4f}/hr)...")
-    log("📋", f"Command: {cmd[:200]}...")
+    try:
+        data = vast.create_instance(
+            id=offer.id,
+            image=profile["docker_image"],
+            env=env_dict,
+            disk=disk,
+            label=label,
+            onstart_cmd=onstart_cmd,
+            cancel_unavail=True,
+            runtype="ssh",
+            jupyter_lab=True,
+            jupyter_dir="/",
+            extra={"direct": True},
+        )
+    except Exception as e:
+        error_text = str(e)
+        api_error = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                resp_json = e.response.json()
+                api_error = resp_json.get("msg", resp_json.get("error", ""))
+            except Exception:
+                api_error = e.response.text[:200]
 
-    result = run_cmd(cmd, timeout=60)
+        if "no_such_ask" in error_text.lower() or "not available" in (api_error or "").lower():
+            log("⚠️", f"Offer no longer available — will try next offer")
+            return None
+        elif "insufficient" in (api_error or "").lower():
+            log("🚫", f"Host has insufficient GPU resources — permanently blacklisting: {api_error[:100]}")
+            save_failed_host(offer.host_id, {"status_msg": api_error, "actual_status": "created"})
+            return None
+        else:
+            log("❌", f"SDK create_instance raised: {error_text}")
+            if api_error:
+                log("📋", f"API error detail: {api_error[:200]}")
+            return None
 
-    if result["code"] != 0:
-        log("❌", f"Provisioning failed (exit {result['code']}): {result['stderr']}")
+    if not isinstance(data, dict):
+        log("❌", f"Unexpected create_instance response type: {type(data)}")
         return None
 
-    # Vast.ai CLI sometimes prints response to stderr or stdout
-    # Check both for the JSON response
-    raw_output = result["stdout"].strip()
-    raw_stderr = result["stderr"].strip()
-    
-    # Log raw output for debugging
-    if not raw_output and not raw_stderr:
-        log("❌", "Provisioning returned empty response (no stdout or stderr)")
-        return None
-    
-    # Try stdout first, fall back to stderr
-    response_text = raw_output if raw_output else raw_stderr
-    if raw_stderr and not raw_output:
-        log("⚠️", f"Response was on stderr: {raw_stderr[:200]}")
-    
-    # Find the first '{' and parse from there
-    json_start = response_text.find("{")
-    if json_start == -1:
-        log("❌", f"No JSON in provisioning response. stdout='{raw_output[:100]}' stderr='{raw_stderr[:100]}'")
-        return None
+    instance_id = data.get("new_contract")
+    if instance_id:
+        if not data.get("success"):
+            log("⚠️", "API returned success=False but instance was created (known API quirk)")
+        log("✅", f"Instance created: {instance_id}")
+        return instance_id
 
-    json_str = response_text[json_start:]
-
-    # Try JSON first, fall back to Python literal_eval (vastai CLI can return Python dicts)
-    for parser_name, parser in [("json", json.loads), ("ast", ast.literal_eval)]:
-        try:
-            data = parser(json_str)
-            if isinstance(data, dict):
-                instance_id = data.get("new_contract")
-                if instance_id:
-                    # Vast.ai API often returns success=False even when the instance
-                    # IS created. Trust new_contract as the real indicator.
-                    if not data.get("success"):
-                        log("⚠️", f"API returned success=False but instance was created (known API quirk)")
-                    log("✅", f"Instance created: {instance_id}")
-                    return instance_id
-                # No new_contract — genuinely failed
-                error_msg = str(data.get("error", "")) or str(data.get("message", ""))
-                if "no_such_ask" in str(data) or "not available" in error_msg:
-                    log("⚠️", "Offer no longer available — will try next offer")
-                else:
-                    log("❌", f"Instance creation failed: {data}")
-                return None
-        except (json.JSONDecodeError, ValueError, SyntaxError):
-            continue
-
-    log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
+    error_msg = str(data.get("error", "")) or str(data.get("msg", ""))
+    if "no_such_ask" in str(data) or "not available" in error_msg:
+        log("⚠️", "Offer no longer available — will try next offer")
+    else:
+        log("❌", f"Instance creation failed: {data}")
     return None
 
 
@@ -591,81 +832,147 @@ def provision_instance(offer: Offer, profile: dict, label: str,
 # Monitoring
 # =============================================================================
 
+def _detect_permanent_failure(data: dict) -> tuple[bool, str]:
+    """Check if the instance data indicates a permanent host failure.
+    Returns (is_permanent, reason) — always checks status_msg regardless of actual_status.
+    """
+    status_msg = str(data.get("status_msg", "")).lower()
+    actual_status = str(data.get("actual_status", "")).lower()
+
+    # Permanent GPU/CDI/OCI runtime errors — these appear even in "created" status
+    permanent_patterns = [
+        ("cdi device", "CDI GPU injection failure — host NVIDIA runtime broken"),
+        ("oci runtime", "OCI runtime failure — container spec invalid"),
+        ("failed to start containers", "Docker daemon permanently broken"),
+        ("no such container", "Docker daemon failure — container never created"),
+        ("nvidia-smi", "NVIDIA driver/CUDA incompatibility"),
+        ("cuda error 804", "CUDA Error 804 — driver too old"),
+        ("insufficient resources", "Host has insufficient GPU resources"),
+    ]
+
+    for pattern, description in permanent_patterns:
+        if pattern in status_msg:
+            return (True, description)
+
+    # If status is "created" and there's ANY error message, it's likely a permanent failure
+    if actual_status == "created" and status_msg and any(x in status_msg for x in ["error", "failed", "unknown", "unresolvable"]):
+        return (True, f"Host container creation failed: {data.get('status_msg', '')[:120]}")
+
+    return (False, "")
+
+
 def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> bool:
-    """Monitor instance until it's running. Returns True if successful."""
+    """Monitor instance until it's running. Returns True if successful.
+
+    Proactively checks status_msg on every poll — not just when loading.
+    This catches CDI/OCI runtime errors that appear even in "created" status.
+    """
     log("⏳", f"Monitoring instance {instance_id} (timeout: {timeout}s)...")
 
     start_time = time.time()
     last_status = ""
+    last_status_time = start_time  # Track when we entered current status
 
     while time.time() - start_time < timeout:
-        result = run_cmd(f"vastai show instance {instance_id} --raw", timeout=15)
-
-        if result["code"] != 0:
-            log("⚠️", f"Failed to check status: {result['stderr']}")
+        try:
+            data = vast.show_instance(id=instance_id)
+        except Exception as e:
+            log("⚠️", f"Failed to check status: {e}")
             time.sleep(10)
             continue
 
-        try:
-            data = json.loads(result["stdout"])
-            actual_status = data.get("actual_status", "unknown")
-            duration = data.get("duration", 0)
+        if not isinstance(data, dict):
+            time.sleep(10)
+            continue
 
-            if actual_status != last_status:
-                elapsed = int(time.time() - start_time)
-                log("📊", f"Status: {actual_status} (duration: {duration}s, elapsed: {elapsed}s)")
-                last_status = actual_status
+        actual_status = data.get("actual_status", "unknown")
+        duration = data.get("duration", 0)
+        status_msg = str(data.get("status_msg", "")).strip()
 
-            if actual_status == "running":
-                log("✅", "Instance is running!")
-                return True
+        # Log status transitions
+        if actual_status != last_status:
+            elapsed = int(time.time() - start_time)
+            log("📊", f"Status: {actual_status} (duration: {duration}s, elapsed: {elapsed}s)")
+            if status_msg and status_msg != "Error: failed to start containers: C." + str(instance_id):
+                log("📝", f"Status message: {status_msg[:200]}")
+            last_status = actual_status
+            last_status_time = time.time()
 
-            if actual_status == "loading" and duration > 120:
-                # Check daemon logs for Docker failure
-                logs = run_cmd(f"vastai logs {instance_id} --daemon-logs", timeout=10)
-                log_output = logs.get("stdout", "") + logs.get("stderr", "")
+        # SUCCESS: instance is running
+        if actual_status == "running":
+            log("✅", "Instance is running!")
+            return True
 
-                # Detect host agent (kaalia) failures
-                failure_reason = None
-                if "No such container" in log_output:
-                    failure_reason = "Docker daemon failure — container never created"
-                elif "instance_extra_logs/C." in log_output and "No such file" in log_output:
-                    failure_reason = "Host agent (kaalia) broken — can't create instance data"
-                elif "image" in log_output.lower() and ("pull" in log_output.lower() or "not found" in log_output.lower()):
-                    failure_reason = "Docker image pull failed"
+        # === PROACTIVE FAILURE DETECTION (every poll, every status) ===
+        is_permanent, failure_reason = _detect_permanent_failure(data)
+        if is_permanent:
+            log("❌", failure_reason)
+            if status_msg:
+                log("📋", f"Full error: {status_msg[:300]}")
+            if host_id:
+                save_failed_host(host_id, data)
+            return False
 
-                if failure_reason:
-                    log("❌", f"{failure_reason}")
-                    log("📋", f"Host agent logs: {log_output[:300]}")
-                    if host_id:
-                        save_failed_host(host_id)
-                    return False
+        # === STUCK STATUS DETECTION ===
+        time_in_status = time.time() - last_status_time
 
-            # If still loading after 300s with null image, host agent is dead
-            if actual_status == "loading" and duration > 300:
-                log("❌", f"Instance stuck loading for {duration}s (no image pulled) — host agent likely broken")
+        # "created" with no progress after 90s = host agent is dead or Docker is failing
+        if actual_status == "created" and time_in_status > 90:
+            log("❌", f"Instance stuck in 'created' for {int(time_in_status)}s — host agent not responding, destroying and retrying")
+            if host_id:
+                save_failed_host(host_id, data)
+            return False
+
+        # "loading" with no Docker progress after 120s — check daemon logs
+        if actual_status == "loading" and time_in_status > 120:
+            # Check daemon logs for Docker failure via SDK
+            try:
+                log_output = vast.logs(instance_id=instance_id, daemon_logs=True) or ""
+            except Exception:
+                log_output = ""
+
+            failure_reason = None
+            if "No such container" in log_output:
+                failure_reason = "Docker daemon failure — container never created"
+            elif "instance_extra_logs/C." in log_output and "No such file" in log_output:
+                failure_reason = "Host agent (kaalia) broken — can't create instance data"
+            elif "image" in log_output.lower() and ("pull" in log_output.lower() or "not found" in log_output.lower()):
+                failure_reason = "Docker image pull failed"
+
+            if failure_reason:
+                log("❌", f"{failure_reason}")
+                log("📋", f"Host agent logs: {log_output[:300]}")
                 if host_id:
                     save_failed_host(host_id)
                 return False
 
-        except json.JSONDecodeError:
-            pass
+        # "loading" for 300s+ with no progress = host is dead
+        if actual_status == "loading" and time_in_status > 300:
+            log("❌", f"Instance stuck loading for {int(time_in_status)}s — host agent likely broken")
+            if host_id:
+                save_failed_host(host_id)
+            return False
 
         time.sleep(15)
 
     log("❌", f"Timeout after {timeout}s")
+    if host_id:
+        try:
+            final_data = vast.show_instance(id=instance_id)
+            if isinstance(final_data, dict):
+                save_failed_host(host_id, final_data)
+        except Exception:
+            save_failed_host(host_id)
     return False
 
 
 def get_instance_info(instance_id: int) -> dict:
-    """Get instance details after it's running."""
-    result = run_cmd(f"vastai show instance {instance_id} --raw", timeout=15)
-    if result["code"] != 0:
-        return {}
-
+    """Get instance details after it's running via SDK."""
     try:
-        return json.loads(result["stdout"])
-    except json.JSONDecodeError:
+        data = vast.show_instance(id=instance_id)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        log("⚠️", f"get_instance_info failed: {e}")
         return {}
 
 
@@ -678,20 +985,24 @@ def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
     3. If not, attempt manual fix and retry
     """
     log("🏥", f"Running health check on instance {instance_id}...")
-    
-    # Get SSH URL
-    ssh_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
-    if ssh_result["code"] != 0:
-        log("⚠️", f"Cannot get SSH URL for health check: {ssh_result['stderr']}")
+
+    # Get SSH URL via SDK
+    try:
+        ssh_url = vast.ssh_url(id=instance_id)
+    except Exception as e:
+        log("⚠️", f"Cannot get SSH URL for health check: {e}")
+        return False
+
+    if not ssh_url:
+        log("⚠️", "SSH URL is empty — instance may not be ready yet")
         return False
     
-    ssh_url = ssh_result["stdout"].strip()
-    # Parse ssh://root@host:port
+    # Parse ssh://root@host:port returned by vast.ssh_url()
     match = re.match(r"ssh://root@([^:]+):(\d+)", ssh_url)
     if not match:
         log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
         return False
-    
+
     ssh_host, ssh_port = match.group(1), match.group(2)
     ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
     
@@ -747,6 +1058,7 @@ def parse_args():
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
     parser.add_argument("--verified-only", action="store_true", help="Only show verified hosts (default: prefer unverified/cheaper)")
     parser.add_argument("--no-frp", action="store_true", help="Skip FRP tunnel setup (use Cloudflare quick tunnels)")
+    parser.add_argument("--show-failed", action="store_true", help="Display failed hosts history and exit")
     return parser.parse_args()
 
 
@@ -860,6 +1172,25 @@ def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
 
 def main():
     args = parse_args()
+
+    # Handle --show-failed flag
+    if hasattr(args, 'show_failed') and args.show_failed:
+        failed = load_failed_hosts()
+        if not failed:
+            log("ℹ️", "No failed hosts recorded")
+            sys.exit(0)
+        print("\n" + "=" * 80)
+        log("📋", f"Failed Hosts History ({len(failed)} entries)")
+        print("=" * 80)
+        for host_id, record in sorted(failed.items(), key=lambda x: x[1].get("timestamp", 0), reverse=True):
+            ts = record.get("timestamp", 0)
+            age = "permanent" if record.get("permanent") else f"{int((time.time() - ts) / 3600)}h ago"
+            count = record.get("count", 1)
+            error = record.get("last_error", "Unknown")[:60]
+            print(f"  Host {host_id}: {age} | {count}x failures | {error}")
+        print("=" * 80)
+        sys.exit(0)
+
     profile = GPU_PROFILES[args.gpu]
 
     log("🔧", f"GPU Profile: {profile['name']}")
@@ -929,141 +1260,182 @@ def main():
         log("🔍", "Dry run — exiting without provisioning")
         sys.exit(0)
 
-    # Auto-retry: try up to 5 offers if Docker fails (competitive market needs more retries)
+    # =================================================================
+    # PROVISION + MONITOR retry loop
+    # Handles both create failures and monitoring failures in one loop.
+    # When monitoring fails, the instance is destroyed and the next offer is tried.
+    # Auto mode uses atomic launch_instance on the first attempt (search+create
+    # in a single API call, eliminating the race condition).
+    # =================================================================
     MAX_RETRIES = 5 if args.auto else 3
-    for attempt in range(MAX_RETRIES):
-        if attempt >= len(ranked):
-            log("❌", f"No more offers to try (attempted {attempt})")
-            sys.exit(1)
+    attempt = 0
+    final_success = False
 
-        best = ranked[attempt]
-        ok, issues = best.meets_specs(profile)
+    while attempt < MAX_RETRIES and not final_success:
+        instance_id = None
+        chosen_offer = None
 
-        if not ok:
-            log("⚠️", f"Offer #{attempt+1} has issues: {', '.join(issues)}")
-            if attempt < MAX_RETRIES - 1:
-                log("🔄", "Trying next offer...")
+        # --- Attempt: atomic launch OR manual pick ---
+        if args.auto and attempt == 0:
+            # Only try atomic launch on the first attempt
+            log("⚡", "Auto mode — using atomic launch_instance to avoid stale offers")
+            instance_id, chosen_offer = provision_instance_launch(
+                profile=profile,
+                label=args.label,
+                workflow_url=workflow_url,
+                hf_token=hf_token,
+                discord_webhook=discord_webhook,
+                frp_config=frp_config,
+                fast_mode=not args.slow,
+                max_price=args.max_price,
+            )
+            if instance_id:
+                log("✅", f"Atomic launch succeeded with instance {instance_id}")
+                if chosen_offer:
+                    log("📊", f"Host: {chosen_offer.host_id} | ${chosen_offer.dph_total:.4f}/hr | {chosen_offer.country}")
+            else:
+                log("⚠️", "Atomic launch failed — falling back to manual search+create path")
+
+        # --- Fallback: manual search+create ---
+        if not instance_id:
+            if attempt >= len(ranked):
+                log("❌", f"No more offers to try (attempted {attempt})")
+                break
+
+            best = ranked[attempt]
+            ok, issues = best.meets_specs(profile)
+
+            if not ok:
+                log("⚠️", f"Offer #{attempt+1} has issues: {', '.join(issues)}")
+                attempt += 1
                 continue
-            if not args.auto:
-                print("\nProceed anyway? (y/N): ", end="", flush=True)
+
+            # In manual mode: ask for confirmation on first offer only.
+            if not args.auto and attempt == 0:
+                print(f"\n🏗️  Provision on offer {best.id} (${best.dph_total:.4f}/hr, {best.country})? (y/N): ", end="", flush=True)
                 if input().strip().lower() != "y":
                     log("🛑", "Aborted by user")
                     sys.exit(1)
 
-        # In auto mode: no confirmation needed — provision immediately.
-        # In manual mode: ask for confirmation on first offer only.
-        if not args.auto and attempt == 0:
-            print(f"\n🏗️  Provision on offer {best.id} (${best.dph_total:.4f}/hr, {best.country})? (y/N): ", end="", flush=True)
-            if input().strip().lower() != "y":
-                log("🛑", "Aborted by user")
-                sys.exit(1)
+            log("🔄" if attempt > 0 else "🚀", f"Attempt {attempt+1}/{MAX_RETRIES}: {best.id} (${best.dph_total:.4f}/hr, {best.country})")
 
-        log("🔄" if attempt > 0 else "🚀", f"Attempt {attempt+1}/{MAX_RETRIES}: {best.id} (${best.dph_total:.4f}/hr, {best.country})")
+            instance_id = provision_instance(
+                offer=best,
+                profile=profile,
+                label=args.label,
+                workflow_url=workflow_url,
+                hf_token=hf_token,
+                discord_webhook=discord_webhook,
+                frp_config=frp_config,
+                fast_mode=not args.slow,
+            )
 
-        # Provision
-        instance_id = provision_instance(
-            offer=best,
-            profile=profile,
-            label=args.label,
-            workflow_url=workflow_url,
-            hf_token=hf_token,
-            discord_webhook=discord_webhook,
-            frp_config=frp_config,
-            fast_mode=not args.slow,
-        )
-
-        if not instance_id:
-            log("❌", f"Provisioning failed on host {best.host_id}")
-            save_failed_host(best.host_id)
-            if attempt < MAX_RETRIES - 1:
-                log("🔄", "Trying next offer...")
+            if not instance_id:
+                log("❌", f"Provisioning failed on host {best.host_id}")
+                attempt += 1
                 continue
-            sys.exit(1)
 
-        # Monitor
+            chosen_offer = best
+
+        # --- Monitor the instance ---
         if args.monitor and not args.no_monitor:
-            success = monitor_instance(instance_id, timeout=args.timeout, host_id=best.host_id)
-            if success:
-                # Post-provision health check
-                health_ok = health_check_instance(instance_id, timeout=120)
-                if not health_ok:
-                    log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
-                    log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
+            host_id = chosen_offer.host_id if chosen_offer else 0
+            success = monitor_instance(instance_id, timeout=args.timeout, host_id=host_id)
 
-                info = get_instance_info(instance_id)
-                ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
-                ssh_url = ssh_url_result.get("stdout", "N/A")
+            if not success:
+                log("❌", f"Instance {instance_id} failed monitoring — destroying and retrying next offer")
+                # Destroy to stop billing immediately
+                try:
+                    vast.destroy_instance(id=instance_id)
+                    log("💥", f"Instance {instance_id} destroyed")
+                except Exception as e:
+                    log("⚠️", f"Could not destroy instance {instance_id}: {e}")
+                attempt += 1
+                continue  # Try next offer
+        
+        # --- Success path ---
+        final_success = True
+        break
 
-                # === Notification 1: Server Ready (immediate) ===
-                print("\n" + "=" * 80)
-                log("🎉", "SERVER READY!")
-                print("=" * 80)
-                print(f"  Instance ID:  {instance_id}")
-                print(f"  GPU:          {best.gpu_name}")
-                print(f"  Cost:         ${best.dph_total:.4f}/hr")
-                print(f"  Location:     {best.country}")
-                print(f"  SSH:          {ssh_url}")
-                print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
-                if frp_config.get("custom_domains"):
-                    print("  FRP Tunnels:")
-                    for service, url in frp_config["custom_domains"].items():
-                        print(f"    {service}: {url}")
-                if workflow_url:
-                    print(f"  Workflow:     {args.workflow} (downloading in background)")
-                print("=" * 80)
+    # =================================================================
+    # FINAL REPORTING (only reached on success)
+    # =================================================================
+    if not final_success or not instance_id:
+        log("❌", "All provisioning attempts failed")
+        sys.exit(1)
 
-                if discord_webhook:
-                    frp_domains = frp_config.get("custom_domains")
-                    workflow_note = f"{args.workflow} — models downloading in background" if workflow_url else ""
-                    sent = send_discord_notification(
-                        discord_webhook, instance_id, best.gpu_name,
-                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
-                        workflow_status=workflow_note,
-                        emoji="🟢", title="Server Ready"
-                    )
-                    if sent:
-                        log("📬", "Discord notification sent (Server Ready)")
-                    else:
-                        log("⚠️", "Discord notification failed (Server Ready)")
+    # Post-provision health check
+    health_ok = health_check_instance(instance_id, timeout=120)
+    if not health_ok:
+        log("⚠️", "Health check failed — instance is running but ComfyUI may need manual setup")
+        log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
 
-                # === Wait for workflow downloads, then Notification 2: Models Ready ===
-                if workflow_url and health_ok:
-                    workflow_done = wait_for_workflow(ssh_url, timeout=600)
-                    if workflow_done:
-                        workflow_status = f"{args.workflow} ✅ models downloaded"
-                    else:
-                        workflow_status = f"{args.workflow} ⚠️ still downloading"
-                else:
-                    workflow_status = ""
+    info = get_instance_info(instance_id)
+    try:
+        ssh_url = vast.ssh_url(id=instance_id)
+    except Exception:
+        ssh_url = "N/A"
 
-                if workflow_url and discord_webhook and workflow_status:
-                    sent2 = send_discord_notification(
-                        discord_webhook, instance_id, best.gpu_name,
-                        f"${best.dph_total:.4f}/hr", best.country, ssh_url, frp_domains,
-                        workflow_status=workflow_status,
-                        emoji="📦", title="Models Ready"
-                    )
-                    if sent2:
-                        log("📬", "Discord notification sent (Models Ready)")
-                    else:
-                        log("⚠️", "Discord notification failed (Models Ready)")
+    # === Notification 1: Server Ready (immediate) ===
+    print("\n" + "=" * 80)
+    log("🎉", "SERVER READY!")
+    print("=" * 80)
+    print(f"  Instance ID:  {instance_id}")
+    if chosen_offer:
+        print(f"  GPU:          {chosen_offer.gpu_name}")
+        print(f"  Cost:         ${chosen_offer.dph_total:.4f}/hr")
+        print(f"  Location:     {chosen_offer.country}")
+    print(f"  SSH:          {ssh_url}")
+    print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
+    if frp_config and frp_config.get("custom_domains"):
+        print("  FRP Tunnels:")
+        for service, url in frp_config["custom_domains"].items():
+            print(f"    {service}: {url}")
+    if workflow_url:
+        print(f"  Workflow:     {args.workflow} (downloading in background)")
+    print("=" * 80)
 
-                sys.exit(0)
-            else:
-                log("❌", f"Instance {instance_id} did not reach running status")
-                save_failed_host(best.host_id)
-                if attempt < MAX_RETRIES - 1:
-                    log("🔄", "Trying next offer...")
-                    continue
-                log("📋", f"Check: https://cloud.vast.ai/instances/{instance_id}")
-                sys.exit(1)
+    if discord_webhook:
+        frp_domains = frp_config.get("custom_domains") if frp_config else None
+        workflow_note = f"{args.workflow} — models downloading in background" if workflow_url else ""
+        cost_str = f"${chosen_offer.dph_total:.4f}/hr" if chosen_offer else "N/A"
+        country_str = chosen_offer.country if chosen_offer else "Unknown"
+        sent = send_discord_notification(
+            discord_webhook, instance_id,
+            chosen_offer.gpu_name if chosen_offer else "Unknown",
+            cost_str, country_str, ssh_url, frp_domains,
+            workflow_status=workflow_note,
+            emoji="🟢", title="Server Ready"
+        )
+        if sent:
+            log("📬", "Discord notification sent (Server Ready)")
         else:
-            log("✅", f"Instance {instance_id} created — monitoring skipped")
-            log("📋", f"https://cloud.vast.ai/instances/{instance_id}")
-            sys.exit(0)
+            log("⚠️", "Discord notification failed (Server Ready)")
 
-    log("❌", f"All {MAX_RETRIES} attempts failed")
-    sys.exit(1)
+    # === Wait for workflow downloads, then Notification 2: Models Ready ===
+    if workflow_url and health_ok:
+        workflow_done = wait_for_workflow(ssh_url, timeout=600)
+        if workflow_done:
+            workflow_status = f"{args.workflow} ✅ models downloaded"
+        else:
+            workflow_status = f"{args.workflow} ⚠️ still downloading"
+    else:
+        workflow_status = ""
+
+    if workflow_url and discord_webhook and workflow_status:
+        sent2 = send_discord_notification(
+            discord_webhook, instance_id,
+            chosen_offer.gpu_name if chosen_offer else "Unknown",
+            cost_str, country_str, ssh_url, frp_domains,
+            workflow_status=workflow_status,
+            emoji="📦", title="Models Ready"
+        )
+        if sent2:
+            log("📬", "Discord notification sent (Models Ready)")
+        else:
+            log("⚠️", "Discord notification failed (Models Ready)")
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":

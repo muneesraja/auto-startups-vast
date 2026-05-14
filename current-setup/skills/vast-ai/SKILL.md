@@ -1,39 +1,56 @@
 ---
 name: vast-ai
-description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Uses a stable Docker image + bootstrap script approach (no fragile template hashes). Includes extended diagnostics, tmux background execution, and strict SSH-only remote execution.
+description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Uses the vastai Python SDK (pip install vastai) — no CLI binary needed. Stable Docker image + bootstrap script approach. Includes extended diagnostics, tmux background execution, and strict SSH-only remote execution.
 ---
 
 # Vast.ai — GPU Server Provisioning
+
+## 🐍 Python Environment
+
+The script requires the `vastai` Python SDK. Create a dedicated virtual environment **once** inside the skill folder:
+
+```bash
+python3 -m venv ~/.hermes/skills/vast-ai/.venv
+source ~/.hermes/skills/vast-ai/.venv/bin/activate
+pip install vastai
+```
+
+**Always invoke the script with the venv interpreter** so the SDK is available:
+
+```bash
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py ...
+```
 
 ## ⚡ Provisioning — USE THE SCRIPT
 
 When a user asks to "prepare a server", "rent a GPU", "set up a 3090/4090", or similar — **run the script. Do NOT follow manual steps.**
 
 ```bash
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
   --gpu <3090|4090> \
   --label <name> \
   [--workflow <script_name_or_alias>] \
   [--auto] [--dry-run] [--max-price 0.30] [--no-monitor] [--no-frp]
 ```
 
+**Prerequisite:** `vastai` SDK installed inside `~/.hermes/skills/vast-ai/.venv` and `VAST_API_KEY` set in `~/.hermes/skills/vast-ai/.env`.
+
 **Examples:**
 ```bash
 # Bare ComfyUI (no workflow)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi
 
 # With workflow
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workflow wan22 --label mandi
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workflow wan22 --label mandi
 
 # Auto-select best offer (no confirmation prompt)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
-
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
 
 # No FRP tunnel (use Cloudflare quick tunnels)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-frp
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-frp
 
 # Preview only (don't provision)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --dry-run
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --dry-run
 ```
 
 **What the script does (no manual intervention needed):**
@@ -78,19 +95,19 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label 
 
 ## 🔐 Secrets (.env)
 
-All secrets are stored in `.env` at the project root (git-ignored). Copy from `.env.example`:
+All secrets are stored in `~/.hermes/skills/vast-ai/.env` (git-ignored). The script walks up from its own directory to auto-load it.
 
 ```bash
-cp .env.example .env
-# Then edit .env with your values
+nano ~/.hermes/skills/vast-ai/.env
 ```
 
 Required secrets:
+- `VAST_API_KEY` — Vast.ai API key for the Python SDK (get from https://cloud.vast.ai/manage-keys/)
 - `HF_TOKEN` — HuggingFace token for fast model downloads
 - `DISCORD_WEBHOOK_URL` — Discord webhook for notifications
 - `FRP_TOKEN` — FRP tunnel auth token (optional if using `--no-frp`)
 
-The script auto-loads `.env` and passes secrets as env vars to each Vast.ai instance.
+The script auto-loads `.env` and uses `VAST_API_KEY` to authenticate the SDK client.
 
 ---
 
@@ -142,6 +159,16 @@ vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 
 vastai search offers -n 'gpu_name=RTX_3090 num_gpus=1 verified=False reliability>0.90 driver_version>=570.0.0 rented=False dph<=0.20' -o 'dph+' --limit 10
 ```
 
+```python
+# SDK equivalent (no_default=True mirrors the -n flag)
+from vastai import VastAI
+vast = VastAI()
+offers = vast.search_offers(
+    query='gpu_name=RTX_3090 num_gpus=1 rented=False dph<=0.25 cuda_max_good>=12.8 driver_version>=570.0.0 inet_down>=500 inet_up>=500',
+    no_default=True, order='dph_total', limit=10
+)
+```
+
 **Note:** `driver_version>=570.0.0` filters out hosts with drivers that fail CUDA 12.9 (Error 804). Drivers 560.x-565.x have compat lib conflicts. Driver 580.x+ preferred (native CUDA 13.0).
 
 ### 2. Confirm with user
@@ -157,18 +184,27 @@ vastai create instance <OFFER_ID> \
 
 ### 4. Monitor
 ```bash
+# CLI
 vastai show instance <ID> --raw  # Check every 30s until actual_status=running
+```
+```python
+# SDK equivalent
+vast.show_instance(id=<ID>)  # returns dict with actual_status, duration, etc.
 ```
 
 ### 5. Report
 SSH: `vastai ssh-url <ID>` | Portal: `https://cloud.vast.ai/instances/<ID>`
+```python
+# SDK equivalent for SSH URL
+vast.ssh_url(id=<ID>)  # returns 'ssh://root@host:port'
+```
 
 ---
 
 ## General Commands
 
-**List instances:** `vastai show instances`
-**Destroy instance:** Confirm first, then `vastai destroy instance <ID>`
+**List instances:** `vastai show instances` or SDK: `vast.show_instances()`
+**Destroy instance:** Confirm first, then `vastai destroy instance <ID>` or SDK: `vast.destroy_instance(id=<ID>)`
 
 ---
 
