@@ -9,27 +9,32 @@
 # - Uses hf_transfer for maximum throughput
 # - Automatic resume on failure
 # =============================================================================
-set -euo pipefail
+# NOTE: Do NOT use set -euo pipefail here — this file is source'd into workflow
+# scripts, and those flags would kill the entire parent process on any failure.
 
 # Activate ComfyUI venv if available (hf/huggingface_hub need torch)
 for VENV in /venv/main/bin/activate /workspace/ComfyUI/.venv-cu128/bin/activate; do
   [ -f "$VENV" ] && source "$VENV" && break
 done
 
-# Load HF token from shared config
-HF_TOKEN=""
-for TOKEN_PATH in /root/config/token.json /workspace/config/token.json; do
-  if [ -f "$TOKEN_PATH" ]; then
-    HF_TOKEN=$(python3 -c "import json; print(json.load(open('$TOKEN_PATH'))['huggingface_token'])" 2>/dev/null || true)
-    if [ -n "$HF_TOKEN" ]; then
-      echo "HF token loaded from $TOKEN_PATH"
-      break
-    fi
-  fi
-done
+# Load HF token: env var first (set by provisioning), then JSON config
+HF_TOKEN="${HF_TOKEN:-}"
+if [ -z "$HF_TOKEN" ]; then
+    for TOKEN_PATH in /root/config/token.json /workspace/config/token.json; do
+      if [ -f "$TOKEN_PATH" ]; then
+        HF_TOKEN=$(python3 -c "import json; print(json.load(open('$TOKEN_PATH'))['huggingface_token'])" 2>/dev/null || true)
+        if [ -n "$HF_TOKEN" ]; then
+          echo "HF token loaded from $TOKEN_PATH"
+          break
+        fi
+      fi
+    done
+fi
 
 if [ -z "$HF_TOKEN" ]; then
   echo "⚠️  No HF token found — downloads will be rate-limited (10.4 MB/s)"
+else
+  echo "✅ HF token available"
 fi
 
 # Enable hf_transfer for maximum speed

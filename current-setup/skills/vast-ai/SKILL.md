@@ -45,6 +45,12 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label 
 6. Monitors until running, runs health check, reports SSH/portal URLs
 7. Sends Discord notifications (Server Ready + Models Ready)
 
+**⚠️ CRITICAL RULES (DO NOT BREAK):**
+- **ALWAYS use `--auto`** — offers go stale within seconds on the competitive market. Never pause to ask the user between search and provision.
+- **NEVER manually SSH in to fix tunnels, portals, or nginx** — if provisioning fails, destroy the instance and re-run the script. The script has retry logic (tries up to 5 hosts).
+- **NEVER run the script multiple times simultaneously** — if the first attempt fails, wait for it to fully exit before re-running.
+- **If the script fails 3+ times**, report the error to the user instead of improvising manual fixes.
+
 **Flags:**
 
 | Flag | Description |
