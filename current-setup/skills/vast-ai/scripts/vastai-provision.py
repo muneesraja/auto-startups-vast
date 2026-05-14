@@ -160,7 +160,12 @@ def run_cmd(cmd: str, timeout: int = 30) -> dict:
 
 
 def load_hf_token() -> str:
-    """Load HF token from shared config."""
+    """Load HF token from env var (set by .env) or JSON config file."""
+    # Check env var first (loaded by _load_dotenv from .env)
+    token = os.environ.get("HF_TOKEN", "")
+    if token:
+        return token
+    # Fall back to JSON config file
     try:
         with open(HF_TOKEN_PATH) as f:
             data = json.load(f)
@@ -529,34 +534,51 @@ def provision_instance(offer: Offer, profile: dict, label: str,
     result = run_cmd(cmd, timeout=60)
 
     if result["code"] != 0:
-        log("❌", f"Provisioning failed: {result['stderr']}")
+        log("❌", f"Provisioning failed (exit {result['code']}): {result['stderr']}")
         return None
 
-    # Vast.ai API sometimes returns "Started. {json}" — strip non-JSON prefix
+    # Vast.ai CLI sometimes prints response to stderr or stdout
+    # Check both for the JSON response
     raw_output = result["stdout"].strip()
+    raw_stderr = result["stderr"].strip()
+    
+    # Log raw output for debugging
+    if not raw_output and not raw_stderr:
+        log("❌", "Provisioning returned empty response (no stdout or stderr)")
+        return None
+    
+    # Try stdout first, fall back to stderr
+    response_text = raw_output if raw_output else raw_stderr
+    if raw_stderr and not raw_output:
+        log("⚠️", f"Response was on stderr: {raw_stderr[:200]}")
+    
     # Find the first '{' and parse from there
-    json_start = raw_output.find("{")
+    json_start = response_text.find("{")
     if json_start == -1:
-        log("❌", f"No JSON in provisioning response: {raw_output[:200]}")
+        log("❌", f"No JSON in provisioning response. stdout='{raw_output[:100]}' stderr='{raw_stderr[:100]}'")
         return None
 
-    json_str = raw_output[json_start:]
+    json_str = response_text[json_start:]
 
     # Try JSON first, fall back to Python literal_eval (vastai CLI can return Python dicts)
     for parser_name, parser in [("json", json.loads), ("ast", ast.literal_eval)]:
         try:
             data = parser(json_str)
-            if isinstance(data, dict) and data.get("success"):
+            if isinstance(data, dict):
                 instance_id = data.get("new_contract")
-                log("✅", f"Instance created: {instance_id}")
-                return instance_id
-            elif isinstance(data, dict):
-                # Parsed but not successful
+                if instance_id:
+                    # Vast.ai API often returns success=False even when the instance
+                    # IS created. Trust new_contract as the real indicator.
+                    if not data.get("success"):
+                        log("⚠️", f"API returned success=False but instance was created (known API quirk)")
+                    log("✅", f"Instance created: {instance_id}")
+                    return instance_id
+                # No new_contract — genuinely failed
                 error_msg = str(data.get("error", "")) or str(data.get("message", ""))
                 if "no_such_ask" in str(data) or "not available" in error_msg:
                     log("⚠️", "Offer no longer available — will try next offer")
                 else:
-                    log("❌", f"Instance creation returned success=false: {data}")
+                    log("❌", f"Instance creation failed: {data}")
                 return None
         except (json.JSONDecodeError, ValueError, SyntaxError):
             continue

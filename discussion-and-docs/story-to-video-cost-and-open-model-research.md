@@ -376,6 +376,30 @@ For each Tier 1 model, run the same standardized test:
 
 ---
 
+## 9A. Free / Free-Quota Places To Try The Shortlisted Models
+
+These options are for quick capability testing only. Free hosted demos can have queues, daily credits, disabled GPU time, reduced resolution, or changed model variants.
+
+| Model | Best Free Trial Option | Link | Notes |
+|---|---|---|---|
+| **Qwen-Image-Edit-2511** | Official Hugging Face Space | https://huggingface.co/spaces/Qwen/Qwen-Image-Edit-2511 | Best first stop. Supports image edit testing in browser. Hugging Face also lists many community Spaces from the model page. |
+| **HiDream-O1-Image** | Official Hugging Face Space | https://huggingface.co/spaces/HiDream-ai/HiDream-O1-Image | Official demo. A third-party article says the Space runs Full and Dev variants for free with a queue. |
+| **HiDream-O1-Image** | HiDreamAI web app | https://www.hidreamai.app/ | Claims free credits for new users, no credit card. Useful for quick browser tests, but confirm whether it is actually O1 and whether editing/reference mode is available. |
+| **FLUX.2 klein 9B** | BFL official model page / demo | https://bfl.ai/models/flux-2-klein | First-party page says BFL provides a free demo. Best place to test the intended model behavior. |
+| **FLUX.2 klein 9B** | KOOX AI free generator | https://koox.ai/flux2klein/ | Browser demo. Good for quick text-to-image checks, but may not expose full multi-reference editing. |
+| **FLUX.2 klein 9B** | flux2kle.in | https://flux2kle.in/ | Claims free 4B/9B generation and edit modes. Third-party site, so use only non-sensitive test images. |
+| **FLUX.2 klein 9B** | Hugging Face model page | https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B | Not a demo by itself, but links to libraries/providers and requires license acceptance. Useful for checking first-party license/model details. |
+
+Recommended testing order:
+
+1. Try **Qwen official Hugging Face Space** with one approved character sheet and a simple scene edit.
+2. Try **HiDream official Hugging Face Space** with the same prompt/reference if image input is available.
+3. Try **BFL official FLUX.2 klein demo** and then a third-party FLUX demo only if the official demo lacks reference-image controls.
+
+For serious comparison, avoid judging from text-to-image-only demos. Our real requirement is **reference-conditioned scene generation**, so the demo must let us upload one or more character sheets.
+
+---
+
 ## 10. Sources
 
 - [FLUX.2 GitHub](https://github.com/black-forest-labs/flux2)

@@ -17,6 +17,7 @@ API Key: Read from /root/config/token.json → "gemini_api_key"
 
 import argparse
 import json
+import os
 import sys
 import time
 import io
@@ -54,6 +55,10 @@ IMAGE_MODEL = "gemini-2.5-flash-image"
 
 def load_api_key(token_path: Optional[str] = None) -> str:
     """Load Gemini API key from token JSON file."""
+    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if env_key:
+        return env_key
+
     path = Path(token_path) if token_path else TOKEN_PATH
     if not path.exists():
         print(f"ERROR: Token file not found at {path}")
