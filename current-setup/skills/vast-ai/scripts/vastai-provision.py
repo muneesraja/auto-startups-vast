@@ -19,6 +19,7 @@ Options:
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -27,7 +28,29 @@ import sys
 import time
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
+
+def _load_dotenv():
+    """Load .env file from project root (walks up from this script's location)."""
+    search = Path(__file__).resolve().parent
+    for _ in range(6):  # Walk up max 6 levels
+        env_file = search / ".env"
+        if env_file.exists():
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip()
+                    if value and key not in os.environ:  # Don't override existing env
+                        os.environ[key] = value
+            return
+        search = search.parent
+
+_load_dotenv()
 
 # =============================================================================
 # GPU Profiles
@@ -78,37 +101,44 @@ WORKFLOWS_REPO = "muneesraja/auto-startups-vast"
 WORKFLOWS_BRANCH = "main"
 WORKFLOWS_PATH = "scripts/workflows"
 
-# Populated dynamically from GitHub API or hardcoded for known workflows
+# Maps friendly names/aliases → actual filenames in scripts/workflows/
+# IMPORTANT: These MUST match real files. See .agents/rules/workflow-alias-maintenance.md
 WORKFLOW_ALIASES = {
-    "wan22": "wan22-download.sh",
-    "wan": "wan22-download.sh",
-    "wan 2.2": "wan22-download.sh",
-    "wan2.2": "wan22-download.sh",
-    "wanvideo": "wan22-download.sh",
-    "prompt_relay_ltx23_test_02": "prompt_relay_ltx23_test_02.sh",
-    "prompt-relay-ltx23-test-02": "prompt_relay_ltx23_test_02.sh",
-    "ltx23-prompt-relay": "prompt_relay_ltx23_test_02.sh",
-    "ltx23-oldman-redpanda": "prompt_relay_ltx23_test_02.sh",
-    "kijai-ltx2.3": "kijai-ltx2.3.sh",
-    "ltx-23-prompt-relay": "ltx-23-prompt-relay-download.sh",
-    "ltx2-keyframing": "ltx2-keyframing.sh",
-    "ltx2.3-img2video": "ltx2.3-img2video.sh",
-    "qwen": "qwen-image-download.sh",
-    "qwen-image": "qwen-image-download.sh",
+    # Wan 2.2
+    "wan22": "wan-22-i2v-keyframe.sh",
+    "wan": "wan-22-i2v-keyframe.sh",
+    "wan 2.2": "wan-22-i2v-keyframe.sh",
+    "wan2.2": "wan-22-i2v-keyframe.sh",
+    "wanvideo": "wan-22-i2v-keyframe.sh",
+    "wan-22-i2v-keyframe": "wan-22-i2v-keyframe.sh",
+    # LTX 2.3 — Prompt Relay
+    "ltx-23-prompt-relay": "ltx-23-prompt-relay.sh",
+    "ltx23-prompt-relay": "ltx-23-prompt-relay.sh",
+    "prompt-relay": "ltx-23-prompt-relay.sh",
+    # LTX 2.3 — I2V Keyframe
+    "ltx-23-i2v-keyframe": "ltx-23-i2v-keyframe.sh",
+    "ltx23-keyframe": "ltx-23-i2v-keyframe.sh",
+    # LTX 2.3 — I2V Distilled
+    "ltx-23-i2v-distilled": "ltx-23-i2v-distilled.sh",
+    "ltx23-distilled": "ltx-23-i2v-distilled.sh",
+    # Qwen Image Edit
+    "qwen": "qwen-image-edit.sh",
+    "qwen-image": "qwen-image-edit.sh",
+    "qwen-image-edit": "qwen-image-edit.sh",
 }
 
 # =============================================================================
-# Config
+# Config — loaded from .env file or environment variables
 # =============================================================================
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HF_TOKEN_PATH = "/root/config/token.json"
-FAILED_HOSTS_PATH = "/root/.hermes/skills/vast-ai/scripts/failed_hosts.json"
+FAILED_HOSTS_PATH = str(Path(__file__).resolve().parent / "failed_hosts.json")
 FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
-FRP_SERVER_ADDR = "159.195.52.130"
-FRP_SERVER_PORT = 7000
+FRP_SERVER_ADDR = os.environ.get("FRP_SERVER_ADDR", "159.195.52.130")
+FRP_SERVER_PORT = int(os.environ.get("FRP_SERVER_PORT", "7000"))
+FRP_TOKEN = os.environ.get("FRP_TOKEN", "")  # Loaded from .env — NEVER hardcode
 FAST_PROVISION_URL = "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/fast-provision.sh"
-# FRP token loaded from VPS config
 
 # =============================================================================
 # Helpers
@@ -261,22 +291,29 @@ class Offer:
         return (len(issues) == 0, issues)
 
 
-def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offer]:
-    """Search Vast.ai for offers matching GPU profile."""
+def search_offers(profile: dict, max_price: Optional[float] = None, include_unverified: bool = False) -> list[Offer]:
+    """Search Vast.ai for offers matching GPU profile.
+    
+    Args:
+        include_unverified: If True, also search unverified hosts (often 30-50% cheaper).
+                          Uses vastai 'verified=False' flag. Reliability filter still applies.
+    """
     price = max_price or profile["max_price_hr"]
     failed_hosts = load_failed_hosts()
 
     # Build search query — start broad, we filter in Python
-    # Include driver_version filter to avoid hosts with outdated CUDA drivers
-    driver_min = profile.get("driver_min", "570.0.0")  # Default: driver 570+ for CUDA 12.9
+    driver_min = profile.get("driver_min", "570.0.0")
     query = (
         f"gpu_name={profile['name']} "
         f"num_gpus={profile['num_gpus']} "
         f"rented=False "
-        f"dph<={price + 0.10} "  # Slightly above max to catch borderline offers
-        f"cuda_max_good>={profile['cuda_min'] - 0.5} "  # Slightly below to catch borderline
-        f"driver_version>={driver_min}"  # Filter out hosts with old drivers
+        f"dph<={price + 0.10} "
+        f"cuda_max_good>={profile['cuda_min'] - 0.5} "
+        f"driver_version>={driver_min}"
     )
+    if include_unverified:
+        query += " verified=False"
+        log("🏷️", "Including UNVERIFIED hosts (cheaper, higher retry count)")
 
     log("🔍", f"Searching offers: {query}")
     result = run_cmd(f"vastai search offers -n '{query}' --raw -o 'dph+' --limit 30", timeout=30)
@@ -333,8 +370,13 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
     return offers
 
 
-def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0) -> list[Offer]:
-    """Filter and rank offers. Best = meets specs + lowest total cost."""
+def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0, prefer_unverified: bool = False) -> list[Offer]:
+    """Filter and rank offers. Best = meets specs + lowest total cost.
+    
+    When prefer_unverified=True, unverified hosts get a ranking bonus
+    (they're typically 30-50% cheaper and the reliability filter already
+    ensures minimum quality).
+    """
     valid = []
     for o in offers:
         ok, _ = o.meets_specs(profile)
@@ -342,18 +384,21 @@ def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0)
             valid.append(o)
 
     if not valid:
-        # If nothing meets specs, return all offers sorted by price (for manual review)
         log("⚠️", "No offers meet all specs — showing all available sorted by price")
         return sorted(offers, key=lambda o: o.dph_total)[:5]
 
     # Score: dph + estimated inet cost for workflow
-    # Bonus: verified/deverified hosts are more reliable for Docker
     for o in valid:
         estimated_inet_cost = workflow_size_gb * o.inet_down_cost_gb if workflow_size_gb > 0 else 0
-        o._total_cost = o.dph_total + (estimated_inet_cost / 10)  # Normalize inet cost (amortize over 10 hours)
-        # Penalty for unverified hosts (more likely to have Docker issues)
-        if not o._is_verified:
-            o._total_cost += 0.02  # $0.02/hr penalty — makes verified hosts preferred when close in price
+        o._total_cost = o.dph_total + (estimated_inet_cost / 10)
+        if prefer_unverified:
+            # Unverified hosts ranked higher (cheaper is better)
+            if o._is_verified:
+                o._total_cost += 0.01  # Small penalty to prefer unverified when close
+        else:
+            # Default: slight preference for verified hosts
+            if not o._is_verified:
+                o._total_cost += 0.02
 
     valid.sort(key=lambda o: o._total_cost)
     return valid
@@ -394,10 +439,8 @@ def get_workflow_size(workflow_name: str) -> float:
 
 
 def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str, 
-                           discord_webhook: str, frp_config: dict) -> str:
+                           discord_webhook: str, frp_config: Optional[dict] = None) -> str:
     """Build the --env string for vastai create instance."""
-    docker_image = profile["docker_image"]
-
     env_parts = [
         "-p 8188:8188",
         '-e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header --listen 0.0.0.0"',
@@ -413,15 +456,17 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     if workflow_url:
         env_parts.append(f'-e WORKFLOW_SCRIPT="{workflow_url}"')
 
-    # FRP tunneling configuration — MANDATORY
-    # frp_config is guaranteed to be present (the caller exits if allocation fails)
-    env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
-    env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
-    env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
-    # Read FRP token from VPS config
-    frp_token = _load_frp_token()
-    if frp_token:
-        env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
+    # FRP tunneling configuration — OPTIONAL
+    # Falls back to Cloudflare quick tunnels if FRP is not available
+    if frp_config:
+        env_parts.append(f'-e FRP_INDEX="{frp_config.get("index", 0)}"')
+        env_parts.append(f'-e FRP_SERVER_ADDR="{FRP_SERVER_ADDR}"')
+        env_parts.append(f'-e FRP_SERVER_PORT="{FRP_SERVER_PORT}"')
+        frp_token = _load_frp_token()
+        if frp_token:
+            env_parts.append(f'-e FRP_TOKEN="{frp_token}"')
+    else:
+        log("⚠️", "No FRP config — instance will use Cloudflare quick tunnels")
 
     env_parts.extend([
         '-e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal"',
@@ -435,12 +480,15 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
 
 
 def _load_frp_token() -> str:
-    """Load FRP token from VPS config."""
+    """Load FRP token from .env (via FRP_TOKEN env var) or VPS config."""
+    # 1. From .env / environment variable (preferred)
+    if FRP_TOKEN:
+        return FRP_TOKEN
+    # 2. Fallback: VPS server config (when running on the FRP server itself)
     try:
         with open("/etc/frp/frps.toml") as f:
             for line in f:
                 if 'auth.token' in line:
-                    # Parse: auth.token = "value" or auth.token = 'value'
                     match = re.search(r'auth\.token\s*=\s*["\']?([^"\'\s]+)', line)
                     if match:
                         return match.group(1)
@@ -451,7 +499,7 @@ def _load_frp_token() -> str:
 
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str, frp_config: dict,
+                       discord_webhook: str, frp_config: Optional[dict] = None,
                        fast_mode: bool = True) -> Optional[int]:
     """Provision a Vast.ai instance. Returns instance ID or None."""
     env_str = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
@@ -498,7 +546,6 @@ def provision_instance(offer: Offer, profile: dict, label: str,
     json_str = raw_output[json_start:]
 
     # Try JSON first, fall back to Python literal_eval (vastai CLI can return Python dicts)
-    import ast
     for parser_name, parser in [("json", json.loads), ("ast", ast.literal_eval)]:
         try:
             data = parser(json_str)
@@ -621,7 +668,6 @@ def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
     
     ssh_url = ssh_result["stdout"].strip()
     # Parse ssh://root@host:port
-    import re
     match = re.match(r"ssh://root@([^:]+):(\d+)", ssh_url)
     if not match:
         log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
@@ -680,6 +726,8 @@ def parse_args():
     parser.add_argument("--no-monitor", action="store_true", help="Skip monitoring")
     parser.add_argument("--slow", action="store_true", help="Use slow image provisioner (default: fast)")
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
+    parser.add_argument("--unverified", action="store_true", help="Include unverified hosts (cheaper, ranked higher)")
+    parser.add_argument("--no-frp", action="store_true", help="Skip FRP tunnel setup (use Cloudflare quick tunnels)")
     return parser.parse_args()
 
 
@@ -730,7 +778,7 @@ def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
     log("⏳", f"Waiting for workflow downloads to complete (timeout: {timeout}s)...")
 
     # Parse SSH URL: ssh://root@host:port
-    import re
+
     match = re.match(r'ssh://root@([^:]+):(\d+)', ssh_url)
     if not match:
         log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
@@ -815,17 +863,19 @@ def main():
     log("🔑", f"HF Token: {'SET' if hf_token else 'MISSING'}")
     log("📬", f"Discord Webhook: {'SET' if discord_webhook else 'MISSING'}")
 
-    # Allocate FRP tunnel subdomain index
-    # FRP is MANDATORY — exit if allocation fails
-    frp_config = allocate_frp_index(f"instance_{args.label}")
-    if not frp_config:
-        log("❌", "FRP allocation failed. FRP is mandatory — cannot provision without it.")
-        log("❌", "Ensure frp-allocate-port script is available at /usr/local/bin/frp-allocate-port")
-        sys.exit(1)
-    log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={frp_config.get('custom_domains', {})}")
+    # Allocate FRP tunnel subdomain index (optional)
+    frp_config = None
+    if not args.no_frp:
+        frp_config = allocate_frp_index(f"instance_{args.label}")
+        if frp_config:
+            log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={frp_config.get('custom_domains', {})}")
+        else:
+            log("⚠️", "FRP allocation failed — will use Cloudflare quick tunnels instead")
+    else:
+        log("🌐", "FRP disabled (--no-frp) — will use Cloudflare quick tunnels")
 
     # Search offers
-    offers = search_offers(profile, args.max_price)
+    offers = search_offers(profile, args.max_price, include_unverified=args.unverified)
     if not offers:
         log("❌", "No offers found. Try relaxing constraints or checking later.")
         sys.exit(1)
@@ -833,7 +883,7 @@ def main():
     log("📊", f"Found {len(offers)} raw offers")
 
     # Rank offers
-    ranked = rank_offers(offers, profile, workflow_size_gb)
+    ranked = rank_offers(offers, profile, workflow_size_gb, prefer_unverified=args.unverified)
     if not ranked:
         log("❌", "No valid offers after filtering")
         sys.exit(1)

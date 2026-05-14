@@ -22,7 +22,7 @@ echo "============================================"
 FRP_INDEX="${FRP_INDEX:-}"
 FRP_SERVER_ADDR="${FRP_SERVER_ADDR:-159.195.52.130}"
 FRP_SERVER_PORT="${FRP_SERVER_PORT:-7000}"
-FRP_TOKEN="${FRP_TOKEN:-growthlabs-frp-2026-Qwerty123}"
+FRP_TOKEN="${FRP_TOKEN:-}"  # Loaded from env var (set by vastai-provision.py from .env)
 WORKFLOW_SCRIPT="${WORKFLOW_SCRIPT:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
@@ -169,16 +169,30 @@ EOF
     if pgrep frpc > /dev/null; then
         echo "✅ frpc started (PID $(pgrep frpc))"
     else
-        echo "❌ FRP client failed to start — check /var/log/frpc.log"
+        echo "⚠️ FRP client failed to start — falling back to Cloudflare quick tunnels"
         cat /var/log/frpc.log
-        echo "FATAL: Without FRP tunnel, this instance cannot be accessed by users."
-        exit 1
+        FRP_INDEX=""  # Clear so Cloudflare fallback kicks in below
     fi
 else
-    echo "❌ FATAL: FRP_INDEX not set. FRP tunneling is MANDATORY."
-    echo "   The provisioning script MUST pass FRP_INDEX via env vars."
-    echo "   Instance will NOT be usable without FRP URLs."
-    exit 1
+    echo "ℹ️ No FRP_INDEX set — will use Cloudflare quick tunnels."
+fi
+
+# Cloudflare quick tunnel fallback (when FRP is not available)
+if [ -z "$FRP_INDEX" ]; then
+    CLOUDFLARED_BIN=$(which cloudflared 2>/dev/null || echo "/opt/instance-tools/bin/cloudflared")
+    if [ -x "$CLOUDFLARED_BIN" ]; then
+        echo "Setting up Cloudflare quick tunnels..."
+        $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:18188 > /tmp/comfy_tunnel.log 2>&1 &
+        $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:18080 > /tmp/jupyter_tunnel.log 2>&1 &
+        sleep 15
+        CF_COMFY_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/comfy_tunnel.log 2>/dev/null | tail -1 || echo "")
+        CF_JUPYTER_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/jupyter_tunnel.log 2>/dev/null | tail -1 || echo "")
+        FRP_STATUS="ComfyUI: ${CF_COMFY_URL:-NOT READY}\nJupyter: ${CF_JUPYTER_URL:-NOT READY}\n(Cloudflare quick tunnels — URLs change on restart)"
+        echo "✅ Cloudflare tunnels: ComfyUI=${CF_COMFY_URL:-NOT READY}, Jupyter=${CF_JUPYTER_URL:-NOT READY}"
+    else
+        echo "⚠️ Neither FRP nor Cloudflare available — use Vast.ai dashboard OPEN button"
+        FRP_STATUS="Use Vast.ai dashboard → OPEN button"
+    fi
 fi
 
 # =============================================================================
@@ -302,17 +316,28 @@ fi
 # =============================================================================
 
 INSTANCE_INFO="Instance: $(hostname)"
-SUFFIX="${FRP_INDEX}"
-if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
-FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
+
+# FRP_STATUS may already be set by the Cloudflare fallback block above.
+# Only override if FRP_INDEX is still set (meaning FRP is active).
+if [ -n "$FRP_INDEX" ]; then
+    SUFFIX="${FRP_INDEX}"
+    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
+    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
 Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
 Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
+    TUNNEL_TYPE="FRP"
+else
+    # FRP_STATUS was set by Cloudflare fallback (or default message)
+    FRP_STATUS="${FRP_STATUS:-Use Vast.ai dashboard → OPEN button}"
+    TUNNEL_TYPE="Cloudflare"
+fi
 
 # --- Notification 1: Server Ready (ComfyUI up, SSH/FRP available) ---
 echo "=== [8/8] Notification 1: Server Ready ==="
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then
     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
+        -H "User-Agent: HermesBot/1.0" \
         -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n\\n${FRP_STATUS}\\n\\n⏳ Models downloading in background...\"}" \
         > /dev/null 2>&1 || true
     echo "✅ Discord notification sent (Server Ready)"
@@ -350,12 +375,14 @@ if [ -n "$DISCORD_WEBHOOK_URL" ] && [ -n "$WORKFLOW_PID" ]; then
     if [ "$WORKFLOW_RESULT" = "✅" ]; then
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
+            -H "User-Agent: HermesBot/1.0" \
             -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\n\\n${FRP_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Ready)"
     else
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
+            -H "User-Agent: HermesBot/1.0" \
             -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\n\\n${FRP_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Issue)"
@@ -367,6 +394,6 @@ echo "  Fast Provisioning Complete!"
 echo "============================================"
 echo "  ComfyUI port: ${COMFY_PORT:-unknown}"
 echo "  Workspace: /workspace/ComfyUI"
-echo "  FRP tunnels: Active"
+echo "  Tunnels: ${TUNNEL_TYPE}"
 echo "  Logs: /workspace/workflow.log (if workflow set)"
 echo "============================================"

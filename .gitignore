@@ -1,5 +1,12 @@
+# Secrets (NEVER commit)
+.env
+
 # Dependencies
 node_modules/
+
+# Python
+__pycache__/
+*.pyc
 
 # Hermes skill definitions (synced separately, not part of this repo)
 # current-setup/skills/
