@@ -31,12 +31,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-try:
-    from vastai import VastAI
-except ImportError:
-    print("❌ ERROR: 'vastai' python package is required. Install with: pip install vastai")
-    sys.exit(1)
-
 
 def _load_dotenv():
     """Load .env file from project root (walks up from this script's location)."""
@@ -144,16 +138,6 @@ FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
 FRP_SERVER_ADDR = os.environ.get("FRP_SERVER_ADDR", "159.195.52.130")
 FRP_SERVER_PORT = int(os.environ.get("FRP_SERVER_PORT", "7000"))
 FRP_TOKEN = os.environ.get("FRP_TOKEN", "")  # Loaded from .env — NEVER hardcode
-VAST_API_KEY = os.environ.get("VAST_API_KEY", "") # Automatically loaded by SDK if set, or via ~/.vast_api_key
-
-# Initialize SDK globally
-# If VAST_API_KEY is empty, VastAI() will fallback to ~/.vast_api_key
-# We must pass raw=True so that API responses are returned as Python dicts/lists
-try:
-    vast_client = VastAI(api_key=VAST_API_KEY, raw=True) if VAST_API_KEY else VastAI(raw=True)
-except Exception as e:
-    print(f"❌ Failed to initialize Vast.ai SDK: {e}")
-    sys.exit(1)
 FAST_PROVISION_URL = "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/fast-provision.sh"
 
 # =============================================================================
@@ -337,14 +321,16 @@ def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offe
     )
 
     log("🔍", f"Searching offers: {query}")
-    try:
-        raw_data = vast_client.search_offers(query=query, limit=30, order='dph+')
-    except Exception as e:
-        log("❌", f"Search failed: {e}")
+    result = run_cmd(f"vastai search offers -n '{query}' --raw -o 'dph+' --limit 30", timeout=30)
+
+    if result["code"] != 0:
+        log("❌", f"Search failed: {result['stderr']}")
         return []
 
-    if not isinstance(raw_data, list):
-        log("❌", f"Failed to parse search results. Expected list, got {type(raw_data)}")
+    try:
+        raw_data = json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        log("❌", f"Failed to parse search results")
         return []
 
     offers = []
@@ -398,14 +384,11 @@ def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0,
     """
     valid = []
     for o in offers:
-        ok, issues = o.meets_specs(profile)
+        ok, _ = o.meets_specs(profile)
         if ok:
             if verified_only and not o._is_verified:
-                log("⚠️", f"Filtered {o.id} ({o.host_id}): Unverified (verified_only=True)")
                 continue  # Skip unverified when --verified-only
             valid.append(o)
-        else:
-            log("⚠️", f"Filtered {o.id} ({o.host_id}): {', '.join(issues)}")
 
     if not valid:
         log("⚠️", "No offers meet all specs — showing all available sorted by price")
@@ -534,50 +517,73 @@ def provision_instance(offer: Offer, profile: dict, label: str,
         onstart_cmd = "entrypoint.sh"
         log("🐢", "Using SLOW image provisioner")
 
+    cmd = (
+        f"vastai create instance {offer.id} "
+        f"--image {profile['docker_image']} "
+        f"--env '{env_str}' "
+        f"--disk {disk} "
+        f"--label \"{label}\" "
+        f"--direct --ssh --jupyter "
+        f"--cancel-unavail "
+        f"--onstart-cmd '{onstart_cmd}'"
+    )
+
     log("🚀", f"Provisioning instance on host {offer.host_id} (${offer.dph_total:.4f}/hr)...")
+    log("📋", f"Command: {cmd[:200]}...")
 
-    try:
-        # Pass parameters as expected by the vastai SDK
-        # Some SDK versions expect kwarg names matching CLI parameters exactly
-        data = vast_client.create_instance(
-            id=str(offer.id),
-            image=profile['docker_image'],
-            env=env_str,
-            disk=disk,
-            label=label,
-            direct=True,
-            ssh=True,
-            jupyter=True,
-            cancel_unavail=True,
-            onstart_cmd=onstart_cmd
-        )
-    except Exception as e:
-        log("❌", f"Provisioning failed: {e}")
+    result = run_cmd(cmd, timeout=60)
+
+    if result["code"] != 0:
+        log("❌", f"Provisioning failed (exit {result['code']}): {result['stderr']}")
         return None
 
-    if isinstance(data, dict):
-        instance_id = data.get("new_contract")
-        if instance_id:
-            # Vast.ai API often returns success=False even when the instance
-            # IS created. Trust new_contract as the real indicator.
-            if not data.get("success"):
-                log("⚠️", f"API returned success=False but instance was created (known API quirk)")
-            log("✅", f"Instance created: {instance_id}")
-            return instance_id
-        # No new_contract — genuinely failed
-        error_msg = str(data.get("error", "")) or str(data.get("message", ""))
-        if "no_such_ask" in str(data) or "not available" in error_msg:
-            log("⚠️", "Offer no longer available — will try next offer")
-        else:
-            log("❌", f"Instance creation failed: {data}")
+    # Vast.ai CLI sometimes prints response to stderr or stdout
+    # Check both for the JSON response
+    raw_output = result["stdout"].strip()
+    raw_stderr = result["stderr"].strip()
+    
+    # Log raw output for debugging
+    if not raw_output and not raw_stderr:
+        log("❌", "Provisioning returned empty response (no stdout or stderr)")
         return None
-    elif hasattr(data, 'new_contract') and data.new_contract:
-        # Just in case SDK returns an object
-        instance_id = data.new_contract
-        log("✅", f"Instance created: {instance_id}")
-        return instance_id
+    
+    # Try stdout first, fall back to stderr
+    response_text = raw_output if raw_output else raw_stderr
+    if raw_stderr and not raw_output:
+        log("⚠️", f"Response was on stderr: {raw_stderr[:200]}")
+    
+    # Find the first '{' and parse from there
+    json_start = response_text.find("{")
+    if json_start == -1:
+        log("❌", f"No JSON in provisioning response. stdout='{raw_output[:100]}' stderr='{raw_stderr[:100]}'")
+        return None
 
-    log("❌", f"Failed to parse provisioning response: {data}")
+    json_str = response_text[json_start:]
+
+    # Try JSON first, fall back to Python literal_eval (vastai CLI can return Python dicts)
+    for parser_name, parser in [("json", json.loads), ("ast", ast.literal_eval)]:
+        try:
+            data = parser(json_str)
+            if isinstance(data, dict):
+                instance_id = data.get("new_contract")
+                if instance_id:
+                    # Vast.ai API often returns success=False even when the instance
+                    # IS created. Trust new_contract as the real indicator.
+                    if not data.get("success"):
+                        log("⚠️", f"API returned success=False but instance was created (known API quirk)")
+                    log("✅", f"Instance created: {instance_id}")
+                    return instance_id
+                # No new_contract — genuinely failed
+                error_msg = str(data.get("error", "")) or str(data.get("message", ""))
+                if "no_such_ask" in str(data) or "not available" in error_msg:
+                    log("⚠️", "Offer no longer available — will try next offer")
+                else:
+                    log("❌", f"Instance creation failed: {data}")
+                return None
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            continue
+
+    log("❌", f"Failed to parse provisioning response: {json_str[:200]}")
     return None
 
 
@@ -593,37 +599,26 @@ def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> 
     last_status = ""
 
     while time.time() - start_time < timeout:
+        result = run_cmd(f"vastai show instance {instance_id} --raw", timeout=15)
+
+        if result["code"] != 0:
+            log("⚠️", f"Failed to check status: {result['stderr']}")
+            time.sleep(10)
+            continue
+
         try:
-            instances = vast_client.show_instances()
-        except Exception as e:
-            log("⚠️", f"Failed to check status: {e}")
-            time.sleep(10)
-            continue
+            data = json.loads(result["stdout"])
+            actual_status = data.get("actual_status", "unknown")
+            duration = data.get("duration", 0)
 
-        data = None
-        for inst in instances:
-            # Handle both dicts and object models
-            inst_id = inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
-            if str(inst_id) == str(instance_id):
-                data = inst if isinstance(inst, dict) else inst.__dict__
-                break
-                
-        if not data:
-            log("⚠️", f"Instance {instance_id} not found in instances list. Waiting...")
-            time.sleep(10)
-            continue
+            if actual_status != last_status:
+                elapsed = int(time.time() - start_time)
+                log("📊", f"Status: {actual_status} (duration: {duration}s, elapsed: {elapsed}s)")
+                last_status = actual_status
 
-        actual_status = data.get("actual_status", "unknown")
-        duration = data.get("duration", 0)
-
-        if actual_status != last_status:
-            elapsed = int(time.time() - start_time)
-            log("📊", f"Status: {actual_status} (duration: {duration}s, elapsed: {elapsed}s)")
-            last_status = actual_status
-
-        if actual_status == "running":
-            log("✅", "Instance is running!")
-            return True
+            if actual_status == "running":
+                log("✅", "Instance is running!")
+                return True
 
             if actual_status == "loading" and duration > 120:
                 # Check daemon logs for Docker failure
@@ -653,6 +648,8 @@ def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> 
                     save_failed_host(host_id)
                 return False
 
+        except json.JSONDecodeError:
+            pass
 
         time.sleep(15)
 
@@ -662,15 +659,14 @@ def monitor_instance(instance_id: int, timeout: int = 600, host_id: int = 0) -> 
 
 def get_instance_info(instance_id: int) -> dict:
     """Get instance details after it's running."""
+    result = run_cmd(f"vastai show instance {instance_id} --raw", timeout=15)
+    if result["code"] != 0:
+        return {}
+
     try:
-        instances = vast_client.show_instances()
-        for inst in instances:
-            inst_id = inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
-            if str(inst_id) == str(instance_id):
-                return inst if isinstance(inst, dict) else inst.__dict__
-    except Exception as e:
-        log("⚠️", f"Failed to get instance info: {e}")
-    return {}
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        return {}
 
 
 def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
@@ -683,16 +679,20 @@ def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
     """
     log("🏥", f"Running health check on instance {instance_id}...")
     
-    # Get SSH Info
-    info = get_instance_info(instance_id)
-    ssh_host = info.get("ssh_host")
-    ssh_port = info.get("ssh_port")
-    
-    if not ssh_host or not ssh_port:
-        log("⚠️", f"Cannot get SSH info for health check. Info: {info}")
+    # Get SSH URL
+    ssh_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
+    if ssh_result["code"] != 0:
+        log("⚠️", f"Cannot get SSH URL for health check: {ssh_result['stderr']}")
         return False
     
-    ssh_url = f"ssh://root@{ssh_host}:{ssh_port}"
+    ssh_url = ssh_result["stdout"].strip()
+    # Parse ssh://root@host:port
+    match = re.match(r"ssh://root@([^:]+):(\d+)", ssh_url)
+    if not match:
+        log("⚠️", f"Cannot parse SSH URL: {ssh_url}")
+        return False
+    
+    ssh_host, ssh_port = match.group(1), match.group(2)
     ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
     
     # Check 1: Workspace symlink
@@ -991,9 +991,9 @@ def main():
                     log("📋", "SSH in and check: ssh_cmd, supervisorctl status, /workspace/ComfyUI")
 
                 info = get_instance_info(instance_id)
-                ssh_host = info.get("ssh_host", "N/A")
-                ssh_port = info.get("ssh_port", "N/A")
-                ssh_url = f"ssh://root@{ssh_host}:{ssh_port}" if ssh_host != "N/A" else "N/A"
+                ssh_url_result = run_cmd(f"vastai ssh-url {instance_id}", timeout=10)
+                ssh_url = ssh_url_result.get("stdout", "N/A")
+
                 # === Notification 1: Server Ready (immediate) ===
                 print("\n" + "=" * 80)
                 log("🎉", "SERVER READY!")
