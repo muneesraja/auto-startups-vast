@@ -10,7 +10,16 @@ description: Provision, monitor, and manage Vast.ai GPU servers autonomously. Us
 When a user asks to "prepare a server", "rent a GPU", "set up a 3090/4090", or similar — **run the script. Do NOT follow manual steps.**
 
 ```bash
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
+# 1. Create and activate a virtual environment (if not already done)
+cd ~/.hermes/skills/vast-ai
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install the Vast AI Python SDK
+pip install vastai
+
+# 3. Run the script
+python ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
   --gpu <3090|4090> \
   --label <name> \
   [--workflow <script_name_or_alias>] \
@@ -20,10 +29,10 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
 **Examples:**
 ```bash
 # Bare ComfyUI (no workflow)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi
+source ~/.hermes/skills/vast-ai/.venv/bin/activate && python ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi
 
 # With workflow
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workflow wan22 --label mandi
+source ~/.hermes/skills/vast-ai/.venv/bin/activate && python ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workflow wan22 --label mandi
 
 # Auto-select best offer (no confirmation prompt)
 python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
