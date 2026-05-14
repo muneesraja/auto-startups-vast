@@ -148,8 +148,9 @@ VAST_API_KEY = os.environ.get("VAST_API_KEY", "") # Automatically loaded by SDK 
 
 # Initialize SDK globally
 # If VAST_API_KEY is empty, VastAI() will fallback to ~/.vast_api_key
+# We must pass raw=True so that API responses are returned as Python dicts/lists
 try:
-    vast_client = VastAI(api_key=VAST_API_KEY) if VAST_API_KEY else VastAI()
+    vast_client = VastAI(api_key=VAST_API_KEY, raw=True) if VAST_API_KEY else VastAI(raw=True)
 except Exception as e:
     print(f"❌ Failed to initialize Vast.ai SDK: {e}")
     sys.exit(1)
@@ -397,11 +398,14 @@ def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0,
     """
     valid = []
     for o in offers:
-        ok, _ = o.meets_specs(profile)
+        ok, issues = o.meets_specs(profile)
         if ok:
             if verified_only and not o._is_verified:
+                log("⚠️", f"Filtered {o.id} ({o.host_id}): Unverified (verified_only=True)")
                 continue  # Skip unverified when --verified-only
             valid.append(o)
+        else:
+            log("⚠️", f"Filtered {o.id} ({o.host_id}): {', '.join(issues)}")
 
     if not valid:
         log("⚠️", "No offers meet all specs — showing all available sorted by price")
