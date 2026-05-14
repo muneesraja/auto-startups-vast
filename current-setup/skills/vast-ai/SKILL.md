@@ -14,8 +14,7 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
   --gpu <3090|4090> \
   --label <name> \
   [--workflow <script_name_or_alias>] \
-  [--auto] [--dry-run] [--max-price 0.30] [--no-monitor] \
-  [--verified-only] [--no-frp]
+  [--auto] [--dry-run] [--max-price 0.30] [--no-monitor] [--no-frp]
 ```
 
 **Examples:**
@@ -29,8 +28,6 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workfl
 # Auto-select best offer (no confirmation prompt)
 python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
 
-# Only verified hosts (skip cheaper unverified)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --verified-only
 
 # No FRP tunnel (use Cloudflare quick tunnels)
 python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-frp
