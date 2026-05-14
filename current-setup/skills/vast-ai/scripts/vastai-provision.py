@@ -62,8 +62,8 @@ GPU_PROFILES = {
         "num_gpus": 1,
         "min_ram_gb": 24,           # VRAM is bottleneck, not system RAM
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 200,  # 200 Mbps sufficient for most workflows
-        "min_inet_up_mbps": 200,
+        "min_inet_down_mbps": 500,  # 500 Mbps min — critical for 25GB+ model downloads
+        "min_inet_up_mbps": 500,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
         "cuda_min": 12.8,           # cuda-12.9 image requires CUDA 12.8+ hardware capability
@@ -79,8 +79,8 @@ GPU_PROFILES = {
         "num_gpus": 1,
         "min_ram_gb": 24,
         "min_disk_gb": 100,
-        "min_inet_down_mbps": 200,
-        "min_inet_up_mbps": 200,
+        "min_inet_down_mbps": 500,
+        "min_inet_up_mbps": 500,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,
         "cuda_min": 12.8,
@@ -301,15 +301,18 @@ def search_offers(profile: dict, max_price: Optional[float] = None, include_unve
     price = max_price or profile["max_price_hr"]
     failed_hosts = load_failed_hosts()
 
-    # Build search query — start broad, we filter in Python
+    # Build search query — filter at API level to avoid fetching unsuitable hosts
     driver_min = profile.get("driver_min", "570.0.0")
+    min_inet = profile.get("min_inet_down_mbps", 500)
     query = (
         f"gpu_name={profile['name']} "
         f"num_gpus={profile['num_gpus']} "
         f"rented=False "
         f"dph<={price + 0.10} "
         f"cuda_max_good>={profile['cuda_min'] - 0.5} "
-        f"driver_version>={driver_min}"
+        f"driver_version>={driver_min} "
+        f"inet_down>={min_inet} "
+        f"inet_up>={min_inet}"
     )
     if include_unverified:
         query += " verified=False"
