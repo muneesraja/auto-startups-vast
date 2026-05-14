@@ -15,7 +15,7 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py \
   --label <name> \
   [--workflow <script_name_or_alias>] \
   [--auto] [--dry-run] [--max-price 0.30] [--no-monitor] \
-  [--unverified] [--no-frp]
+  [--verified-only] [--no-frp]
 ```
 
 **Examples:**
@@ -29,8 +29,8 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workfl
 # Auto-select best offer (no confirmation prompt)
 python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
 
-# Cheap unverified hosts (ranked by price)
-python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --workflow wan22 --label mandi --auto --unverified
+# Only verified hosts (skip cheaper unverified)
+python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --verified-only
 
 # No FRP tunnel (use Cloudflare quick tunnels)
 python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-frp
@@ -58,7 +58,7 @@ python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label 
 | `--auto` | Auto-select best offer, no confirmation prompt |
 | `--dry-run` | Search and show offers without provisioning |
 | `--max-price` | Override max $/hr (default: from GPU profile) |
-| `--unverified` | Include unverified hosts (cheaper, ranked higher) |
+| `--verified-only` | Only show verified hosts (default: prefer unverified/cheaper) |
 | `--no-frp` | Skip FRP tunnels, use Cloudflare quick tunnels |
 | `--no-monitor` | Skip post-provision monitoring |
 | `--slow` | Use image's built-in provisioner instead of fast-provision.sh |

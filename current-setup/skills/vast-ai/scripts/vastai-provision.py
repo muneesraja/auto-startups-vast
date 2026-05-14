@@ -291,17 +291,17 @@ class Offer:
         return (len(issues) == 0, issues)
 
 
-def search_offers(profile: dict, max_price: Optional[float] = None, include_unverified: bool = False) -> list[Offer]:
+def search_offers(profile: dict, max_price: Optional[float] = None) -> list[Offer]:
     """Search Vast.ai for offers matching GPU profile.
     
-    Args:
-        include_unverified: If True, also search unverified hosts (often 30-50% cheaper).
-                          Uses vastai 'verified=False' flag. Reliability filter still applies.
+    Always searches both verified and unverified hosts (via -n flag).
+    Ranking handles preference (unverified preferred by default).
     """
     price = max_price or profile["max_price_hr"]
     failed_hosts = load_failed_hosts()
 
     # Build search query — filter at API level to avoid fetching unsuitable hosts
+    # -n flag disables default 'verified=true', so we get both verified + unverified
     driver_min = profile.get("driver_min", "570.0.0")
     min_inet = profile.get("min_inet_down_mbps", 500)
     query = (
@@ -314,9 +314,6 @@ def search_offers(profile: dict, max_price: Optional[float] = None, include_unve
         f"inet_down>={min_inet} "
         f"inet_up>={min_inet}"
     )
-    if include_unverified:
-        query += " verified=False"
-        log("🏷️", "Including UNVERIFIED hosts (cheaper, higher retry count)")
 
     log("🔍", f"Searching offers: {query}")
     result = run_cmd(f"vastai search offers -n '{query}' --raw -o 'dph+' --limit 30", timeout=30)
@@ -373,17 +370,19 @@ def search_offers(profile: dict, max_price: Optional[float] = None, include_unve
     return offers
 
 
-def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0, prefer_unverified: bool = False) -> list[Offer]:
+def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0, verified_only: bool = False) -> list[Offer]:
     """Filter and rank offers. Best = meets specs + lowest total cost.
     
-    When prefer_unverified=True, unverified hosts get a ranking bonus
-    (they're typically 30-50% cheaper and the reliability filter already
-    ensures minimum quality).
+    Default: unverified hosts preferred (cheaper). The reliability filter
+    already ensures minimum quality, so verification status is secondary.
+    Pass verified_only=True to prefer verified hosts instead.
     """
     valid = []
     for o in offers:
         ok, _ = o.meets_specs(profile)
         if ok:
+            if verified_only and not o._is_verified:
+                continue  # Skip unverified when --verified-only
             valid.append(o)
 
     if not valid:
@@ -391,17 +390,12 @@ def rank_offers(offers: list[Offer], profile: dict, workflow_size_gb: float = 0,
         return sorted(offers, key=lambda o: o.dph_total)[:5]
 
     # Score: dph + estimated inet cost for workflow
+    # Unverified hosts are preferred by default (they're 30-50% cheaper)
     for o in valid:
         estimated_inet_cost = workflow_size_gb * o.inet_down_cost_gb if workflow_size_gb > 0 else 0
         o._total_cost = o.dph_total + (estimated_inet_cost / 10)
-        if prefer_unverified:
-            # Unverified hosts ranked higher (cheaper is better)
-            if o._is_verified:
-                o._total_cost += 0.01  # Small penalty to prefer unverified when close
-        else:
-            # Default: slight preference for verified hosts
-            if not o._is_verified:
-                o._total_cost += 0.02
+        if not verified_only and o._is_verified:
+            o._total_cost += 0.01  # Small penalty so cheaper unverified hosts rank first
 
     valid.sort(key=lambda o: o._total_cost)
     return valid
@@ -729,7 +723,7 @@ def parse_args():
     parser.add_argument("--no-monitor", action="store_true", help="Skip monitoring")
     parser.add_argument("--slow", action="store_true", help="Use slow image provisioner (default: fast)")
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
-    parser.add_argument("--unverified", action="store_true", help="Include unverified hosts (cheaper, ranked higher)")
+    parser.add_argument("--verified-only", action="store_true", help="Only show verified hosts (default: prefer unverified/cheaper)")
     parser.add_argument("--no-frp", action="store_true", help="Skip FRP tunnel setup (use Cloudflare quick tunnels)")
     return parser.parse_args()
 
@@ -878,7 +872,7 @@ def main():
         log("🌐", "FRP disabled (--no-frp) — will use Cloudflare quick tunnels")
 
     # Search offers
-    offers = search_offers(profile, args.max_price, include_unverified=args.unverified)
+    offers = search_offers(profile, args.max_price)
     if not offers:
         log("❌", "No offers found. Try relaxing constraints or checking later.")
         sys.exit(1)
@@ -886,7 +880,7 @@ def main():
     log("📊", f"Found {len(offers)} raw offers")
 
     # Rank offers
-    ranked = rank_offers(offers, profile, workflow_size_gb, prefer_unverified=args.unverified)
+    ranked = rank_offers(offers, profile, workflow_size_gb, verified_only=args.verified_only)
     if not ranked:
         log("❌", "No valid offers after filtering")
         sys.exit(1)
