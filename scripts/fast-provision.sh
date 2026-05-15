@@ -19,10 +19,8 @@ echo "  Fast Provisioning — Starting"
 echo "============================================"
 
 # Environment (passed from vastai-provision.py)
-FRP_INDEX="${FRP_INDEX:-}"
-FRP_SERVER_ADDR="${FRP_SERVER_ADDR:-159.195.52.130}"
-FRP_SERVER_PORT="${FRP_SERVER_PORT:-7000}"
-FRP_TOKEN="${FRP_TOKEN:-}"  # Loaded from env var (set by vastai-provision.py from .env)
+CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
+CF_TUNNEL_HOSTNAME="${CF_TUNNEL_HOSTNAME:-}"
 WORKFLOW_SCRIPT="${WORKFLOW_SCRIPT:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
@@ -98,100 +96,87 @@ apt-get update -qq && apt-get install -y -qq ffmpeg aria2 tmux zip curl wget > /
 echo "✅ System packages installed"
 
 # =============================================================================
-# [4/8] FRP Tunnel Setup
+# [4/8] Cloudflared Named Tunnel Setup
 # =============================================================================
-echo "=== [4/8] FRP Tunnel ==="
+echo "=== [4/8] Cloudflared Named Tunnel ==="
 
-if [ -n "$FRP_INDEX" ]; then
-    echo "FRP_INDEX=$FRP_INDEX — setting up self-hosted FRP tunnel..."
+TUNNEL_STATUS="Vast.ai OPEN button (no tunnel configured)"
+TUNNEL_TYPE="None"
+
+if [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_TUNNEL_HOSTNAME" ]; then
+    echo "CF_TUNNEL_TOKEN set — setting up Cloudflare named tunnel..."
+    echo "Hostname: $CF_TUNNEL_HOSTNAME"
     
-    # Calculate domain suffix
-    if [ "$FRP_INDEX" = "0" ]; then
-        SUFFIX=""
+    CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
+    
+    # Install cloudflared if needed
+    if [ ! -x "$CLOUDFLARED_BIN" ]; then
+        echo "Downloading cloudflared..."
+        curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
+          -o "$CLOUDFLARED_BIN"
+        chmod +x "$CLOUDFLARED_BIN"
+        echo "✅ cloudflared installed"
+    fi
+    
+    # Write credentials from token
+    mkdir -p /root/.cloudflared
+    echo "$CF_TUNNEL_TOKEN" | base64 -d > /root/.cloudflared/creds.json 2>/dev/null || {
+        echo "⚠️ Failed to decode CF_TUNNEL_TOKEN — trying as plain token"
+        # For short-lived tokens (not base64), write directly
+        echo "$CF_TUNNEL_TOKEN" > /root/.cloudflared/token.txt
+    }
+    
+    # Start tunnel with token
+    pkill -f "cloudflared tunnel" 2>/dev/null || true
+    
+    if [ -f /root/.cloudflared/creds.json ] && [ -s /root/.cloudflared/creds.json ]; then
+        # Has credentials JSON — extract tunnel ID and run
+        TUNNEL_ID=$(jq -r '.TunnelID // empty' /root/.cloudflared/creds.json 2>/dev/null)
+        if [ -n "$TUNNEL_ID" ]; then
+            nohup "$CLOUDFLARED_BIN" tunnel run "$TUNNEL_ID" \
+              > /var/log/cloudflared.log 2>&1 &
+        else
+            nohup "$CLOUDFLARED_BIN" tunnel run --token "$CF_TUNNEL_TOKEN" \
+              > /var/log/cloudflared.log 2>&1 &
+        fi
     else
-        SUFFIX="$FRP_INDEX"
+        # Use token directly
+        nohup "$CLOUDFLARED_BIN" tunnel run --token "$CF_TUNNEL_TOKEN" \
+          > /var/log/cloudflared.log 2>&1 &
     fi
     
-    COMFY_DOMAIN="comfy${SUFFIX}.lxc.muneesraja.com"
-    PORTAL_DOMAIN="instance${SUFFIX}-comfy.lxc.muneesraja.com"
-    JUPYTER_DOMAIN="jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
+    sleep 5
     
-    echo "FRP domains: ComfyUI=https://$COMFY_DOMAIN, Portal=https://$PORTAL_DOMAIN, Jupyter=https://$JUPYTER_DOMAIN"
-    
-    # Install frpc if needed
-    if [ ! -x "/usr/local/bin/frpc" ]; then
-        echo "Downloading frpc v0.68.1..."
-        ARCH=$(uname -m)
-        case $ARCH in
-            x86_64|amd64) ARCH="amd64" ;;
-            aarch64|arm64) ARCH="arm64" ;;
-            *) echo "Unsupported arch: $ARCH"; exit 1 ;;
-        esac
-        curl -sL "https://github.com/fatedier/frp/releases/download/v0.68.1/frp_0.68.1_linux_${ARCH}.tar.gz" | tar xzf - -C /tmp
-        mv "/tmp/frp_0.68.1_linux_${ARCH}/frpc" /usr/local/bin/frpc
-        chmod +x /usr/local/bin/frpc
-        rm -rf "/tmp/frp_0.68.1_linux_${ARCH}"
-        echo "✅ frpc installed"
-    fi
-    
-    # Create frpc config
-    mkdir -p /etc/frp
-    cat > /etc/frp/frpc.toml << EOF
-serverAddr = "${FRP_SERVER_ADDR}"
-serverPort = ${FRP_SERVER_PORT:-7000}
-auth.method = "token"
-auth.token = "${FRP_TOKEN}"
-
-[[proxies]]
-name = "comfy${SUFFIX}"
-type = "http"
-localPort = 18188
-customDomains = ["${COMFY_DOMAIN}"]
-
-[[proxies]]
-name = "portal${SUFFIX}"
-type = "http"
-localPort = 11111
-customDomains = ["${PORTAL_DOMAIN}"]
-
-[[proxies]]
-name = "jupyter${SUFFIX}"
-type = "http"
-localPort = 18080
-customDomains = ["${JUPYTER_DOMAIN}"]
-EOF
-    
-    # Start frpc
-    pkill frpc 2>/dev/null || true
-    /usr/local/bin/frpc -c /etc/frp/frpc.toml > /var/log/frpc.log 2>&1 &
-    sleep 2
-    
-    if pgrep frpc > /dev/null; then
-        echo "✅ frpc started (PID $(pgrep frpc))"
+    if pgrep -f "cloudflared tunnel" > /dev/null; then
+        echo "✅ cloudflared started (PID $(pgrep -f 'cloudflared tunnel'))"
+        TUNNEL_STATUS="🔗 ComfyUI: https://${CF_TUNNEL_HOSTNAME}"
+        TUNNEL_TYPE="Cloudflare"
     else
-        echo "⚠️ FRP client failed to start — falling back to Cloudflare quick tunnels"
-        cat /var/log/frpc.log
-        FRP_INDEX=""  # Clear so Cloudflare fallback kicks in below
+        echo "⚠️ cloudflared failed to start — falling back to quick tunnels"
+        cat /var/log/cloudflared.log 2>/dev/null || true
+        CF_TUNNEL_TOKEN=""  # Clear so quick tunnel fallback kicks in
     fi
-else
-    echo "ℹ️ No FRP_INDEX set — will use Cloudflare quick tunnels."
 fi
 
-# Cloudflare quick tunnel fallback (when FRP is not available)
-if [ -z "$FRP_INDEX" ]; then
-    CLOUDFLARED_BIN=$(which cloudflared 2>/dev/null || echo "/opt/instance-tools/bin/cloudflared")
-    if [ -x "$CLOUDFLARED_BIN" ]; then
+# Cloudflare quick tunnel fallback (when named tunnel is not available)
+if [ -z "$CF_TUNNEL_TOKEN" ]; then
+    CLOUDFLARED_QT=$(which cloudflared 2>/dev/null || echo "/opt/instance-tools/bin/cloudflared")
+    if [ -x "$CLOUDFLARED_QT" ]; then
         echo "Setting up Cloudflare quick tunnels..."
-        $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:18188 > /tmp/comfy_tunnel.log 2>&1 &
-        $CLOUDFLARED_BIN tunnel --no-tls-verify --url http://127.0.0.1:18080 > /tmp/jupyter_tunnel.log 2>&1 &
+        nohup "$CLOUDFLARED_QT" tunnel --no-tls-verify --url http://127.0.0.1:18188 \
+          > /tmp/comfy_tunnel.log 2>&1 &
+        nohup "$CLOUDFLARED_QT" tunnel --no-tls-verify --url http://127.0.0.1:18080 \
+          > /tmp/jupyter_tunnel.log 2>&1 &
         sleep 15
-        CF_COMFY_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/comfy_tunnel.log 2>/dev/null | tail -1 || echo "")
-        CF_JUPYTER_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/jupyter_tunnel.log 2>/dev/null | tail -1 || echo "")
-        FRP_STATUS="ComfyUI: ${CF_COMFY_URL:-NOT READY}\nJupyter: ${CF_JUPYTER_URL:-NOT READY}\n(Cloudflare quick tunnels — URLs change on restart)"
-        echo "✅ Cloudflare tunnels: ComfyUI=${CF_COMFY_URL:-NOT READY}, Jupyter=${CF_JUPYTER_URL:-NOT READY}"
+        CF_COMFY_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/comfy_tunnel.log 2>/dev/null | tail -1 || echo "")
+        CF_JUPYTER_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/jupyter_tunnel.log 2>/dev/null | tail -1 || echo "")
+        TUNNEL_STATUS="ComfyUI: ${CF_COMFY_URL:-NOT READY}\nJupyter: ${CF_JUPYTER_URL:-NOT READY}\n(Cloudflare quick tunnels — URLs change on restart)"
+        TUNNEL_TYPE="Cloudflare-Quick"
+        echo "✅ Quick tunnels: ComfyUI=${CF_COMFY_URL:-NOT READY}, Jupyter=${CF_JUPYTER_URL:-NOT READY}"
     else
-        echo "⚠️ Neither FRP nor Cloudflare available — use Vast.ai dashboard OPEN button"
-        FRP_STATUS="Use Vast.ai dashboard → OPEN button"
+        echo "⚠️ cloudflared not available — use Vast.ai dashboard OPEN button"
+        TUNNEL_STATUS="Use Vast.ai dashboard → OPEN button"
+        TUNNEL_TYPE="None"
     fi
 fi
 
@@ -326,20 +311,9 @@ fi
 
 INSTANCE_INFO="Instance: $(hostname)"
 
-# FRP_STATUS may already be set by the Cloudflare fallback block above.
-# Only override if FRP_INDEX is still set (meaning FRP is active).
-if [ -n "$FRP_INDEX" ]; then
-    SUFFIX="${FRP_INDEX}"
-    if [ "$SUFFIX" = "0" ]; then SUFFIX=""; fi
-    FRP_STATUS="ComfyUI: https://comfy${SUFFIX}.lxc.muneesraja.com
-Portal: https://instance${SUFFIX}-comfy.lxc.muneesraja.com
-Jupyter: https://jupyter${SUFFIX}-comfy.lxc.muneesraja.com"
-    TUNNEL_TYPE="FRP"
-else
-    # FRP_STATUS was set by Cloudflare fallback (or default message)
-    FRP_STATUS="${FRP_STATUS:-Use Vast.ai dashboard → OPEN button}"
-    TUNNEL_TYPE="Cloudflare"
-fi
+# TUNNEL_STATUS may already be set by the cloudflared block above.
+TUNNEL_STATUS="${TUNNEL_STATUS:-Use Vast.ai dashboard → OPEN button}"
+TUNNEL_TYPE="${TUNNEL_TYPE:-None}"
 
 # --- Notification 1: Server Ready (ComfyUI up, SSH/FRP available) ---
 echo "=== [8/8] Notification 1: Server Ready ==="
@@ -347,7 +321,7 @@ if [ -n "$DISCORD_WEBHOOK_URL" ]; then
     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
         -H "Content-Type: application/json" \
         -H "User-Agent: HermesBot/1.0" \
-        -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n\\n${FRP_STATUS}\\n\\n⏳ Models downloading in background...\"}" \
+        -d "{\"content\": \"🟢 **Server Ready**\\n\\n${INSTANCE_INFO}\\n\\n${TUNNEL_STATUS}\\n\\n⏳ Models downloading in background...\"}" \
         > /dev/null 2>&1 || true
     echo "✅ Discord notification sent (Server Ready)"
 fi
