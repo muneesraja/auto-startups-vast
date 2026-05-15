@@ -21,6 +21,7 @@ echo "============================================"
 # Environment (passed from vastai-provision.py)
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 CF_TUNNEL_HOSTNAME="${CF_TUNNEL_HOSTNAME:-}"
+CF_TUNNEL_ID="${CF_TUNNEL_ID:-}"
 WORKFLOW_SCRIPT="${WORKFLOW_SCRIPT:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
@@ -106,9 +107,9 @@ TUNNEL_TYPE="None"
 if [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_TUNNEL_HOSTNAME" ]; then
     echo "CF_TUNNEL_TOKEN set — setting up Cloudflare named tunnel..."
     echo "Hostname: $CF_TUNNEL_HOSTNAME"
-    
+
     CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
-    
+
     # Install cloudflared if needed
     if [ ! -x "$CLOUDFLARED_BIN" ]; then
         echo "Downloading cloudflared..."
@@ -117,44 +118,54 @@ if [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_TUNNEL_HOSTNAME" ]; then
         chmod +x "$CLOUDFLARED_BIN"
         echo "✅ cloudflared installed"
     fi
-    
+
     # Write credentials from token
     mkdir -p /root/.cloudflared
-    echo "$CF_TUNNEL_TOKEN" | base64 -d > /root/.cloudflared/creds.json 2>/dev/null || {
-        echo "⚠️ Failed to decode CF_TUNNEL_TOKEN — trying as plain token"
-        # For short-lived tokens (not base64), write directly
-        echo "$CF_TUNNEL_TOKEN" > /root/.cloudflared/token.txt
-    }
-    
-    # Start tunnel with token
-    pkill -f "cloudflared tunnel" 2>/dev/null || true
-    
-    if [ -f /root/.cloudflared/creds.json ] && [ -s /root/.cloudflared/creds.json ]; then
-        # Has credentials JSON — extract tunnel ID and run
-        TUNNEL_ID=$(jq -r '.TunnelID // empty' /root/.cloudflared/creds.json 2>/dev/null)
-        if [ -n "$TUNNEL_ID" ]; then
-            nohup "$CLOUDFLARED_BIN" tunnel run "$TUNNEL_ID" \
-              > /var/log/cloudflared.log 2>&1 &
+    CREDENTIALS_FILE="/root/.cloudflared/${CF_TUNNEL_ID}.json"
+    echo "$CF_TUNNEL_TOKEN" | base64 -d > "$CREDENTIALS_FILE" 2>/dev/null || {
+        echo "⚠️ Failed to decode CF_TUNNEL_TOKEN (not base64) — using as raw credentials"
+        # The token IS already the credentials JSON in newer cloudflared versions
+        # Try to parse it as JSON first
+        if echo "$CF_TUNNEL_TOKEN" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+            echo "$CF_TUNNEL_TOKEN" > "$CREDENTIALS_FILE"
         else
-            nohup "$CLOUDFLARED_BIN" tunnel run --token "$CF_TUNNEL_TOKEN" \
-              > /var/log/cloudflared.log 2>&1 &
+            echo "⚠️ Token is not valid JSON — falling back to quick tunnels"
+            CF_TUNNEL_TOKEN=""
         fi
+    }
+
+    if [ -z "$CF_TUNNEL_TOKEN" ]; then
+        echo "⚠️ No valid tunnel credentials — falling back to quick tunnels"
     else
-        # Use token directly
-        nohup "$CLOUDFLARED_BIN" tunnel run --token "$CF_TUNNEL_TOKEN" \
+        # Create config.yml with ingress rules
+        cat > /root/.cloudflared/config.yml << EOF
+tunnel: ${CF_TUNNEL_ID}
+credentials-file: ${CREDENTIALS_FILE}
+ingress:
+  - hostname: ${CF_TUNNEL_HOSTNAME}
+    service: http://localhost:18188
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+EOF
+        echo "✅ config.yml created with ingress for ${CF_TUNNEL_HOSTNAME}"
+
+        # Start tunnel
+        pkill -f "cloudflared tunnel" 2>/dev/null || true
+        nohup "$CLOUDFLARED_BIN" tunnel run --config /root/.cloudflared/config.yml \
           > /var/log/cloudflared.log 2>&1 &
-    fi
-    
-    sleep 5
-    
-    if pgrep -f "cloudflared tunnel" > /dev/null; then
-        echo "✅ cloudflared started (PID $(pgrep -f 'cloudflared tunnel'))"
-        TUNNEL_STATUS="🔗 ComfyUI: https://${CF_TUNNEL_HOSTNAME}"
-        TUNNEL_TYPE="Cloudflare"
-    else
-        echo "⚠️ cloudflared failed to start — falling back to quick tunnels"
-        cat /var/log/cloudflared.log 2>/dev/null || true
-        CF_TUNNEL_TOKEN=""  # Clear so quick tunnel fallback kicks in
+
+        sleep 8
+
+        if pgrep -f "cloudflared tunnel" > /dev/null; then
+            echo "✅ cloudflared started (PID $(pgrep -f 'cloudflared tunnel'))"
+            TUNNEL_STATUS="🔗 ComfyUI: https://${CF_TUNNEL_HOSTNAME}"
+            TUNNEL_TYPE="Cloudflare"
+        else
+            echo "⚠️ cloudflared failed to start — falling back to quick tunnels"
+            cat /var/log/cloudflared.log 2>/dev/null || true
+            CF_TUNNEL_TOKEN=""
+        fi
     fi
 fi
 
