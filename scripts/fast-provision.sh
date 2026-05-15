@@ -229,7 +229,7 @@ fi
 # =============================================================================
 
 # --- Fix Portal: bind 0.0.0.0 instead of 127.0.0.1 ---
-# The image's instance_portal.sh uses --host 127.0.0.1, which makes it unreachable via FRP.
+# The image's instance_portal.sh uses --host 127.0.0.1, which makes it unreachable via tunnels.
 PORTAL_SCRIPT="/opt/supervisor-scripts/instance_portal.sh"
 if [ -f "$PORTAL_SCRIPT" ]; then
     sed -i 's/--host 127.0.0.1/--host 0.0.0.0/g' "$PORTAL_SCRIPT"
@@ -238,7 +238,7 @@ fi
 
 # --- Fix Jupyter: start plain HTTP on port 18080 ---
 # The image starts Jupyter with HTTPS (certfile/keyfile) on port 8080.
-# FRP only proxies HTTP, so we need to kill the TLS Jupyter and start a plain-HTTP one on 18080.
+# Cloudflare/proxy only forwards HTTP, so we need a plain-HTTP one on 18080.
 # Also update the supervisor config so it doesn't try to restart the TLS version.
 JUPYTER_SCRIPT="/opt/supervisor-scripts/jupyter.sh"
 if [ -f "$JUPYTER_SCRIPT" ]; then
@@ -247,7 +247,7 @@ if [ -f "$JUPYTER_SCRIPT" ]; then
     sed -i 's/--NotebookApp.certfile=[^ ]*//g' "$JUPYTER_SCRIPT"
     sed -i 's/--NotebookApp.keyfile=[^ ]*//g' "$JUPYTER_SCRIPT"
     sed -i 's/--NotebookApp.ip=[^ ]*/--NotebookApp.ip=0.0.0.0/g' "$JUPYTER_SCRIPT"
-    # Remove token requirement for convenience (behind FRP tunnel)
+    # Remove token requirement for convenience (behind Cloudflare tunnel)
     sed -i 's/--NotebookApp.token=[^ ]*/--NotebookApp.token=/g' "$JUPYTER_SCRIPT"
     sed -i 's/--NotebookApp.password=[^ ]*/--NotebookApp.password=/g' "$JUPYTER_SCRIPT"
     echo "✅ Patched jupyter.sh for plain HTTP on port 18080"
@@ -315,7 +315,7 @@ INSTANCE_INFO="Instance: $(hostname)"
 TUNNEL_STATUS="${TUNNEL_STATUS:-Use Vast.ai dashboard → OPEN button}"
 TUNNEL_TYPE="${TUNNEL_TYPE:-None}"
 
-# --- Notification 1: Server Ready (ComfyUI up, SSH/FRP available) ---
+# --- Notification 1: Server Ready (ComfyUI up, SSH / tunnel available) ---
 echo "=== [8/8] Notification 1: Server Ready ==="
 if [ -n "$DISCORD_WEBHOOK_URL" ]; then
     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
@@ -359,14 +359,14 @@ if [ -n "$DISCORD_WEBHOOK_URL" ] && [ -n "$WORKFLOW_PID" ]; then
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "User-Agent: HermesBot/1.0" \
-            -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\n\\n${FRP_STATUS}\"}" \
+            -d "{\"content\": \"📦 **Models Ready**\\n\\n${INSTANCE_INFO}\\nAll models downloaded ${WORKFLOW_RESULT}\\n\\n${TUNNEL_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Ready)"
     else
         curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "User-Agent: HermesBot/1.0" \
-            -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\n\\n${FRP_STATUS}\"}" \
+            -d "{\"content\": \"⚠️ **Models Download Issue**\\n\\n${INSTANCE_INFO}\\nWorkflow exited with issues — check /workspace/workflow.log\\n\\n${TUNNEL_STATUS}\"}" \
             > /dev/null 2>&1 || true
         echo "✅ Discord notification sent (Models Issue)"
     fi
@@ -377,6 +377,6 @@ echo "  Fast Provisioning Complete!"
 echo "============================================"
 echo "  ComfyUI port: ${COMFY_PORT:-unknown}"
 echo "  Workspace: /workspace/ComfyUI"
-echo "  Tunnels: ${TUNNEL_TYPE}"
+echo "  Tunnels: ${TUNNEL_TYPE:-None}"
 echo "  Logs: /workspace/workflow.log (if workflow set)"
 echo "============================================"
