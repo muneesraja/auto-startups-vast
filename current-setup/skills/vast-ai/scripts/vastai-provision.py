@@ -143,6 +143,11 @@ WORKFLOW_ALIASES = {
     "qwen": "qwen-image-edit.sh",
     "qwen-image": "qwen-image-edit.sh",
     "qwen-image-edit": "qwen-image-edit.sh",
+    # Qwen Image Edit 2511 4-Step Lightning
+    "qwen-image-edit-2511-4steps": "qwen-image-edit-2511-4steps.sh",
+    "qwen-2511": "qwen-image-edit-2511-4steps.sh",
+    "qwen-image-edit-2511": "qwen-image-edit-2511-4steps.sh",
+    "qwen-image-lightning-4steps": "qwen-image-edit-2511-4steps.sh",
 }
 
 # =============================================================================

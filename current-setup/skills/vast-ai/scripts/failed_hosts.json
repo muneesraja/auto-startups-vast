@@ -1,1 +1,8 @@
-{}
+{
+  "85323": {
+    "timestamp": 1778784132.948346,
+    "count": 1,
+    "permanent": true,
+    "last_error": "CDI GPU injection failure \u2014 host NVIDIA runtime broken"
+  }
+}
