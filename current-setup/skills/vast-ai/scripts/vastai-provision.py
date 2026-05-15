@@ -157,10 +157,6 @@ WORKFLOW_ALIASES = {
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 HF_TOKEN_PATH = "/root/config/token.json"
 FAILED_HOSTS_PATH = str(Path(__file__).resolve().parent / "failed_hosts.json")
-FRP_ALLOCATE_SCRIPT = "/usr/local/bin/frp-allocate-port"
-FRP_SERVER_ADDR = os.environ.get("FRP_SERVER_ADDR", "159.195.52.130")
-FRP_SERVER_PORT = int(os.environ.get("FRP_SERVER_PORT", "7000"))
-FRP_TOKEN = os.environ.get("FRP_TOKEN", "")  # Loaded from .env — NEVER hardcode
 FAST_PROVISION_URL = "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/fast-provision.sh"
 
 # =============================================================================
@@ -320,19 +316,37 @@ def save_failed_host(host_id: int, instance_info: dict = None):
         log("📝", f"Host {host_id} marked as failed (skipped for 24h): {reason}")
 
 
-def allocate_frp_index(label: str) -> dict:
-    """Allocate an FRP subdomain index for a new GPU instance.
-    Returns dict with index, domains, and frpc config template.
+def create_cloudflare_tunnel(label: str) -> dict:
+    """Create a Cloudflare named tunnel for a new GPU instance.
+    Uses cloudflared CLI with origin certificate (cert.pem) auth.
+    Returns dict with tunnel_id, token, hostname.
     """
-    result = run_cmd(f"{FRP_ALLOCATE_SCRIPT} allocate '{label}'", timeout=10)
+    tunnel_name = f"comfy-{label}-{int(time.time())}"
+    result = run_cmd(f"cloudflared tunnel create '{tunnel_name}'", timeout=30)
     if result["code"] != 0:
-        log("⚠️", f"FRP allocation failed: {result['stderr']}")
+        log("⚠️", f"Cloudflare tunnel creation failed: {result['stderr']}")
         return {}
-    try:
-        return json.loads(result["stdout"])
-    except json.JSONDecodeError:
-        log("⚠️", f"Failed to parse FRP allocation response: {result['stdout']}")
+    match = re.search(r'id ([a-f0-9-]+)', result['stdout'])
+    if not match:
+        log("⚠️", f"Could not extract tunnel ID from: {result['stdout']}")
         return {}
+    tunnel_id = match.group(1)
+    hostname = f"comfy-{label}.lxc.muneesraja.com"
+    route_result = run_cmd(f"cloudflared tunnel route dns '{tunnel_id}' '{hostname}'", timeout=30)
+    if route_result["code"] != 0:
+        log("⚠️", f"DNS route creation failed: {route_result['stderr']}")
+    token_result = run_cmd(f"cloudflared tunnel token '{tunnel_id}'", timeout=10)
+    if token_result["code"] != 0:
+        log("⚠️", f"Tunnel token retrieval failed: {token_result['stderr']}")
+        return {}
+    tunnel_token = token_result["stdout"].strip()
+    log("🌐", f"Cloudflare tunnel: {hostname} (id={tunnel_id})")
+    return {
+        "tunnel_id": tunnel_id,
+        "token": tunnel_token,
+        "hostname": hostname,
+        "tunnel_name": tunnel_name,
+    }
 
 
 # =============================================================================
@@ -562,7 +576,7 @@ def get_workflow_size(workflow_name: str) -> float:
 
 
 def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token: str,
-                           discord_webhook: str, frp_config: Optional[dict] = None) -> dict:
+                           discord_webhook: str, cloudflare_config: Optional[dict] = None) -> dict:
     """Build the env dict for vast.create_instance().
 
     Returns a plain {KEY: VALUE} dict. The SDK's create_instance() accepts
@@ -589,36 +603,15 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     if workflow_url:
         env["WORKFLOW_SCRIPT"] = workflow_url
 
-    # FRP tunneling — OPTIONAL, falls back to Cloudflare quick tunnels
-    if frp_config:
-        env["FRP_INDEX"] = str(frp_config.get("index", 0))
-        env["FRP_SERVER_ADDR"] = FRP_SERVER_ADDR
-        env["FRP_SERVER_PORT"] = str(FRP_SERVER_PORT)
-        frp_token = _load_frp_token()
-        if frp_token:
-            env["FRP_TOKEN"] = frp_token
+    # Cloudflare named tunnel — replaces FRP
+    if cloudflare_config:
+        env["CF_TUNNEL_TOKEN"] = cloudflare_config.get("token", "")
+        env["CF_TUNNEL_HOSTNAME"] = cloudflare_config.get("hostname", "")
+        env["CF_TUNNEL_ID"] = cloudflare_config.get("tunnel_id", "")
     else:
-        log("⚠️", "No FRP config — instance will use Cloudflare quick tunnels")
+        log("ℹ️", "No Cloudflare tunnel — instance will use quick tunnels")
 
     return env
-
-
-def _load_frp_token() -> str:
-    """Load FRP token from .env (via FRP_TOKEN env var) or VPS config."""
-    # 1. From .env / environment variable (preferred)
-    if FRP_TOKEN:
-        return FRP_TOKEN
-    # 2. Fallback: VPS server config (when running on the FRP server itself)
-    try:
-        with open("/etc/frp/frps.toml") as f:
-            for line in f:
-                if 'auth.token' in line:
-                    match = re.search(r'auth\.token\s*=\s*["\']?([^"\'\s]+)', line)
-                    if match:
-                        return match.group(1)
-    except (FileNotFoundError, IOError):
-        pass
-    return ""
 
 
 def _build_onstart_cmd(fast_mode: bool) -> str:
@@ -634,7 +627,7 @@ def provision_instance_launch(
     workflow_url: Optional[str],
     hf_token: str,
     discord_webhook: str,
-    frp_config: Optional[dict] = None,
+    cloudflare_config: Optional[dict] = None,
     fast_mode: bool = True,
     max_price: Optional[float] = None,
 ) -> tuple[Optional[int], Optional[Offer]]:
@@ -646,7 +639,7 @@ def provision_instance_launch(
 
     Returns (instance_id, offer_used) or (None, None).
     """
-    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, cloudflare_config)
     disk = profile["min_disk_gb"]
     onstart_cmd = _build_onstart_cmd(fast_mode)
 
@@ -761,12 +754,12 @@ def provision_instance_launch(
 
 def provision_instance(offer: Offer, profile: dict, label: str,
                        workflow_url: Optional[str], hf_token: str,
-                       discord_webhook: str, frp_config: Optional[dict] = None,
+                       discord_webhook: str, cloudflare_config: Optional[dict] = None,
                        fast_mode: bool = True) -> Optional[int]:
     """Provision a Vast.ai instance via the Python SDK using a specific offer ID.
     This is the fallback path when atomic launch_instance is unavailable or
     when the user wants to pick a specific offer in manual mode."""
-    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, frp_config)
+    env_dict = build_provisioning_env(profile, workflow_url, hf_token, discord_webhook, cloudflare_config)
     disk = max(profile["min_disk_gb"], int(offer.disk_gb * 0.8))
     onstart_cmd = _build_onstart_cmd(fast_mode)
 
@@ -1062,13 +1055,13 @@ def parse_args():
     parser.add_argument("--slow", action="store_true", help="Use slow image provisioner (default: fast)")
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
     parser.add_argument("--verified-only", action="store_true", help="Only show verified hosts (default: prefer unverified/cheaper)")
-    parser.add_argument("--no-frp", action="store_true", help="Skip FRP tunnel setup (use Cloudflare quick tunnels)")
+    parser.add_argument("--no-tunnel", action="store_true", help="Skip Cloudflare named tunnel setup (use quick tunnels only)")
     parser.add_argument("--show-failed", action="store_true", help="Display failed hosts history and exit")
     return parser.parse_args()
 
 
 def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str, cost: str,
-                               location: str, ssh_url: str, frp_domains: dict = None,
+                               location: str, ssh_url: str, cf_hostname: str = None,
                                workflow_status: str = "", emoji: str = "🖥️", title: str = "Vast.ai Server Ready") -> bool:
     """Send a notification to Discord."""
     if not webhook_url:
@@ -1080,9 +1073,8 @@ def send_discord_notification(webhook_url: str, instance_id: int, gpu_name: str,
         f"📍 {location}",
         f"🔑 SSH: `{ssh_url}`",
     ]
-    if frp_domains:
-        for service, url in frp_domains.items():
-            lines.append(f"🔗 {service.capitalize()}: {url}")
+    if cf_hostname:
+        lines.append(f"🔗 ComfyUI: https://{cf_hostname}")
     if workflow_status:
         lines.append(f"📦 Workflow: {workflow_status}")
 
@@ -1218,16 +1210,16 @@ def main():
     log("🔑", f"HF Token: {'SET' if hf_token else 'MISSING'}")
     log("📬", f"Discord Webhook: {'SET' if discord_webhook else 'MISSING'}")
 
-    # Allocate FRP tunnel subdomain index (optional)
-    frp_config = None
-    if not args.no_frp:
-        frp_config = allocate_frp_index(f"instance_{args.label}")
-        if frp_config:
-            log("🌐", f"FRP allocated: index={frp_config.get('index')}, domains={frp_config.get('custom_domains', {})}")
+    # Create Cloudflare named tunnel (optional)
+    cloudflare_config = None
+    if not args.no_tunnel:
+        cloudflare_config = create_cloudflare_tunnel(f"instance_{args.label}")
+        if cloudflare_config:
+            log("🌐", f"Cloudflare tunnel: {cloudflare_config.get('hostname')} (id={cloudflare_config.get('tunnel_id')})")
         else:
-            log("⚠️", "FRP allocation failed — will use Cloudflare quick tunnels instead")
+            log("⚠️", "Cloudflare tunnel creation failed — will use quick tunnels instead")
     else:
-        log("🌐", "FRP disabled (--no-frp) — will use Cloudflare quick tunnels")
+        log("🌐", "Cloudflare tunnel disabled (--no-tunnel) — will use quick tunnels")
 
     # Search offers
     offers = search_offers(profile, args.max_price)
@@ -1290,7 +1282,7 @@ def main():
                 workflow_url=workflow_url,
                 hf_token=hf_token,
                 discord_webhook=discord_webhook,
-                frp_config=frp_config,
+                cloudflare_config=cloudflare_config,
                 fast_mode=not args.slow,
                 max_price=args.max_price,
             )
@@ -1331,7 +1323,7 @@ def main():
                 workflow_url=workflow_url,
                 hf_token=hf_token,
                 discord_webhook=discord_webhook,
-                frp_config=frp_config,
+                cloudflare_config=cloudflare_config,
                 fast_mode=not args.slow,
             )
 
@@ -1392,23 +1384,21 @@ def main():
         print(f"  Location:     {chosen_offer.country}")
     print(f"  SSH:          {ssh_url}")
     print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
-    if frp_config and frp_config.get("custom_domains"):
-        print("  FRP Tunnels:")
-        for service, url in frp_config["custom_domains"].items():
-            print(f"    {service}: {url}")
+    if cloudflare_config and cloudflare_config.get("hostname"):
+        print(f"  🌐 Cloudflare: https://{cloudflare_config['hostname']}")
     if workflow_url:
         print(f"  Workflow:     {args.workflow} (downloading in background)")
     print("=" * 80)
 
     if discord_webhook:
-        frp_domains = frp_config.get("custom_domains") if frp_config else None
+        cf_hostname = cloudflare_config.get("hostname") if cloudflare_config else None
         workflow_note = f"{args.workflow} — models downloading in background" if workflow_url else ""
         cost_str = f"${chosen_offer.dph_total:.4f}/hr" if chosen_offer else "N/A"
         country_str = chosen_offer.country if chosen_offer else "Unknown"
         sent = send_discord_notification(
             discord_webhook, instance_id,
             chosen_offer.gpu_name if chosen_offer else "Unknown",
-            cost_str, country_str, ssh_url, frp_domains,
+            cost_str, country_str, ssh_url, cf_hostname,
             workflow_status=workflow_note,
             emoji="🟢", title="Server Ready"
         )
@@ -1431,7 +1421,7 @@ def main():
         sent2 = send_discord_notification(
             discord_webhook, instance_id,
             chosen_offer.gpu_name if chosen_offer else "Unknown",
-            cost_str, country_str, ssh_url, frp_domains,
+            cost_str, country_str, ssh_url, cf_hostname,
             workflow_status=workflow_status,
             emoji="📦", title="Models Ready"
         )
