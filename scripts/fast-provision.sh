@@ -146,6 +146,7 @@ ingress:
     service: http://localhost:18188
     originRequest:
       noTLSVerify: true
+      hostHeader: localhost
   - service: http_status:404
 EOF
         echo "✅ config.yml created with ingress for ${CF_TUNNEL_HOSTNAME}"
