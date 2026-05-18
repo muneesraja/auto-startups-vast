@@ -1,365 +1,299 @@
 ---
 name: story-to-video
-description: >
-  Given a story, extract characters and scenes, generate consistent character
-  reference sheets via Gemini API, render scene-by-scene illustrations with
-  smart per-scene reference selection (max 5), and produce LTX 2.3 I2V video
-  prompts. Outputs to /root/story/<title>/ and uploads to Google Drive via gws skill.
+version: 2.0.0
+description: "Turn story manifests into scene images and video clips using ComfyUI (Qwen Image Edit) + LTX 2.3 I2V. Covers multi-reference image selection, batch scene generation, prompt composition from story manifests, and animation with image-to-video models."
+triggers:
+  - story to video
+  - generate scene images
+  - story manifest
+  - batch comfyui generation
+  - story illustration
+  - animate story
+  - character reference sheets
 ---
 
-# Story-to-Video — Visual Story Production Pipeline
+# Story-to-Video Pipeline
 
-> Given a story (text or outline), produce: character reference sheets → scene illustrations → LTX 2.3 video prompts. Everything organized in `/root/story/<title>/` and uploaded to Google Drive.
+Turn story manifests into illustrated scene images (ComfyUI Qwen Image Edit) and animated video clips (LTX 2.3 I2V).
 
-## When to Use This Skill
+## Trigger
 
-- User says "turn this story into images", "illustrate this story", "produce visuals for this"
-- User says "create character sheets for my story"
-- User provides a story and mentions "scenes", "video", "LTX", or "animate"
-- User asks to "generate images for each scene"
+- User has a `story_manifest.json` with characters and scenes
+- User wants to illustrate a story or generate scene-by-scene images
+- User wants to go from text → still images → animated video
+- Working with the Qwen Image Edit 2511 4-step workflow for character-consistent generation
 
----
+## Architecture
 
-## Phase 1: Story Parsing (Hermes — No Script)
-
-When the user provides a story, extract a structured **story manifest**. This is pure LLM work — no script needed.
-
-### Rules
-
-1. Every visually distinct character (or character group like "crowd") gets an entry
-2. `identity_spec` must be **purely visual** — colors, textures, clothing, proportions, build, distinguishing features. NOT personality or backstory.
-3. `characters_present` — ONLY IDs of characters who **appear visually** in the scene. If a character is mentioned but not visible, don't include them.
-4. Each scene gets a `camera` angle using cinematic terminology (close-up, medium shot, wide shot, etc.)
-5. **Default art style:** `"Pixar-style 3D animation, rich lighting, expressive characters"` — unless the user specifies otherwise (e.g., "anime", "watercolor", "photorealistic")
-6. If user specifies a custom style, use it verbatim in the `style` field
-
-### Output: `story_manifest.json`
-
-Save to `/root/story/<title>/story_manifest.json`
-
-```json
-{
-  "title": "the-great-race",
-  "display_title": "The Great Race",
-  "style": "Pixar-style 3D animation, rich lighting, expressive characters",
-  "characters": [
-    {
-      "id": "rabbit",
-      "name": "Rabbit",
-      "identity_spec": "anthropomorphic rabbit, tall and lean, light brown fur, long upright ears with pink insides, bright confident blue eyes, cocky grin, athletic build, wearing a red headband and white running shorts"
-    },
-    {
-      "id": "tortoise",
-      "name": "Tortoise",
-      "identity_spec": "anthropomorphic tortoise, small and round, dark green shell with hexagonal patterns, gentle brown eyes, kind wrinkled smile, short stubby legs, wearing a simple blue bandana around neck"
-    },
-    {
-      "id": "fox",
-      "name": "Fox",
-      "identity_spec": "anthropomorphic fox, medium build, orange-red fur with white chest, sharp amber eyes, bushy tail, wearing a referee's black-and-white striped shirt"
-    },
-    {
-      "id": "crowd",
-      "name": "Crowd Animals",
-      "identity_spec": "group of various woodland animals — squirrels, birds, deer, hedgehogs — watching from the sidelines, colorful and varied"
-    }
-  ],
-  "scenes": [
-    {
-      "scene_number": 1,
-      "title": "The Challenge",
-      "characters_present": ["rabbit", "tortoise"],
-      "setting": "sunny forest clearing with wildflowers, dappled sunlight through oak trees",
-      "action": "Rabbit stands tall laughing and pointing at Tortoise. Tortoise looks up with quiet determination and extends a paw to challenge him.",
-      "emotion": "comedic tension — arrogance vs quiet resolve",
-      "camera": "medium shot, eye level, both characters facing each other"
-    }
-  ]
-}
+```
+story_manifest.json → character prompts → scene prompts
+                                        ↓
+                            ComfyUI Qwen Image Edit 2511
+                          (+ character reference sheets)
+                                        ↓
+                            Scene still images (1024×1024)
+                                        ↓
+                            LTX 2.3 I2V (motion prompts)
+                                        ↓
+                            Scene video clips → Final video
 ```
 
-### After Saving the Manifest
+## Prerequisites
 
-1. Create the output directory structure:
-   ```bash
-   mkdir -p /root/story/<title>/{characters,scenes,videos}
-   ```
-2. Show the manifest summary to the user for confirmation before proceeding
+- **ComfyUI instance** running Qwen Image Edit 2511 workflow (provision with `vast-ai` skill)
+- **Character reference sheets** uploaded to the ComfyUI instance's input directory
+- **Story manifest** (JSON) defining characters and scenes
+- **cURL** for API calls (Python urllib is blocked by Cloudflare — see pitfall #8)
 
----
+## Output Paths
 
-## Phase 2: Character Reference Sheet Generation
+Default output directory: `/root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video/`
 
-Run the script to generate character reference sheets:
+Structure per story:
+```
+story-to-video/
+├── {story-slug}/
+│   ├── characters/       # Reference sheets (downloaded from ComfyUI)
+│   ├── scenes/           # Generated scene images
+│   ├── videos/           # Animated clips (Phase 3)
+│   └── story_manifest.json
+```
+
+Override with `--output-dir` flag on `generate_scene.py`.
+
+## Phase 1: Prepare Character Reference Sheets
+
+Each character needs a multi-view reference sheet on the ComfyUI instance.
+
+1. **Generate or obtain reference sheets** — Use Gemini or another image model to create character sheets with 4 body views + 3 face views on a white background
+2. **Upload to ComfyUI** — `curl -X POST "$COMFY_URL/upload/image" -F "image=@hare_reference_sheet.png" -F "overwrite=true"`
+3. **Verify availability** — Check `/object_info/LoadImage` for the `image` input's enum list of available filenames
+
+### Reference Sheet Prompt Template
+
+```text
+Create a professional character reference sheet for the following character.
+
+Character: {identity_spec}
+
+Layout:
+- Top row: four full-body standing views (front, left 3/4 view, right side profile, back view)
+- Bottom row: three face close-up portraits (front, left 3/4 angle, right side profile)
+
+Requirements:
+- CONSISTENT identity across ALL seven views - same face, same body, same outfit
+- Clean white/neutral background
+- Even studio lighting
+- Style: {style}
+- Each view clearly separated with space between them
+- Character should be the same scale/proportion in each view
+```
+
+### Auto-Verify & Fallback
+
+Always verify reference images exist on the instance before queuing. If a character's ref is missing:
 
 ```bash
-python3 ~/.hermes/skills/story-to-video/scripts/generate_story_assets.py \
-  --manifest /root/story/<title>/story_manifest.json \
-  --phase characters
+# Check available images
+curl -s "$COMFY_URL/object_info/LoadImage" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for img in data['LoadImage']['input']['required']['image'][0]: print(f'  - {img}')
+"
 ```
 
-### What the Script Does
+Define fallbacks in the script config (e.g., fox missing → tortoise as similar woodland character).
 
-1. Reads Gemini API key from `/root/config/token.json` → `gemini_api_key`
-2. For each character in the manifest, generates a multi-angle reference sheet:
-   - Top row: full-body front view, 3/4 view, side profile, back view
-   - Bottom row: face close-ups (front, 3/4, profile)
-   - Clean white/neutral background, studio lighting
-   - Art style from the manifest's `style` field
-3. Saves to `/root/story/<title>/characters/<id>_reference_sheet.png`
+## Phase 2: Generate Scene Images
 
-### Output
-
-```
-/root/story/<title>/characters/
-├── rabbit_reference_sheet.png
-├── tortoise_reference_sheet.png
-├── fox_reference_sheet.png
-└── crowd_reference_sheet.png
-```
-
-### ⚠️ MANDATORY: User Approval Gate
-
-**After character sheets are generated, show them to the user and ask for explicit approval.**
-
-- If the user says "Rabbit should be white, not brown" → update the `identity_spec` in the manifest → re-run
-- If the user says "looks good" / "approved" / "proceed" → move to Phase 3
-- **DO NOT proceed to scene generation without approval**
-
----
-
-## Phase 3: Scene Rendering with Smart Reference Selection
-
-Run the script to generate scene images:
+### Using the Script
 
 ```bash
-python3 ~/.hermes/skills/story-to-video/scripts/generate_story_assets.py \
-  --manifest /root/story/<title>/story_manifest.json \
-  --phase scenes
+# Generate a single scene from a story manifest
+python3 generate_scene.py --manifest story_manifest.json --scene 1 --seed 42
+
+# Generate all scenes
+python3 generate_scene.py --manifest story_manifest.json --all
+
+# Override ComfyUI URL and output directory
+python3 generate_scene.py --manifest story_manifest.json --all \
+  --url https://mandi-qwen.muneesraja.com \
+  --output-dir /root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video/hare-and-tortoise
 ```
 
-### 🔑 Smart Reference Image Selection
+### Multi-Reference Image Selection
 
-The script reads `characters_present` from each scene and attaches **ONLY** the relevant character reference sheets as context images. This is critical for quality.
+The Qwen Image Edit workflow takes exactly **3 reference images**. Stories often have 1-5 characters per scene.
 
-**Hard limit: 5 reference images per API call.**
+**Rules:**
+1. Use actual character reference sheets if available on the instance
+2. If a character's ref is missing, fall back to the closest available character (e.g., fox → tortoise as similar woodland character)
+3. Deduplicate — don't pass the same image twice (wastes a slot)
+4. If fewer than 3 unique refs, fill remaining slots by duplicating the first ref
+5. Never pass more than 3 images — the workflow enforces this
 
-#### Why Only Relevant References
+| Characters in Scene | Image Assignment | Rationale |
+|---|---|---|
+| 1 | [ref, ref, ref] | Duplicate to fill 3 slots |
+| 2 | [ref1, ref2, ref1] | Fill 3rd slot with most important char |
+| 3 | [ref1, ref2, ref3] | Perfect fit |
+| 4+ | [ref1, ref2, ref3] | Pick top 3 by visual importance |
 
-- **Reduces noise** — irrelevant reference images confuse the model and "bleed" unwanted characters into scenes
-- **Better focus** — model dedicates full attention to the characters that matter
-- **Lower cost** — fewer images per request
-- **Higher quality** — beyond 5 references, identity maintenance degrades
+### Scene Prompt Composition
 
-#### How It Works
+Each scene prompt combines: **Characters + Setting + Action + Emotion + Camera + Style**
 
-```
-Scene 1 ("The Challenge"):
-  characters_present: [rabbit, tortoise]
-  → Attach: rabbit_ref.png, tortoise_ref.png (2 images)
-  → Skip: fox, crowd
+```text
+Characters in this scene must match the provided reference images exactly:
+- {character}: {identity_spec}
 
-Scene 2 ("The Start"):
-  characters_present: [rabbit, tortoise, fox, crowd]
-  → Attach: rabbit_ref.png, tortoise_ref.png, fox_ref.png, crowd_ref.png (4 images)
-
-Scene 3 ("The Nap"):
-  characters_present: [rabbit]
-  → Attach: rabbit_ref.png (1 image)
-  → Skip: tortoise, fox, crowd
-
-Scene 4 ("The Steady Climb"):
-  characters_present: [tortoise, rabbit]
-  → Attach: tortoise_ref.png, rabbit_ref.png (2 images)
-
-Scene 5 ("The Finish Line"):
-  characters_present: [tortoise, rabbit, crowd]
-  → Attach: tortoise_ref.png, rabbit_ref.png, crowd_ref.png (3 images)
+Scene setting: {setting}.
+Action: {action}.
+Mood: {emotion}.
+Camera: {camera}.
+Style: {style}.
 ```
 
-#### Overflow Strategy (>5 Characters in One Scene)
+**Tips:**
+- For scenes with many characters (3+), use abbreviated identity specs (key features only) to keep prompts within limits
+- Always include "must match the provided reference images exactly" — this anchors the model to reference consistency
+- The style should match the reference sheet style for consistency
 
-If a scene has more than 5 characters:
-1. **Priority:** Characters with speaking/action roles first
-2. **Merge groups:** Background characters share one reference
-3. **Text-only fallback:** If a character can't get a reference slot, include their `identity_spec` text in the prompt but skip the image reference
+### Generation Timing
 
-### Scene Prompt Structure
+- **Per scene**: ~20-30 seconds on RTX 3090 (4-step Lightning)
+- **6 scenes**: ~3 minutes total (sequential)
+- **Prompt queue**: instant
+- **Polling**: 5-second intervals recommended
 
-The script builds prompts with a split structure:
+## Phase 3: Animate Scenes (LTX 2.3 I2V)
 
-```
-[IDENTITY BLOCK — top of prompt]
-Characters in this scene (match EXACTLY to the reference images):
-- Rabbit: anthropomorphic rabbit, tall and lean, light brown fur...
-- Tortoise: anthropomorphic tortoise, small and round...
+> Requires `ltx23-video-gen` skill for RunPod provisioning.
 
-[SCENE BLOCK — after identity block]
-Scene: sunny forest clearing with wildflowers, dappled sunlight
-Action: Rabbit stands tall laughing and pointing at Tortoise...
-Mood: comedic tension
-Camera: medium shot, eye level
-Style: Pixar-style 3D animation, rich lighting, expressive characters
+### Motion Prompt Format
 
-Maintain exact character identity from the provided reference images.
-```
+Motion prompts describe **movement**, not the still image. They should:
+- Start with what the main character does (verb-first)
+- Include secondary motions (crowd reactions, environmental movement)
+- Note camera motion (dolly, track, hold)
+- NOT re-describe the scene appearance (the I2V model sees the input image)
 
-### Output
-
-```
-/root/story/<title>/scenes/
-├── scene_001.png
-├── scene_002.png
-├── scene_003.png
-├── scene_004.png
-└── scene_005.png
+```text
+{character_1} {primary_action} while {character_2} {secondary_action}. 
+{environmental_motion}. The camera {camera_motion}.
 ```
 
----
-
-## Phase 4: LTX 2.3 Video Prompt Generation (Hermes — No Script)
-
-For each generated scene image, write a companion `.txt` file containing the LTX 2.3 I2V video prompt.
-
-### ⚠️ MANDATORY: Read the Prompting Guide First
-
-**Before writing ANY prompt, read `references/ltx-i2v-prompting-guide.md`** — it contains the complete ruleset, examples, and anti-patterns.
-
-### The #1 Rule
-
-> **Never describe what's already visible in the image.**
-
-The image defines the visual. The prompt describes what happens NEXT — motion, camera movement, environmental change.
-
-### Prompt Requirements
-
-- **4-8 flowing sentences**, single paragraph, under 200 words
-- **Present tense** throughout
-- **Structure:** Main Action → Environmental Dynamics → Camera Movement
-- **Specific verbs:** "throws", "tilts", "rustles" — NOT "moves", "goes", "does"
-- **Physical cues for emotions:** "lowers gaze, shoulders slump" — NOT "looks sad"
-- **Camera direction:** At least one sentence specifying camera behavior
-- **One continuous shot:** No scene changes or jump cuts
-- **No negative prompts**
-- **No quality tags:** "cinematic", "4k", "masterpiece" do nothing
-
-### Example (Scene 1: The Challenge)
-
-```
-Rabbit throws his head back in exaggerated laughter, ears bouncing with each
-chuckle as his paw points mockingly forward. Tortoise slowly lifts his head,
-expression shifting from patience to resolve, and extends one small paw in a
-steady gesture of challenge. The dappled sunlight shifts through the oak
-leaves above as a gentle breeze stirs the wildflowers at their feet. The
-camera holds steady at eye level in a medium shot, capturing the size
-contrast between the two characters.
+Example (from hare-and-tortoise):
+```text
+Hare jolts upright, ears snapping high as he fumbles for the gold watch on his wrist. 
+His eyes widen, his mouth falls open, and he twists toward the finish line with a sharp inhale. 
+Long shadows stretch farther across the path as leaves tremble in a cooler breeze. 
+The camera pushes in from a medium close-up to a tighter view as panic takes over his face.
 ```
 
-### Save Location
+### Motion Prompt Source
 
-Each prompt saved alongside its image:
-```
-/root/story/<title>/scenes/
-├── scene_001.png
-├── scene_001.txt    ← LTX video prompt
-├── scene_002.png
-├── scene_002.txt
-├── ...
-```
+The `story_manifest.json` `action` field describes what happens — convert it to motion-focused text:
+1. Remove all visual description (the I2V model sees the input image)
+2. Convert actions to present-tense verbs with physical detail
+3. Add camera motion that matches the `camera` field from the manifest
+4. Keep it concise (~3-4 sentences max)
 
----
+## ComfyUI API Pitfalls (CRITICAL)
 
-## Phase 5: Google Drive Upload (via `gws` Skill)
+These all caused real failures during testing. Read carefully.
 
-After all images and prompts are generated, use the **existing `gws` skill** to upload the entire story folder to Google Drive.
+### 1. Model File Paths Need Prefixes
+- CLIPLoader: `split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors` (NOT bare filename)
+- VAELoader: `split_files/vae/qwen_image_vae.safetensors` (NOT bare filename)
+- UNETLoader: `qwen_image_edit_2511_fp8_e4m3fn.safetensors` (no prefix needed)
 
-### Upload Structure
+### 2. ImageResizeKJv2 Input Names Are Non-Obvious
+- `upscale_method` (NOT `interpolation`): `nearest-exact, bilinear, area, bicubic, lanczos, nvidia_rtx_vsr`
+- `keep_proportion` (NOT `resize_mode`): `stretch, resize, pad, pad_edge, pad_edge_pixel, crop, pillarbox_blur, total_pixels`
+- `pad_color` (NOT `fill_color` or `fill_color2`): `"0, 0, 0"` format
 
-```
-📁 Google Drive: Stories/
-└── 📁 The Great Race/
-    ├── 📄 story_manifest.json
-    ├── 📁 characters/
-    │   ├── 🖼️ rabbit_reference_sheet.png
-    │   ├── 🖼️ tortoise_reference_sheet.png
-    │   ├── 🖼️ fox_reference_sheet.png
-    │   └── 🖼️ crowd_reference_sheet.png
-    ├── 📁 scenes/
-    │   ├── 🖼️ scene_001.png  +  📄 scene_001.txt
-    │   ├── 🖼️ scene_002.png  +  📄 scene_002.txt
-    │   ├── 🖼️ scene_003.png  +  📄 scene_003.txt
-    │   ├── 🖼️ scene_004.png  +  📄 scene_004.txt
-    │   └── 🖼️ scene_005.png  +  📄 scene_005.txt
-    └── 📁 videos/  (empty — for LTX output later)
-```
+### 3. FluxKontextMultiReferenceLatentMethod Key Name
+- `reference_latents_method` (NOT `mode`) — options: `offset, index, uxo/uno, index_timestep_zero`
+- Using `mode` causes validation error
 
----
+### 4. SaveImage Required
+API returns `prompt_no_outputs` error without at least one SaveImage/PreviewImage node.
 
-## Post-Pipeline (Manual by User)
+### 5. LoadImage `upload` Key Doesn't Exist in API
+The UI shows an `upload` widget but it's not an API input — remove it or get validation error.
 
-After the pipeline completes:
+### 6. Image Output Index 0 vs 1 (CRITICAL!)
+ImageResizeKJv2 outputs:
+- `[0]` = IMAGE tensor ← USE THIS
+- `[1]` = width (INT)
+- `[2]` = height (INT)
+- `[3]` = mask (MASK)
 
-1. User takes `scene_NNN.png` + `scene_NNN.txt` pairs from Google Drive (or `/root/story/<title>/scenes/`)
-2. Loads them into ComfyUI LTX 2.3 I2V workflow on Vast.ai GPU server
-3. Generates 3-5 second video clips per scene
-4. Saves video output to `/root/story/<title>/videos/`
+Using `[1]` passes integer `1024` instead of image → `'int' object has no attribute 'movedim'` error.
 
----
+### 7. CFGNorm Output Name
+Output is `patched_model` (not `MODEL`), but reference by index `[0]` works fine in API format.
 
-## Complete Flow Summary
+### 8. Cloudflare Blocks Python urllib
+Always use `curl` via `subprocess.run()` for API calls. Python's `urllib` gets 403 with "error code: 1010" from Cloudflare.
 
-```
-User tells a story
-  ↓
-Phase 1: Hermes parses → story_manifest.json (saved to /root/story/<title>/)
-  ↓
-Phase 2: Script generates character reference sheets
-  ↓
-⚠️ User approves character sheets (mandatory gate)
-  ↓
-Phase 3: Script generates scene images (smart ref selection, max 5 per scene)
-  ↓
-Phase 4: Hermes writes scene_NNN.txt video prompts (reads ltx-i2v-prompting-guide.md)
-  ↓
-Phase 5: Hermes uses gws skill to upload to Google Drive
-  ↓
-Done! User runs LTX 2.3 I2V manually in ComfyUI
-```
+### 9. Workflow JSON ≠ API Format
+The `.json` files saved by ComfyUI UI use a different structure (`nodes[]` + `links[]` array). The API format uses `{node_id: {class_type, inputs}}` dict. Must convert — see `scripts/generate_scene.py` for the working API format.
 
----
+### 10. `Any Switch (rgthree)` Required for Routing
+Nodes 184 and 205 are Any Switch nodes that select between reference/latent inputs. They must be included in the API format — omitting them breaks the execution graph.
 
-## Script Reference
+## Full Workflow Template (30 Nodes)
 
-### Full Command
+The complete working API workflow is in `assets/workflow-api-template.json`. Key customizable fields:
 
-```bash
-python3 ~/.hermes/skills/story-to-video/scripts/generate_story_assets.py \
-  --manifest /root/story/<title>/story_manifest.json \
-  --phase <characters|scenes|all> \
-  [--max-refs 5] \
-  [--force]
-```
+| Node IDs | Type | What to customize |
+|---|---|---|
+| 213, 175, 182 | LoadImage | `image` = reference filename |
+| 154, 153 | TextEncodeQwenImageEditPlus | `prompt` = scene prompt |
+| 3 | KSampler | `seed`, `steps`, `denoise` |
+| 214 | SaveImage | `filename_prefix` |
+| 200, 201, 202 | ImageResizeKJv2 | `width`, `height` if not 1024×1024 |
 
-### Arguments
+## Improvements Roadmap
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--manifest` | Yes | — | Path to `story_manifest.json` |
-| `--phase` | Yes | — | `characters`, `scenes`, or `all` |
-| `--max-refs` | No | `5` | Max reference images per scene API call |
-| `--force` | No | `false` | Regenerate even if output files exist |
+These are known areas to improve based on our testing session:
 
-### API Key
+### Must-Have
+- [ ] **Manifest-driven script**: `generate_scene.py` should load `story_manifest.json` and `story-to-video-prompts.md` automatically instead of hardcoding scenes
+- [ ] **Auto image check**: Script should query `/object_info/LoadImage` at start and build `AVAILABLE_ON_INSTANCE` dynamically instead of hardcoding
+- [ ] **Auto upload**: If a ref image exists locally but not on instance, upload it automatically before generation
+- [ ] **Fox reference sheet**: Generate the missing character ref and upload
 
-The script reads the Gemini API key from:
-```
-/root/config/token.json → { "gemini_api_key": "..." }
-```
+### Nice-to-Have
+- [ ] **Parallel generation**: Queue multiple scenes at once (ComfyUI handles queuing)
+- [ ] **Seed sweep**: Generate multiple seeds per scene for best-pick selection
+- [ ] **Image review step**: Auto-send generated images to Discord for review before proceeding
+- [ ] **Variation prompts**: Support "variation of scene X with changes Y" for iterating
+- [ ] **Custom node mapping**: Allow different ComfyUI setups (not hardcoded node IDs)
 
----
+### Future
+- [ ] **LTX 2.3 I2V integration**: Full pipeline from scenes → video clips in one command
+- [ ] **FFmpeg assembly**: Auto-stitch clips with transitions and audio
+- [ ] **Voiceover**: TTS narration per scene synced to video length
 
-## Available References
+## Related Skills
 
-| File | When to use |
-|------|-------------|
-| `references/ltx-i2v-prompting-guide.md` | Before writing ANY `scene_NNN.txt` video prompt |
+- `vast-ai` — Provision GPU instances for ComfyUI
+- `ltx23-video-gen` — LTX 2.3 image-to-video on RunPod
+- `comfyui-api` (if exists) — Basic ComfyUI REST API patterns
+
+## Reference Files
+
+- `references/story-manifest-format.md` — JSON schema for story manifests and prompt composition rules
+- `references/qwen-image-edit-api-patterns.md` — Working API patterns with curl snippets
+- `references/comfyui-api-pitfalls.md` — Complete list of all 10 pitfalls with fixes
+
+## Scripts
+
+- `scripts/generate_scene.py` — Full pipeline: load manifest → pick images → build workflow → queue → poll → download
+
+## Assets
+
+- `assets/workflow-api-template.json` — Complete Qwen Image Edit 2511 API-format workflow template
