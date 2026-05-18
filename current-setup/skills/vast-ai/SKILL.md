@@ -106,6 +106,9 @@ Required secrets:
 - `HF_TOKEN` — HuggingFace token for fast model downloads
 - `DISCORD_WEBHOOK_URL` — Discord webhook for notifications
 - `FRP_TOKEN` — FRP tunnel auth token (optional if using `--no-frp`)
+- `CLOUDFLARE_API_KEY` — Cloudflare API token (for DNS route via API)
+- `CF_ZONE_ID` — Cloudflare zone ID for `muneesraja.com`
+- `CF_DOMAIN` — Domain for tunnel hostnames (default: `muneesraja.com`; must have Universal SSL)
 
 The script auto-loads `.env` and uses `VAST_API_KEY` to authenticate the SDK client.
 
@@ -138,6 +141,18 @@ Better: the script filters `driver_version>=570.0.0` to prevent this. Driver 580
 - Verify HF_TOKEN is set (anonymous downloads capped at ~10MB/s)
 - See reference: `references/china-host-download-speed.md`
 
+### Cloudflare tunnel SSL failure (lxc.muneesraja.com)
+`lxc.muneesraja.com` subdomain does NOT have Cloudflare Universal SSL provisioned. Always use `muneesraja.com` subdomains (e.g., `comfy-mandi.muneesraja.com`). The script defaults to `CF_DOMAIN=muneesraja.com` in `.env`.
+
+### cloudflared `--config` flag broken (v2026.3+)
+Newer cloudflared versions reject `cloudflared tunnel run --config /root/.cloudflared/config.yml`. Fix: use `cloudflared tunnel --no-tls-verify run <TUNNEL_ID>` — cloudflared finds `config.yml` in the default `~/.cloudflared/` location automatically.
+
+### Stale Cloudflare tunnels accumulate
+Re-provisioning creates a new tunnel each time. Old tunnels with the same label prefix are now auto-cleaned by `create_cloudflare_tunnel()` before creating a new one. Old DNS CNAME records are also cleaned via Cloudflare API.
+
+### `cloudflared tunnel route dns` misroutes
+In some cloudflared versions, `route dns` can route to the wrong tunnel. Fix: the script now uses Cloudflare API directly (`POST /dns_records`) to create CNAME records, with CLI as fallback.
+
 ### Large file downloads (8GB+) — download on the server
 Don't SCP through relay. SSH in and download directly:
 ```bash
@@ -153,7 +168,7 @@ If the script is broken or unavailable, follow these steps manually:
 
 ### 1. Search offers
 ```bash
-vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.25 cuda_max_good>=12.8 driver_version>=570.0.0 rented=False' -o 'dph+' --limit 10
+vastai search offers 'gpu_name=RTX_<GPU> num_gpus=1 cpu_ram>=48 disk_space>=100 inet_down>=500 inet_up>=500 cpu_cores>=4 reliability>0.99 dph<=0.30 driver_version>=570.0.0 rented=False' -o 'dph+' --limit 10
 
 # For unverified (cheaper):
 vastai search offers -n 'gpu_name=RTX_3090 num_gpus=1 verified=False reliability>0.90 driver_version>=570.0.0 rented=False dph<=0.20' -o 'dph+' --limit 10
@@ -164,7 +179,7 @@ vastai search offers -n 'gpu_name=RTX_3090 num_gpus=1 verified=False reliability
 from vastai import VastAI
 vast = VastAI()
 offers = vast.search_offers(
-    query='gpu_name=RTX_3090 num_gpus=1 rented=False dph<=0.25 cuda_max_good>=12.8 driver_version>=570.0.0 inet_down>=500 inet_up>=500',
+    query='gpu_name=RTX_3090 num_gpus=1 rented=False dph<=0.30 cuda_max_good>=12.8 driver_version>=570.0.0 inet_down>=500 inet_up>=500',
     no_default=True, order='dph_total', limit=10
 )
 ```

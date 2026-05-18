@@ -138,9 +138,11 @@ if [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_TUNNEL_HOSTNAME" ]; then
         echo "⚠️ No valid tunnel credentials — falling back to quick tunnels"
     else
         # Create config.yml with ingress rules
+        # Note: credentials-file must be just the filename in default .cloudflared dir
+        # for cloudflared to find it without --config flag (which is broken in v2026.3+)
         cat > /root/.cloudflared/config.yml << EOF
 tunnel: ${CF_TUNNEL_ID}
-credentials-file: ${CREDENTIALS_FILE}
+credentials-file: /root/.cloudflared/${CF_TUNNEL_ID}.json
 ingress:
   - hostname: ${CF_TUNNEL_HOSTNAME}
     service: http://localhost:18188
@@ -151,9 +153,11 @@ ingress:
 EOF
         echo "✅ config.yml created with ingress for ${CF_TUNNEL_HOSTNAME}"
 
-        # Start tunnel
+        # Start tunnel - use `tunnel run <ID>` without --config flag
+        # The --config flag is broken in cloudflared v2026.3+
+        # cloudflared finds config.yml in default /root/.cloudflared/ location
         pkill -f "cloudflared tunnel" 2>/dev/null || true
-        nohup "$CLOUDFLARED_BIN" tunnel run --config /root/.cloudflared/config.yml \
+        nohup "$CLOUDFLARED_BIN" tunnel --no-tls-verify run "$CF_TUNNEL_ID" \
           > /var/log/cloudflared.log 2>&1 &
 
         sleep 8

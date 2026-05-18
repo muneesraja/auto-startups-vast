@@ -69,7 +69,29 @@ The provisioning script uses the RunPod ComfyUI template which comes with ComfyU
 - RunPod: `/workspace/runpod-slim/ComfyUI/models`
 - Vast.ai: `/workspace/ComfyUI/models`
 
-## GPU Profile
+## GPU Requirements & Fallback Hierarchy
+
+**Minimum spec for LTX 2.3 and video generation workflows:**
+- VRAM: ≥20GB (RTX 3090 24GB is the baseline)
+- Generation speed must match or exceed RTX 3090
+
+**GPU Fallback Priority** (Community Cloud, ordered by price/performance):
+
+| Priority | GPU ID | VRAM | Est. $/hr | Notes |
+|----------|--------|------|-----------|-------|
+| 1 | `NVIDIA GeForce RTX 3090` | 24GB | ~$0.22 | ✅ Primary — best price/performance |
+| 2 | `NVIDIA GeForce RTX 3090 Ti` | 24GB | ~$0.25 | ✅ Acceptable fallback |
+| 3 | `NVIDIA RTX A5000` | 24GB | ~$0.35 | ✅ Last resort on Community Cloud |
+
+**GPUs to NEVER use for video workloads:**
+- ❌ Tesla V100 16GB — only 16GB VRAM, too slow for LTX 2.3
+- ❌ RTX A4000 — only 16GB VRAM
+- ❌ RTX 3080/3080 Ti — 10-12GB VRAM
+- ❌ RTX 4070 Ti — 12GB VRAM
+
+**Cost ceiling: $0.25/hr max** on Community Cloud. Never fall back to Secure Cloud (2x+ price) without explicit user approval. If no Community Cloud GPU meeting the spec is available, **stop and ask the user** — do not auto-provision Secure Cloud or under-spec'd GPUs.
+
+## Primary GPU Profile
 
 RTX 3090 Community Cloud:
 
@@ -83,7 +105,7 @@ RTX 3090 Community Cloud:
 - Default container disk: `100GB`
 - Default persistent volume: `0GB`
 
-Community Cloud availability is limited. If no RTX 3090 candidates appear, check later or consider a different GPU.
+Community Cloud availability fluctuates. If no RTX 3090 is available, try fallback GPUs in priority order above. If none meet the ≥20GB VRAM / ≤$0.25/hr requirement, **wait and retry later** — do NOT fall back to Secure Cloud without user approval.
 
 ## Pod Lifecycle Commands
 
