@@ -37,7 +37,13 @@ temp.md
 tmp/
 tmp*/
 *.bak
-temp/
+temp/*
+!temp/hare-and-tortoise-race/
+temp/hare-and-tortoise-race/*
+!temp/hare-and-tortoise-race/user_story.md
+!temp/hare-and-tortoise-race/story-to-video-prompts.md
+!temp/hare-and-tortoise-race/story_manifest.json
+!temp/hare-and-tortoise-race/forest_animals_manifest.json
 
 # Config / cache
 config/
