@@ -49,3 +49,5 @@ temp/hare-and-tortoise-race/*
 config/
 .cache/
 .failed_hosts.json
+# Local dev symlink — files are committed directly, symlink is for editing convenience
+current-setup/skills/story-to-video
