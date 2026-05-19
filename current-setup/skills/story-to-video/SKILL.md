@@ -647,39 +647,3 @@ rm -rf ~/repos/auto-startups-vast/current-setup/skills/<skill-name>
 ln -s ~/.hermes/skills/<category>/<skill-name> ~/repos/auto-startups-vast/current-setup/skills/<skill-name>
 ```
 
-## File Editing Pitfalls
-
-### write_file Truncates Large Files
-The `write_file` tool has a character limit (~25KB). Files above this get silently truncated. **For files >20KB**, use `patch` mode to make targeted edits instead of rewriting the whole file.
-
-### skill_manage(action='write_file') Overwrites Source
-⚠️ **CRITICAL**: `skill_manage(action='write_file')` writes the `file_content` you pass to BOTH the skill directory AND the location you copied from. If you `cp` a file then use `write_file` to update the skill copy, it will also overwrite your backup. Always `cp` to `/tmp/` for safe backups before using this action.
-
-## Related Skills
-
-- `vast-ai` — Provision GPU instances for ComfyUI
-- `ltx23-video-gen` — LTX 2.3 image-to-video on RunPod
-- `comfyui-api` (if exists) — Basic ComfyUI REST API patterns
-
-## Reference Files
-
-- `references/story-manifest-format.md` — JSON schema for story manifests (v2) and prompt composition rules
-- `references/facial-expression-vocabulary.md` — Approved expression descriptors: 20+ emotions mapped to visual descriptors for Qwen prompts
-- `references/qwen-image-edit-prompting-guide.md` — Prompting strategies for Qwen Image Edit 2511: anchor phrase, three-region face rule, expression patterns, pitfalls, length guidelines, plus **Reddit community research** (r/StableDiffusion, r/LocalLLaMA, r/ComfyUI — 8 threads, 600+ comments: resolution offset fixes, Lightning LoRA quality tradeoffs, consistence/AnyPose/Next Scene LoRAs, multi-reference strategies, inpaint-style masking, max-quality workflow, 2509-vs-2511 comparison, Chinese prompting, face dataset generation, plastic skin mitigation)
-- `references/qwen-image-edit-api-patterns.md` — Working API patterns with curl snippets
-- `references/comfyui-api-pitfalls.md` — Complete list of all 10 pitfalls with fixes
-- `references/evaluate-loop-design.md` — Evaluate-and-refine loop: edge cases, scoring, prompt refinement rules, JSON schema
-- `references/gemini-vision-api-patterns.md` — Gemini 2.5 Flash direct REST API pattern for vision evaluation (API key setup, response parsing, retry logic, CLI pitfalls)
-- `references/gemini-image-gen-quotas.md` — Gemini 2.5 Flash Image gen quota pitfalls, daily limits, workarounds
-- `references/reddit-scraping-patterns.md` — How to scrape Reddit for Qwen/AI research: JSON API patterns, what works vs what doesn't, parsing caveats, relevant subreddits
-- `references/env-and-key-management.md` — `.env` / `.env.example` pattern for skill-local API keys, subprocess key loading, why no venv
-
-## Scripts
-
-- `scripts/generate_story_assets.py` — **Phase 0**: Character reference sheets via Gemini `gemini-2.5-flash-image` + scene illustrations with smart per-scene reference selection. **Emits v2 manifest** (shots array, facial_expression per shot, mood, personality_traits, total_shots_budget). Uses `google-genai` Python SDK (requires `pip install google-genai Pillow`). **API key priority**: `.env` file (next to skill dir) → `GEMINI_API_KEY` env var → `--token` JSON file path. The `.env` file is read with stdlib only (no `python-dotenv` needed) — just `Path` + string parsing. See `.env.example` for template. Flags: `--manifest`, `--phase characters|scenes|all`, `--force`, `--max-refs`, `--token`. Future: add `--upload-url` to push sheets to ComfyUI after generation.
-- `scripts/generate_scene.py` — **Phase 2** (v2): Full pipeline with per-shot generation and 5-category evaluation. Auto-detects v1 vs v2 manifests. **v2 features**: shot-level prompts with facial_expression per character, `--shot` flag for specific shots, `scene_XXX_shotYYY.png` naming, `build_scene_eval_context()` passes expression targets to Gemini. **v1 backward compat**: falls back to 4-category eval for old manifests. Flags: `--manifest`, `--scene`, `--shot`, `--all`, `--evaluate`, `--evaluate-only`, `--max-iterations`, `--url`, `--output-dir`, `--seed`, `--cleanup-iters`. Auto-maps character IDs to `{character_id}_reference_sheet.png` using convention.
-- `scripts/evaluate_scene.py` — **Phase 2.5** (v2): 5-category vision evaluator using **Gemini 2.5 Flash**. Categories: character_accuracy (0.30), facial_expression (0.25), scene_composition (0.20), action_depicted (0.15), style_consistency (0.10). Passes scene context + target expressions to Gemini for accurate expression scoring. Returns `expression_detail` with expected vs observed per character. Supports character sheet evaluation (`--phase characters`) with expression_neutrality check. Requires `GEMINI_API_KEY` env var.
-
-## Assets
-
-- `assets/workflow-api-template.json` — Complete Qwen Image Edit 2511 API-format workflow template
