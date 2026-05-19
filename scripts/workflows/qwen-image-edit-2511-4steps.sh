@@ -23,9 +23,21 @@ done
 
 echo "==> Setting up ComfyUI nodes..."
 cd /workspace/ComfyUI
-if [ -f venv/bin/activate ]; then
+
+# Detect the Python that ComfyUI actually runs with (Vast.ai images use /venv/main/)
+COMFY_PYTHON=""
+if [ -f /venv/main/bin/python3 ]; then
+    COMFY_PYTHON="/venv/main/bin/python3"
+    COMFY_PIP="/venv/main/bin/pip"
+elif [ -f venv/bin/activate ]; then
     source venv/bin/activate
+    COMFY_PYTHON="$(which python3)"
+    COMFY_PIP="$(which pip)"
+else
+    COMFY_PYTHON="$(which python3)"
+    COMFY_PIP="$(which pip)"
 fi
+
 if command -v comfy &> /dev/null; then
     comfy node install https://github.com/rgthree/rgthree-comfy
     comfy node install https://github.com/kijai/ComfyUI-KJNodes
@@ -38,6 +50,19 @@ else
     git clone https://github.com/yolain/ComfyUI-Easy-Use || true
     cd ..
 fi
+
+# Install pip dependencies into ComfyUI's Python (not system Python)
+# ComfyUI-Easy-Use requires opencv-python-headless (cv2)
+echo "==> Installing node dependencies into ComfyUI Python ($COMFY_PYTHON)..."
+for req in \
+    custom_nodes/rgthree-comfy/requirements.txt \
+    custom_nodes/ComfyUI-KJNodes/requirements.txt \
+    custom_nodes/ComfyUI-Easy-Use/requirements.txt; do
+    if [ -f "$req" ]; then
+        echo "  Installing $(dirname $req | xargs basename) deps..."
+        $COMFY_PIP install -q -r "$req" 2>&1 || true
+    fi
+done
 
 echo "==> Starting downloads..."
 
