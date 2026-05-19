@@ -3,9 +3,10 @@
 # name: Qwen Image Edit 2511 4-Step Lightning
 # workflow: qwen-img-edit-2511-001
 # aliases: [qwen-image-edit-2511-4steps, qwen-2511, qwen-image-edit-2511, qwen-image-lightning-4steps]
-# description: Downloads all models needed for Qwen Image Edit 2511 4-step Lightning workflow in ComfyUI.
+# description: Downloads all models and custom nodes for Qwen Image Edit 2511 4-step Lightning workflow in ComfyUI.
 # size: ~31.4GB
 # min_vram: 24GB
+# nodes: [rgthree-comfy, ComfyUI-KJNodes, ComfyUI-Easy-Use]
 # ---
 set -e
 
@@ -19,6 +20,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
   [ -f "$f" ] && source "$f" && break
 done
+
+echo "==> Setting up ComfyUI nodes..."
+cd /workspace/ComfyUI
+if [ -f venv/bin/activate ]; then
+    source venv/bin/activate
+fi
+if command -v comfy &> /dev/null; then
+    comfy node install https://github.com/rgthree/rgthree-comfy
+    comfy node install https://github.com/kijai/ComfyUI-KJNodes
+    comfy node install https://github.com/yolain/ComfyUI-Easy-Use
+else
+    echo "comfy-cli not found, cloning node repositories manually..."
+    cd custom_nodes
+    git clone https://github.com/rgthree/rgthree-comfy || true
+    git clone https://github.com/kijai/ComfyUI-KJNodes || true
+    git clone https://github.com/yolain/ComfyUI-Easy-Use || true
+    cd ..
+fi
 
 echo "==> Starting downloads..."
 
