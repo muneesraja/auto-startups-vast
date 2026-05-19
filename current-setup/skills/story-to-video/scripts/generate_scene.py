@@ -1,26 +1,62 @@
 #!/usr/bin/env python3
 """
-Story-to-Video: Generate scene images via ComfyUI Qwen Image Edit 2511 API.
+Story-to-Video: Scene Generator (v2)
+======================================
+Generates scene images via ComfyUI Qwen Image Edit 2511 API.
+
+v2 changes:
+- Supports v2 manifests with per-shot generation
+- Shot-level prompts include facial_expression per character
+- 5-category evaluation (character_accuracy, facial_expression, scene_composition,
+  action_depicted, style_consistency) with updated weights
+- Expression_detail tracking in evaluation output
+- Scene context + target expressions passed to Gemini evaluator
 
 Usage:
     python3 generate_scene.py --manifest story_manifest.json --scene 1 [--seed 42]
     python3 generate_scene.py --manifest story_manifest.json --all
     python3 generate_scene.py --manifest story_manifest.json --all --url https://my-comfyui.example.com
+    python3 generate_scene.py --manifest story_manifest.json --scene 1 --shot 2 --evaluate
 
 Requires: curl (Cloudflare blocks Python urllib)
 Tested: RTX 3090, 6 scenes, ~3 min total
 """
-
+import argparse
+import base64
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
-import argparse
+import urllib.request
+import urllib.error
 
 # ── Defaults ──────────────────────────────────────────────────
 DEFAULT_BASE_URL = "https://mandi-qwen.muneesraja.com"
 DEFAULT_OUTPUT_DIR = "/root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video"
+MAX_ITERATIONS_DEFAULT = 3
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+PASS_THRESHOLD = 7.0
+
+# v2 weights: character_accuracy reduced, facial_expression added
+CATEGORY_WEIGHTS_V2 = {
+    "character_accuracy": 0.30,
+    "facial_expression": 0.25,
+    "scene_composition": 0.20,
+    "action_depicted": 0.15,
+    "style_consistency": 0.10,
+}
+
+# v1 weights (backward compat)
+CATEGORY_WEIGHTS_V1 = {
+    "character_accuracy": 0.40,
+    "scene_composition": 0.25,
+    "action_depicted": 0.20,
+    "style_consistency": 0.15,
+}
 
 # Character → reference image filename mapping (override per story via manifest)
 DEFAULT_REF_IMAGES = {
@@ -35,6 +71,20 @@ DEFAULT_REF_IMAGES = {
 DEFAULT_FALLBACKS = {
     "fox": "tortoise_reference_sheet.png",
 }
+
+
+# ── Manifest Version Detection ──────────────────────────────
+
+def detect_manifest_version(manifest):
+    """Detect v1 vs v2 manifest format."""
+    if manifest.get("total_shots_budget") is not None:
+        return "v2"
+    scenes = manifest.get("scenes", [])
+    if scenes and isinstance(scenes[0].get("shots"), list):
+        return "v2"
+    if scenes and "emotion" in scenes[0]:
+        return "v1"
+    return "v1"
 
 
 # ── API Helpers ──────────────────────────────────────────────
@@ -105,11 +155,26 @@ def upload_image(filepath, base_url, name=None):
 
 # ── Image Selection ─────────────────────────────────────────
 
+def build_ref_mapping(characters, available):
+    """Auto-build character → reference sheet mapping using naming convention."""
+    mapping = {}
+    for c in characters:
+        convention_name = f"{c}_reference_sheet.png"
+        if convention_name in available:
+            mapping[c] = convention_name
+        elif c in DEFAULT_REF_IMAGES and DEFAULT_REF_IMAGES[c] in available:
+            mapping[c] = DEFAULT_REF_IMAGES[c]
+    return mapping
+
+
 def pick_images(characters, available, ref_images, fallbacks):
     """Select up to 3 reference images. Falls back for missing characters."""
+    auto_mapping = build_ref_mapping(characters, available)
+    merged = {**auto_mapping, **ref_images}
+
     images = []
     for c in characters:
-        ref = ref_images.get(c)
+        ref = merged.get(c)
         if ref and ref in available:
             images.append(ref)
         else:
@@ -200,16 +265,23 @@ def build_workflow(image1, image2, image3, prompt_text, seed=42, filename_prefix
     }
 
 
-# ── Manifest Loader ─────────────────────────────────────────
+# ── Manifest Loader (v2 aware) ──────────────────────────────
 
 def load_manifest(manifest_path):
-    """Load story manifest JSON and build scene data."""
+    """Load story manifest JSON and build scene data.
+
+    For v2: returns per-shot data with facial expressions in prompts.
+    For v1: backward compatible single-scene prompts.
+    Returns (title, scenes_dict, version).
+    """
     with open(manifest_path) as f:
         manifest = json.load(f)
 
+    version = detect_manifest_version(manifest)
     style = manifest.get("style", "")
     char_map = {c["id"]: c["identity_spec"] for c in manifest.get("characters", [])}
     char_names = {c["id"]: c["name"] for c in manifest.get("characters", [])}
+    char_personality = {c["id"]: c.get("personality_traits", "") for c in manifest.get("characters", [])}
 
     scenes = {}
     for scene in manifest.get("scenes", []):
@@ -217,56 +289,118 @@ def load_manifest(manifest_path):
         characters = scene.get("characters_present", [])
         setting = scene.get("setting", "")
         action = scene.get("action", "")
-        emotion = scene.get("emotion", "")
-        camera = scene.get("camera", "")
+        mood = scene.get("mood", scene.get("emotion", "neutral mood"))
+        camera = scene.get("camera", "medium shot")
 
-        # Build prompt
+        # Build character identity lines
         char_descriptions = []
         for cid in characters:
             name = char_names.get(cid, cid)
             spec = char_map.get(cid, "")
-            # Abbreviate for 3+ characters
+            personality = char_personality.get(cid, "")
             if len(characters) >= 3:
-                # Use key features only (first sentence or ~100 chars)
                 short = spec.split(",")[0] + ", " + ", ".join(spec.split(",")[1:3])
-                char_descriptions.append(f"- {name}: {short}")
+                desc = f"- {name}: {short}"
             else:
-                char_descriptions.append(f"- {name}: {spec}")
+                desc = f"- {name}: {spec}"
+            if personality:
+                desc += f" | Traits: {personality}"
+            char_descriptions.append(desc)
 
-        prompt_parts = []
-        prompt_parts.append("Characters in this scene must match the provided reference images exactly:")
-        prompt_parts.extend(char_descriptions)
-        prompt_parts.append(f"Scene setting: {setting}.")
-        prompt_parts.append(f"Action: {action}.")
-        prompt_parts.append(f"Mood: {emotion}.")
-        prompt_parts.append(f"Camera: {camera}.")
-        prompt_parts.append(f"Style: {style}.")
+        if version == "v2" and scene.get("shots"):
+            # ── v2: Build per-shot data ──
+            shot_list = []
+            for shot in scene["shots"]:
+                shot_num = shot.get("shot_number", len(shot_list) + 1)
+                shot_action = shot.get("description", action)
+                shot_camera = shot.get("camera_override", camera)
+                shot_expressions = shot.get("facial_expression", {})
 
-        scenes[num] = {
-            "title": scene.get("title", f"Scene {num}"),
-            "characters": characters,
-            "prompt": "\n".join(prompt_parts),
-        }
+                # Build per-shot prompt
+                expr_lines = []
+                char_expr_map = {}
+                for cid, expr in shot_expressions.items():
+                    name = char_names.get(cid, cid)
+                    expr_lines.append(f"- {name}: {expr}")
+                    char_expr_map[cid] = expr
 
-    return manifest.get("title", "story"), scenes
+                prompt_parts = ["Characters in this scene must match the provided reference images exactly:"]
+                prompt_parts.extend(char_descriptions)
+
+                if expr_lines:
+                    prompt_parts.append("")
+                    prompt_parts.append("Facial expressions:")
+                    prompt_parts.extend(expr_lines)
+
+                prompt_parts.extend([
+                    "",
+                    f"Scene setting: {setting}.",
+                    f"Action: {shot_action}.",
+                    f"Mood: {mood}.",
+                    f"Camera: {shot_camera}.",
+                    f"Style: {style}.",
+                ])
+
+                shot_list.append({
+                    "shot_number": shot_num,
+                    "action": shot_action,
+                    "camera": shot_camera,
+                    "prompt": "\n".join(prompt_parts),
+                    "facial_expression": char_expr_map,
+                    "duration_seconds": shot.get("duration_seconds", 6),
+                })
+
+            scenes[num] = {
+                "title": scene.get("title", f"Scene {num}"),
+                "characters": characters,
+                "shots": shot_list,
+                "mood": mood,
+                "setting": setting,
+                "camera": camera,
+                "action": action,
+                "style": style,
+            }
+        else:
+            # ── v1: Single prompt per scene ──
+            prompt_parts = ["Characters in this scene must match the provided reference images exactly:"]
+            prompt_parts.extend(char_descriptions)
+            prompt_parts.extend([
+                "",
+                f"Scene setting: {setting}.",
+                f"Action: {action}.",
+                f"Mood: {mood}.",
+                f"Camera: {camera}.",
+                f"Style: {style}.",
+            ])
+
+            scenes[num] = {
+                "title": scene.get("title", f"Scene {num}"),
+                "characters": characters,
+                "prompt": "\n".join(prompt_parts),
+            }
+
+    return manifest.get("title", "story"), scenes, version
 
 
 # ── Scene Generation ─────────────────────────────────────────
 
 def generate_scene(scene_num, scene_data, base_url, output_dir,
-                   available_images, ref_images, fallbacks, seed=42):
+                   available_images, ref_images, fallbacks, seed=42,
+                   filename_prefix=None):
     """Generate a single scene image."""
     images = pick_images(scene_data["characters"], available_images, ref_images, fallbacks)
-    prefix = f"scene_{scene_num:03d}"
+    prefix = filename_prefix or f"scene_{scene_num:03d}"
+    prompt = scene_data["prompt"]
 
     print(f"🎬 Scene {scene_num}: {scene_data['title']}")
     print(f"   Characters: {', '.join(scene_data['characters'])}")
     print(f"   Input images: {images}")
     print(f"   Seed: {seed}")
+    print(f"   Prompt: {prompt[:120]}...")
 
     workflow = build_workflow(
         image1=images[0], image2=images[1], image3=images[2],
-        prompt_text=scene_data["prompt"], seed=seed, filename_prefix=prefix
+        prompt_text=prompt, seed=seed, filename_prefix=prefix
     )
 
     result = curl_json("POST", "/prompt", base_url, data={"prompt": workflow, "client_id": "story-to-video"})
@@ -301,47 +435,680 @@ def generate_scene(scene_num, scene_data, base_url, output_dir,
     return None
 
 
-# ── CLI ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+#  GEMINI VISION EVALUATION (v2)
+# ═══════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Story-to-Video scene generator")
-    parser.add_argument("--manifest", required=True, help="Path to story_manifest.json")
-    parser.add_argument("--scene", type=int, help="Generate a specific scene (1-6)")
-    parser.add_argument("--all", action="store_true", help="Generate all scenes")
+def call_gemini_vision(prompt_text, image_path, api_key, model=GEMINI_MODEL):
+    """Call Gemini API with image + text, return raw response string."""
+    ext = os.path.splitext(image_path)[1].lower()
+    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+    mime_type = mime_map.get(ext, "image/png")
+
+    with open(image_path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    payload = {
+        "contents": [{"parts": [
+            {"text": prompt_text},
+            {"inline_data": {"mime_type": mime_type, "data": img_b64}},
+        ]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.2,
+        }
+    }
+
+    url = f"{GEMINI_API_URL}/{model}:generateContent?key={api_key}"
+    req_data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=req_data,
+                                 headers={"Content-Type": "application/json"})
+
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                data = json.loads(resp.read().decode())
+            for candidate in data.get("candidates", []):
+                for part in candidate.get("content", {}).get("parts", []):
+                    if "text" in part:
+                        return part["text"]
+            return json.dumps({"error": "No text in Gemini response"})
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()[:500]
+            if e.code == 429 and attempt < 2:
+                wait = 5 * (attempt + 1)
+                print(f"   ⏳ Rate limited, retrying in {wait}s...")
+                time.sleep(wait)
+                req = urllib.request.Request(url, data=req_data,
+                                             headers={"Content-Type": "application/json"})
+                continue
+            return json.dumps({"error": f"Gemini HTTP {e.code}", "details": error_body})
+        except Exception as e:
+            return json.dumps({"error": f"Gemini error: {str(e)}"})
+
+    return json.dumps({"error": "Max retries exceeded"})
+
+
+def compute_weighted_score(category_scores, version="v2"):
+    """Compute weighted average from raw category scores."""
+    weights = CATEGORY_WEIGHTS_V2 if version == "v2" else CATEGORY_WEIGHTS_V1
+    total = 0.0
+    weight_sum = 0.0
+    for cat, weight in weights.items():
+        score = category_scores.get(cat)
+        if score is not None:
+            total += score * weight
+            weight_sum += weight
+    if weight_sum == 0:
+        return 0.0
+    # Normalize if some categories were N/A (excluded from average)
+    if weight_sum < sum(weights.values()):
+        return round(total / weight_sum, 2)
+    return round(total, 2)
+
+
+def build_eval_prompt_v2(scene_info):
+    """Build v2 evaluation prompt with facial expression targets."""
+    return f"""You are evaluating an AI-generated scene image against its description.
+
+{scene_info['expected_description']}
+
+STEP 1 - DESCRIBE WHAT YOU SEE:
+Before scoring, describe exactly what you see in the image. List every visible character and their position.
+For EACH character with a specified facial expression, describe their face in detail:
+- What is their mouth doing? (smiling, frowning, neutral, open, etc.)
+- What are their eyes doing? (wide, narrowed, looking somewhere specific, closed?)
+- What is their brow/forehead doing? (flat, furrowed, raised, relaxed?)
+- Overall emotional impression of their face?
+
+Then describe the setting, action, and overall style/mood.
+
+STEP 2 - SCORE BY CATEGORY:
+Rate each category 0-10:
+1. Character Accuracy (30% weight): Do characters match their identity specs? Correct colors, features, clothing?
+2. Facial Expression (25% weight): Does each character's facial expression match the expected expression described above? Score 10 for exact match, 7 for close approximation, 4 for partially matching, 1 for completely wrong expression. If a character's face is not visible (turned away or too small), score N/A and exclude from average.
+3. Scene Composition (20% weight): Are all specified characters present? Is the setting correct?
+4. Action Depicted (15% weight): Does the scene show the described action?
+5. Style Consistency (10% weight): Does the style match the described style?
+
+Critical issues that automatically fail: missing main character, wrong setting/location, completely wrong action.
+
+STEP 3 - IDENTIFY ISSUES:
+List specific problems. For facial expression issues, be precise about which character and what was wrong.
+Example: "Hare's expression is neutral instead of the specified 'confident grin, eyes determined'"
+
+STEP 4 - DECIDE:
+- passed: true if weighted average score >= {PASS_THRESHOLD} AND no critical issues
+- passed: false otherwise
+- If false, provide a refined_prompt that adds specificity for the identified issues. Only modify parts related to the issues. Do not add global statements like "high quality" or "detailed".
+- For facial expression issues: strengthen expression descriptors using the three-region rule (mouth + eyes + brow) or move expression earlier in the prompt.
+
+STEP 5 - EXPRESSION DETAIL:
+For each character that had a specified facial expression, provide expected vs observed.
+
+Respond in this exact JSON format only:
+{{"description": "what I see", "category_scores": {{"character_accuracy": 0, "facial_expression": 0, "scene_composition": 0, "action_depicted": 0, "style_consistency": 0}}, "score": 0, "passed": false, "issues": ["list"], "strengths": ["list"], "refined_prompt": "improved prompt or null if passed", "expression_detail": {{"character_id": {{"expected": "specified expression", "observed": "what you actually see"}}}}}}"""
+
+
+def build_eval_prompt_v1(expected_description):
+    """Build v1 evaluation prompt (4 categories, no expressions)."""
+    return f"""You are evaluating an AI-generated scene image against its expected description.
+
+EXPECTED SCENE DESCRIPTION:
+{expected_description}
+
+STEP 1 - DESCRIBE WHAT YOU SEE:
+Before scoring, describe exactly what you see in the image. List every visible character, their appearance, the setting, the action, and the overall style/mood.
+
+STEP 2 - SCORE BY CATEGORY:
+Rate each category 0-10:
+1. Character Accuracy (40% weight): Do characters match their identity specs? Correct colors, features, clothing?
+2. Scene Composition (25% weight): Are all specified characters present? Is the setting correct?
+3. Action Depicted (20% weight): Does the scene show the described action?
+4. Style Consistency (15% weight): Does the style match the described style?
+
+Critical issues that automatically fail: missing main character, wrong setting/location, completely wrong action.
+
+STEP 3 - IDENTIFY ISSUES:
+List specific problems. Example: "Fox character is missing entirely", "Hare has green headband instead of blue"
+
+STEP 4 - DECIDE:
+- passed: true if weighted average score >= {PASS_THRESHOLD} AND no critical issues
+- passed: false otherwise
+- If false, provide a refined_prompt that adds specificity for the identified issues. Do not add "high quality" or "detailed".
+
+Respond in JSON only:
+{{"description": "what I see", "category_scores": {{"character_accuracy": 0, "scene_composition": 0, "action_depicted": 0, "style_consistency": 0}}, "score": 0, "passed": false, "issues": ["list"], "strengths": ["list"], "refined_prompt": "improved prompt or null if passed"}}"""
+
+
+def build_scene_eval_context(manifest, scene_data, scene_num, shot_num=None, version="v2"):
+    """Build evaluation context from manifest data including facial expressions.
+
+    Returns a dict with:
+      - expected_description: full text description for Gemini
+      - char_expressions: {character_id: expected_expression} for v2
+      - scene_details: human-readable scene summary
+    """
+    char_names = {c["id"]: c["name"] for c in manifest.get("characters", [])}
+    char_map = {c["id"]: c["identity_spec"] for c in manifest.get("characters", [])}
+    char_personality = {c["id"]: c.get("personality_traits", "") for c in manifest.get("characters", [])}
+    style = manifest.get("style", "")
+
+    # Extract expression targets per character
+    char_expressions = {}
+    expression_lines = []
+
+    characters = scene_data.get("characters", [])
+
+    # Build character identity lines
+    identity_lines = []
+    for cid in characters:
+        name = char_names.get(cid, cid)
+        spec = char_map.get(cid, "")
+        personality = char_personality.get(cid, "")
+        if len(characters) >= 3:
+            short = spec.split(",")[0] + ", " + ", ".join(spec.split(",")[1:3])
+            line = f"- {name}: {short}"
+        else:
+            line = f"- {name}: {spec}"
+        if personality:
+            line += f" | Traits: {personality}"
+        identity_lines.append(line)
+
+    # For v2, get facial_expression from shot data
+    if version == "v2":
+        expr_map = {}
+        if scene_data.get("shots") and shot_num is not None:
+            for shot in scene_data["shots"]:
+                if shot.get("shot_number") == shot_num:
+                    expr_map = shot.get("facial_expression", {})
+                    break
+        elif scene_data.get("facial_expression"):
+            # Fallback: scene-level expression (v2 without shots)
+            expr_map = scene_data["facial_expression"]
+
+        for cid, expr in expr_map.items():
+            name = char_names.get(cid, cid)
+            char_expressions[cid] = expr
+            expression_lines.append(f"- {name} expected expression: {expr}")
+
+    # Build expected description
+    setting = scene_data.get("setting", "")
+    action = scene_data.get("action", "")
+    mood = scene_data.get("mood", scene_data.get("emotion", ""))
+    camera = scene_data.get("camera", "medium shot")
+
+    desc_parts = []
+    desc_parts.append("EXPECTED SCENE DESCRIPTION:")
+    desc_parts.append("")
+    desc_parts.append("Characters (must match reference images):")
+    desc_parts.extend(identity_lines)
+
+    if expression_lines:
+        desc_parts.append("")
+        desc_parts.append("Expected facial expressions:")
+        desc_parts.extend(expression_lines)
+
+    desc_parts.append("")
+    desc_parts.append(f"Setting: {setting}")
+    desc_parts.append(f"Action: {action}")
+    desc_parts.append(f"Mood: {mood}")
+    desc_parts.append(f"Camera: {camera}")
+    desc_parts.append(f"Style: {style}")
+
+    # Scene details summary for Gemini
+    scene_detail_lines = [
+        f"Scene {scene_num}" + (f", Shot {shot_num}" if shot_num else ""),
+        f"Title: {scene_data.get('title', '')}",
+        f"Mood: {mood}",
+        f"Action: {action}",
+    ]
+    if expression_lines:
+        scene_detail_lines.append("Target expressions: " + "; ".join(expression_lines))
+
+    return {
+        "expected_description": "\n".join(desc_parts),
+        "char_expressions": char_expressions,
+        "scene_details": "\n".join(scene_detail_lines),
+    }
+
+
+def parse_eval_response(response_text, version="v2"):
+    """Parse Gemini evaluation response, handling various JSON formats."""
+    # Strip markdown code fences if present
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = re.sub(r'^```(?:json)?\s*\n?', '', text)
+        text = re.sub(r'\n?```\s*$', '', text)
+
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        # Try extracting JSON from within text
+        match = re.search(r'\{[\s\S]+\}', text)
+        if match:
+            try:
+                result = json.loads(match.group())
+            except json.JSONDecodeError:
+                print(f"   ⚠️ Could not parse eval response as JSON")
+                return None
+        else:
+            print(f"   ⚠️ No JSON found in eval response")
+            return None
+
+    # Normalize category scores
+    if "category_scores" in result:
+        scores = result["category_scores"]
+        if isinstance(scores, str):
+            try:
+                scores = json.loads(scores)
+            except:
+                scores = {}
+        result["category_scores"] = scores
+
+    # Compute weighted score if not present
+    if "score" not in result or result["score"] == 0:
+        result["score"] = compute_weighted_score(result.get("category_scores", {}), version)
+
+    # Handle expression_detail for v2
+    if version == "v2" and "expression_detail" not in result:
+        result["expression_detail"] = {}
+
+    result["version"] = version
+    return result
+
+
+def evaluate_with_gemini(image_path, scene_info, api_key, version="v2"):
+    """Evaluate a generated scene image using Gemini Vision.
+
+    Args:
+        image_path: Path to the generated image
+        scene_info: Dict from build_scene_eval_context() with expected_description, etc.
+        api_key: Gemini API key
+        version: "v1" or "v2" (determines eval prompt and categories)
+
+    Returns:
+        Parsed evaluation result dict or None on failure
+    """
+    if version == "v2":
+        prompt = build_eval_prompt_v2(scene_info)
+    else:
+        prompt = build_eval_prompt_v1(scene_info["expected_description"])
+
+    print(f"   🔍 Evaluating with Gemini ({version})...")
+
+    response = call_gemini_vision(prompt, image_path, api_key)
+
+    if not response:
+        print(f"   ❌ Empty response from Gemini")
+        return None
+
+    result = parse_eval_response(response, version)
+    if result is None:
+        print(f"   ❌ Could not parse Gemini response")
+        print(f"   Raw: {response[:200]}...")
+        return None
+
+    # Print results
+    scores = result.get("category_scores", {})
+    weighted = result.get("score", 0)
+    passed = result.get("passed", False)
+    issues = result.get("issues", [])
+    strengths = result.get("strengths", [])
+    expr_detail = result.get("expression_detail", {})
+
+    categories = list(CATEGORY_WEIGHTS_V2.keys()) if version == "v2" else list(CATEGORY_WEIGHTS_V1.keys())
+    print(f"   📊 Scores: " + " | ".join(f"{cat}: {scores.get(cat, 'N/A')}" for cat in categories))
+    print(f"   📊 Weighted: {weighted:.1f}/10 | {'✅ PASS' if passed else '❌ FAIL'}")
+
+    if issues:
+        print(f"   ⚠️ Issues: {'; '.join(issues[:5])}")
+    if strengths:
+        print(f"   💪 Strengths: {'; '.join(strengths[:3])}")
+    if expr_detail and version == "v2":
+        for cid, detail in expr_detail.items():
+            print(f"   😐 {cid}: expected='{detail.get('expected', '?')}' observed='{detail.get('observed', '?')}'")
+
+    if not passed and result.get("refined_prompt"):
+        print(f"   🔄 Refined prompt available for retry")
+
+    return result
+
+
+def generate_with_eval_loop(scene_num, scene_data, base_url, output_dir,
+                            available_images, ref_images, fallbacks,
+                            api_key, seed=42, max_iterations=3, version="v2",
+                            manifest=None, shot_num=None):
+    """Generate a scene image and evaluate with retry loop.
+
+    For v2 manifests: can target a specific shot within the scene.
+    For v1 manifests: generates the whole scene.
+
+    Returns:
+        dict with 'path', 'final_score', 'iterations', 'passed' or None on failure
+    """
+    # Build evaluation context
+    if manifest and version == "v2":
+        scene_info = build_scene_eval_context(manifest, scene_data, scene_num, shot_num, version)
+    elif manifest:
+        scene_info = build_scene_eval_context(manifest, scene_data, scene_num, None, version)
+    else:
+        scene_info = {"expected_description": scene_data.get("prompt", ""), "char_expressions": {}, "scene_details": ""}
+
+    # For v2 with shots, use the specific shot's prompt
+    if version == "v2" and scene_data.get("shots") and shot_num is not None:
+        for shot in scene_data["shots"]:
+            if shot.get("shot_number") == shot_num:
+                scene_data = {**scene_data, "prompt": shot["prompt"]}
+                break
+
+    current_prompt = scene_data.get("prompt", "")
+    current_seed = seed
+    best_result = None
+    best_path = None
+    best_score = 0
+
+    # Determine filename prefix
+    if version == "v2" and shot_num is not None:
+        filename_prefix = f"scene_{scene_num:03d}_shot{shot_num:03d}"
+    else:
+        filename_prefix = f"scene_{scene_num:03d}"
+
+    for iteration in range(1, max_iterations + 1):
+        print(f"\n{'='*60}")
+        print(f"  Iteration {iteration}/{max_iterations} — Scene {scene_num}" +
+              (f", Shot {shot_num}" if shot_num else ""))
+        print(f"{'='*60}")
+
+        # Update prompt if refined from previous evaluation
+        if iteration > 1 and best_result and best_result.get("refined_prompt"):
+            current_prompt = best_result["refined_prompt"]
+            scene_data = {**scene_data, "prompt": current_prompt}
+            print(f"   🔄 Using refined prompt from previous iteration")
+
+        # Generate the image
+        scene_data_copy = {**scene_data, "prompt": current_prompt}
+        file_prefix = f"{filename_prefix}_iter{iteration}" if iteration > 1 else filename_prefix
+
+        image_path = generate_scene(
+            scene_num, scene_data_copy, base_url, output_dir,
+            available_images, ref_images, fallbacks,
+            seed=current_seed, filename_prefix=file_prefix
+        )
+
+        if not image_path:
+            print(f"   ❌ Generation failed, retrying with different seed...")
+            current_seed += 1
+            continue
+
+        # Evaluate the image
+        result = evaluate_with_gemini(image_path, scene_info, api_key, version)
+
+        if result is None:
+            print(f"   ⚠️ Evaluation failed, keeping image without eval")
+            return {"path": image_path, "final_score": None, "iterations": iteration, "passed": None}
+
+        # Track best result
+        score = result.get("score", 0)
+        if score > best_score:
+            best_score = score
+            best_result = result
+            best_path = image_path
+
+        if result.get("passed", False):
+            print(f"   ✅ PASSED on iteration {iteration} (score: {score:.1f})")
+            # If passed on a later iteration, use the best version
+            final_path = os.path.join(output_dir, f"{filename_prefix}_final.png")
+            if image_path != final_path:
+                shutil.copy2(image_path, final_path)
+            return {
+                "path": final_path if os.path.exists(final_path) else image_path,
+                "final_score": score,
+                "iterations": iteration,
+                "passed": True,
+            }
+
+        print(f"   ❌ Failed threshold on iteration {iteration} (score: {score:.1f}/{PASS_THRESHOLD})")
+
+        # Increment seed for next iteration
+        current_seed += 1
+
+    # Out of iterations - return best result
+    print(f"\n   ⚠️ Max iterations reached. Best score: {best_score:.1f}")
+    final_path = os.path.join(output_dir, f"{filename_prefix}_final.png")
+    if best_path:
+        shutil.copy2(best_path, final_path)
+    return {
+        "path": final_path if os.path.exists(final_path) else best_path,
+        "final_score": best_score,
+        "iterations": max_iterations,
+        "passed": False,
+    }
+
+
+# ── CLI ───────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Story-to-Video scene generator (v2: per-shot generation, facial expressions)")
+    parser.add_argument("--manifest", help="Path to story_manifest.json")
+    parser.add_argument("--scene", type=int, help="Generate a specific scene number")
+    parser.add_argument("--shot", type=int, help="Generate a specific shot (v2 manifests only)")
+    parser.add_argument("--all", action="store_true", help="Generate all scenes from manifest")
+    parser.add_argument("--evaluate", action="store_true",
+                        help="Evaluate generated images with Gemini Vision")
+    parser.add_argument("--evaluate-only", action="store_true",
+                        help="Evaluate an existing image without generating")
+    parser.add_argument("--url", default=DEFAULT_BASE_URL,
+                        help=f"ComfyUI base URL (default: {DEFAULT_BASE_URL})")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR,
+                        help=f"Output directory (default: {DEFAULT_OUTPUT_DIR})")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--url", default=DEFAULT_BASE_URL, help="ComfyUI base URL")
-    parser.add_argument("--output-dir", default=None,
-                        help=f"Output directory (default: {DEFAULT_OUTPUT_DIR}/<story-title>/scenes)")
+    parser.add_argument("--max-iterations", type=int, default=MAX_ITERATIONS_DEFAULT,
+                        help=f"Max generation iterations (default: {MAX_ITERATIONS_DEFAULT})")
+    parser.add_argument("--api-key", default=os.environ.get("GEMINI_API_KEY", ""),
+                        help="Gemini API key (or set GEMINI_API_KEY env var)")
+    parser.add_argument("--cleanup-iters", action="store_true",
+                        help="Remove intermediate iteration images (keep only final)")
+
     args = parser.parse_args()
-
-    # Load manifest
-    story_title, scenes = load_manifest(args.manifest)
-
-    # Determine output directory
-    output_dir = args.output_dir or os.path.join(DEFAULT_OUTPUT_DIR, story_title, "scenes")
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Auto-detect available images on instance
     base_url = args.url
-    print(f"🔍 Checking available images on {base_url}...")
-    available_images = get_available_images(base_url)
-    print(f"   Found {len(available_images)} images: {', '.join(sorted(available_images))}")
+    output_dir = args.output_dir
+    scenes_dir = os.path.join(output_dir, "scenes")
 
-    # Build ref image map from manifest character IDs
-    ref_images = DEFAULT_REF_IMAGES.copy()
+    os.makedirs(scenes_dir, exist_ok=True)
+
+    # ── Evaluate-only mode ──
+    if args.evaluate_only:
+        if not args.api_key:
+            print("❌ GEMINI_API_KEY required for evaluation")
+            sys.exit(1)
+        if not args.manifest:
+            print("❌ --manifest required for evaluation context")
+            sys.exit(1)
+
+        manifest = json.load(open(args.manifest))
+        version = detect_manifest_version(manifest)
+
+        # Find the most recent image in scenes_dir
+        images = sorted(
+            [os.path.join(scenes_dir, f) for f in os.listdir(scenes_dir)
+             if f.endswith(('.png', '.jpg', '.jpeg', '.webp'))],
+            key=lambda p: os.path.getmtime(p), reverse=True
+        )
+        if not images:
+            print("❌ No images found in scenes directory")
+            sys.exit(1)
+
+        image_path = images[0]
+        print(f"🔍 Evaluating: {image_path}")
+
+        if args.scene:
+            title, scenes, ver = load_manifest(args.manifest)
+            scene_data = scenes.get(args.scene)
+            if not scene_data:
+                print(f"❌ Scene {args.scene} not found in manifest")
+                sys.exit(1)
+            scene_info = build_scene_eval_context(manifest, scene_data, args.scene, args.shot, version)
+        else:
+            scene_info = {"expected_description": "No scene context provided", "char_expressions": {}, "scene_details": ""}
+
+        result = evaluate_with_gemini(image_path, scene_info, args.api_key, version)
+        if result:
+            print(f"\n📊 Final Score: {result.get('score', 0):.1f}/10 | {'✅ PASS' if result.get('passed') else '❌ FAIL'}")
+        return
+
+    # ── Generation mode ──
+    if not args.manifest:
+        print("❌ --manifest required for generation")
+        parser.print_help()
+        sys.exit(1)
+
+    title, scenes, version = load_manifest(args.manifest)
+    manifest = json.load(open(args.manifest))
+
+    # Discover available images on ComfyUI instance
+    available = get_available_images(base_url)
+    print(f"📷 Found {len(available)} available images on ComfyUI instance")
+
+    # Load reference image mapping from manifest or defaults
+    ref_images = {}
+    for c in manifest.get("characters", []):
+        if "reference_image" in c:
+            ref_images[c["id"]] = c["reference_image"]
+    fallbacks = DEFAULT_FALLBACKS
 
     if args.all:
-        print(f"\n📖 Story: {story_title} ({len(scenes)} scenes)")
-        print(f"📁 Output: {output_dir}\n")
-        for num in sorted(scenes.keys()):
-            generate_scene(num, scenes[num], base_url, output_dir,
-                         available_images, ref_images, DEFAULT_FALLBACKS, seed=args.seed)
-            print()
+        # Generate all scenes
+        print(f"\📖 Generating scenes for: {title}")
+        print(f"   Version: {version}")
+        print(f"   Scenes: {len(scenes)}")
+
+        results = {}
+        for scene_num, scene_data in scenes.items():
+            if version == "v2" and scene_data.get("shots"):
+                # v2: generate each shot
+                for shot in scene_data["shots"]:
+                    shot_num = shot["shot_number"]
+                    print(f"\n🎬 Scene {scene_num}, Shot {shot_num}: {scene_data.get('title', '')}")
+
+                    if args.evaluate:
+                        result = generate_with_eval_loop(
+                            scene_num, scene_data, base_url, scenes_dir,
+                            available, ref_images, fallbacks,
+                            args.api_key, args.seed, args.max_iterations,
+                            version, manifest, shot_num
+                        )
+                    else:
+                        shot_data = {**scene_data, "prompt": shot["prompt"],
+                                    "characters": scene_data.get("characters", [])}
+                        path = generate_scene(
+                            scene_num, shot_data, base_url, scenes_dir,
+                            available, ref_images, fallbacks,
+                            args.seed, filename_prefix=f"scene_{scene_num:03d}_shot{shot_num:03d}"
+                        )
+                        result = {"path": path, "iterations": 1, "passed": None} if path else None
+
+                    results[(scene_num, shot_num)] = result
+            else:
+                # v1: single generation per scene
+                print(f"\n🎬 Scene {scene_num}: {scene_data.get('title', '')}")
+
+                if args.evaluate:
+                    result = generate_with_eval_loop(
+                        scene_num, scene_data, base_url, scenes_dir,
+                        available, ref_images, fallbacks,
+                        args.api_key, args.seed, args.max_iterations,
+                        version, manifest
+                    )
+                else:
+                    path = generate_scene(
+                        scene_num, scene_data, base_url, scenes_dir,
+                        available, ref_images, fallbacks, args.seed
+                    )
+                    result = {"path": path, "iterations": 1, "passed": None} if path else None
+
+                results[(scene_num, None)] = result
+
+        # Summary
+        print(f"\n{'='*60}")
+        print(f"  Generation Summary: {title}")
+        print(f"{'='*60}")
+        for key, result in results.items():
+            scene_num, shot_num = key
+            label = f"Scene {scene_num}" + (f", Shot {shot_num}" if shot_num else "")
+            if result:
+                status = "✅" if result.get("passed") else ("⚠️" if result.get("path") else "❌")
+                score = f" (score: {result.get('final_score', '?')})" if result.get("final_score") else ""
+                print(f"  {label}: {status}{score} — {result.get('path', 'N/A')}")
+            else:
+                print(f"  {label}: ❌ Failed")
+
     elif args.scene:
-        if args.scene not in scenes:
+        # Generate a specific scene
+        scene_data = scenes.get(args.scene)
+        if not scene_data:
             print(f"❌ Scene {args.scene} not found in manifest")
             sys.exit(1)
-        generate_scene(args.scene, scenes[args.scene], base_url, output_dir,
-                      available_images, ref_images, DEFAULT_FALLBACKS, seed=args.seed)
+
+        if version == "v2" and scene_data.get("shots") and args.shot:
+            # v2: specific shot
+            shot_data = None
+            for shot in scene_data["shots"]:
+                if shot.get("shot_number") == args.shot:
+                    shot_data = shot
+                    break
+            if not shot_data:
+                print(f"❌ Shot {args.shot} not found in Scene {args.scene}")
+                sys.exit(1)
+
+            gen_data = {**scene_data, "prompt": shot_data["prompt"]}
+
+            if args.evaluate:
+                result = generate_with_eval_loop(
+                    args.scene, scene_data, base_url, scenes_dir,
+                    available, ref_images, fallbacks,
+                    args.api_key, args.seed, args.max_iterations,
+                    version, manifest, args.shot
+                )
+            else:
+                path = generate_scene(
+                    args.scene, gen_data, base_url, scenes_dir,
+                    available, ref_images, fallbacks,
+                    args.seed, filename_prefix=f"scene_{args.scene:03d}_shot{args.shot:03d}"
+                )
+                result = {"path": path, "iterations": 1, "passed": None} if path else None
+        else:
+            # v1 or v2 without shots
+            if args.evaluate:
+                result = generate_with_eval_loop(
+                    args.scene, scene_data, base_url, scenes_dir,
+                    available, ref_images, fallbacks,
+                    args.api_key, args.seed, args.max_iterations,
+                    version, manifest
+                )
+            else:
+                path = generate_scene(
+                    args.scene, scene_data, base_url, scenes_dir,
+                    available, ref_images, fallbacks, args.seed
+                )
+                result = {"path": path, "iterations": 1, "passed": None} if path else None
+
+        if result:
+            status = "✅ PASSED" if result.get("passed") else ("⚠️ GENERATED" if result.get("path") else "❌ FAILED")
+            score = f" (score: {result.get('final_score', '?')})" if result.get("final_score") is not None else ""
+            print(f"\n{status}{score}: {result.get('path', 'N/A')}")
     else:
         parser.print_help()
+
+    # Cleanup intermediate files
+    if args.cleanup_iters:
+        print(f"\n🧹 Cleaning up intermediate iteration files...")
+        for f in os.listdir(scenes_dir):
+            if "_iter" in f and f.endswith(('.png', '.jpg')):
+                os.remove(os.path.join(scenes_dir, f))
+                print(f"   Removed: {f}")
+
+
+if __name__ == "__main__":
+    main()

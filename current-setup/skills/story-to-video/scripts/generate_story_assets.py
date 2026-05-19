@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Story-to-Video Asset Generator
-===============================
+Story-to-Video Asset Generator (v2)
+=====================================
 Generates character reference sheets and scene illustrations using the Gemini API.
-Designed to be invoked by the Hermes agent as part of the story-to-video skill.
+Supports v2 manifests with shots, facial_expression, mood, and personality_traits.
 
 Usage:
     python3 generate_story_assets.py \
@@ -12,7 +12,7 @@ Usage:
         [--max-refs 5] \
         [--force]
 
-API Key: Read from /root/config/token.json → "gemini_api_key"
+API Key: Read from .env, env var, or /root/config/token.json → "gemini_api_key"
 """
 
 import argparse
@@ -54,11 +54,25 @@ IMAGE_MODEL = "gemini-2.5-flash-image"
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def load_api_key(token_path: Optional[str] = None) -> str:
-    """Load Gemini API key from token JSON file."""
+    """Load Gemini API key: .env file → env var → token JSON file."""
+    # 1. Try .env file next to the script's skill directory
+    skill_dir = Path(__file__).resolve().parent.parent  # skills/story-to-video/
+    env_file = skill_dir / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() == "GEMINI_API_KEY" and v.strip():
+                return v.strip()
+
+    # 2. Try environment variable
     env_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if env_key:
         return env_key
 
+    # 3. Try token JSON file
     path = Path(token_path) if token_path else TOKEN_PATH
     if not path.exists():
         print(f"ERROR: Token file not found at {path}")
@@ -72,20 +86,48 @@ def load_api_key(token_path: Optional[str] = None) -> str:
     return key
 
 
+def detect_manifest_version(manifest: dict) -> str:
+    """Detect whether a manifest is v1 or v2 format."""
+    # v2 has shots array in scenes and total_shots_budget at root
+    scenes = manifest.get("scenes", [])
+    if manifest.get("total_shots_budget") is not None:
+        return "v2"
+    if scenes and isinstance(scenes[0].get("shots"), list):
+        return "v2"
+    # v1 uses "emotion" field
+    if scenes and "emotion" in scenes[0]:
+        return "v1"
+    return "v1"  # default to v1
+
+
 def load_manifest(path: str) -> dict:
-    """Load and validate the story manifest JSON."""
+    """Load and validate the story manifest JSON (v1 or v2)."""
     manifest_path = Path(path)
     if not manifest_path.exists():
         print(f"ERROR: Manifest not found at {manifest_path}")
         sys.exit(1)
     with open(manifest_path) as f:
         manifest = json.load(f)
+
+    version = detect_manifest_version(manifest)
+    print(f"   📋 Manifest version: {version}")
+
     # Basic validation
-    required = ["title", "style", "characters", "scenes"]
+    required = ["title", "style", "characters"]
     for field in required:
         if field not in manifest:
             print(f"ERROR: Manifest missing required field: '{field}'")
             sys.exit(1)
+
+    if version == "v2":
+        if "total_shots_budget" not in manifest:
+            print("WARNING: v2 manifest missing 'total_shots_budget', defaulting to 50")
+            manifest["total_shots_budget"] = 50
+        # Validate shots exist in scenes
+        for scene in manifest.get("scenes", []):
+            if "shots" not in scene:
+                print(f"WARNING: Scene {scene.get('scene_number', '?')} missing 'shots' array")
+
     return manifest
 
 
@@ -145,7 +187,11 @@ def call_gemini_with_retry(client, contents, config, max_retries=MAX_RETRIES) ->
 # ─── Phase: Characters ────────────────────────────────────────────────────────
 
 def generate_character_sheets(client, manifest: dict, output_dir: Path, force: bool = False):
-    """Generate character reference sheets for all characters in the manifest."""
+    """Generate character reference sheets for all characters in the manifest.
+
+    v2: Includes personality_traits in the prompt and STRONGLY emphasizes
+    neutral facial expressions (critical for downstream expression generation).
+    """
     characters_dir = output_dir / "characters"
     characters_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +199,7 @@ def generate_character_sheets(client, manifest: dict, output_dir: Path, force: b
     total = len(manifest["characters"])
 
     print(f"\n{'='*60}")
-    print(f"  Phase: Character Reference Sheets")
+    print(f"  Phase: Character Reference Sheets (v2)")
     print(f"  Characters: {total}")
     print(f"  Style: {style}")
     print(f"  Output: {characters_dir}")
@@ -169,16 +215,21 @@ def generate_character_sheets(client, manifest: dict, output_dir: Path, force: b
 
         print(f"[{i}/{total}] Generating reference sheet for {char['name']}...")
 
+        # Build personality context
+        personality = char.get("personality_traits", "")
+        personality_line = f"\nPersonality: {personality}" if personality else ""
+
         prompt = f"""Create a professional character reference sheet for the following character.
 
-Character: {char['identity_spec']}
+Character: {char['identity_spec']}{personality_line}
 
 Layout:
 - Top row: four full-body standing views (front, left 3/4 view, right side profile, back view)
 - Bottom row: three face close-up portraits (front, left 3/4 angle, right side profile)
 
-Requirements:
+CRITICAL REQUIREMENTS:
 - CONSISTENT identity across ALL seven views — same face, same body, same outfit
+- NEUTRAL facial expression in ALL views — no smiling, no frowning, no strong emotion. The character must have a calm, resting face. This is essential because these reference sheets will be used to generate different emotional expressions later.
 - Clean white/neutral background
 - Even studio lighting
 - Style: {style}
@@ -206,16 +257,21 @@ Requirements:
 # ─── Phase: Scenes ────────────────────────────────────────────────────────────
 
 def generate_scenes(client, manifest: dict, output_dir: Path, max_refs: int = DEFAULT_MAX_REFS, force: bool = False):
-    """Generate scene illustrations with smart per-scene reference selection."""
+    """Generate scene illustrations with smart per-scene reference selection.
+
+    v2: Supports both v1 and v2 manifests. For v2, generates one representative
+    image per scene (the first shot) since ComfyUI handles per-shot generation.
+    """
     scenes_dir = output_dir / "scenes"
     scenes_dir.mkdir(parents=True, exist_ok=True)
     characters_dir = output_dir / "characters"
 
     style = manifest["style"]
-    total = len(manifest["scenes"])
+    version = detect_manifest_version(manifest)
+    total = len(manifest.get("scenes", []))
 
     print(f"\n{'='*60}")
-    print(f"  Phase: Scene Illustration")
+    print(f"  Phase: Scene Illustration (v2, manifest={version})")
     print(f"  Scenes: {total}")
     print(f"  Max references per scene: {max_refs}")
     print(f"  Style: {style}")
@@ -233,8 +289,6 @@ def generate_scenes(client, manifest: dict, output_dir: Path, max_refs: int = DE
         print(f"[Scene {scene_num}/{total}] \"{scene['title']}\"")
 
         # ── Smart Reference Selection ──
-        # Only load reference sheets for characters present in THIS scene
-        # Respect the max_refs limit
         reference_parts = []
         ref_chars = []
         for char_id in scene["characters_present"]:
@@ -251,22 +305,40 @@ def generate_scenes(client, manifest: dict, output_dir: Path, max_refs: int = DE
         print(f"  References attached: {ref_chars} ({len(reference_parts)} images)")
 
         # ── Build Identity Block ──
+        # v2: use "mood" instead of "emotion", include facial expressions from shots
+        mood = scene.get("mood", scene.get("emotion", "neutral mood"))
         identity_lines = []
         for char_id in scene["characters_present"]:
             char = find_character(manifest, char_id)
             if char:
                 marker = "📎" if char_id in ref_chars else "📝"
-                identity_lines.append(f"- {char['name']}: {char['identity_spec']} {marker}")
+                personality = char.get("personality_traits", "")
+                personality_suffix = f" | Traits: {personality}" if personality else ""
+                identity_lines.append(f"- {char['name']}: {char['identity_spec']}{personality_suffix} {marker}")
 
         # ── Build Scene Prompt ──
+        # For v2 manifests, include shot-level expression info in the prompt
+        # to guide the single representative image for this scene
+        shot_expressions = ""
+        if version == "v2" and scene.get("shots"):
+            # Summarize key expressions from shots for the representative image
+            expr_parts = []
+            for shot in scene["shots"][:3]:  # Use first 3 shots for expression summary
+                for cid, expr in shot.get("facial_expression", {}).items():
+                    char = find_character(manifest, cid)
+                    name = char["name"] if char else cid
+                    expr_parts.append(f"- {name}: {expr}")
+            if expr_parts:
+                shot_expressions = f"\nKey expressions for this scene:\n" + "\n".join(expr_parts)
+
         prompt_text = f"""Characters in this scene (match EXACTLY to the reference images provided):
 {chr(10).join(identity_lines)}
 
 Scene setting: {scene['setting']}
 Action: {scene['action']}
-Mood/emotion: {scene['emotion']}
-Camera framing: {scene['camera']}
-Art style: {style}
+Mood: {mood}
+Camera: {scene.get('camera', 'medium shot')}
+Art style: {style}{shot_expressions}
 
 IMPORTANT: Maintain exact character identity from the provided reference images.
 Each character must look identical to their reference sheet — same face, same body, same outfit."""
@@ -296,7 +368,7 @@ Each character must look identical to their reference sheet — same face, same 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate story assets (character sheets + scene images) via Gemini API",
+        description="Generate story assets (character sheets + scene images) via Gemini API (v2 manifest support)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -335,13 +407,18 @@ Examples:
     print(f"\n📖 Story: {manifest.get('display_title', manifest['title'])}")
     print(f"🎨 Style: {manifest['style']}")
     print(f"👥 Characters: {len(manifest['characters'])}")
-    print(f"🎬 Scenes: {len(manifest['scenes'])}")
+    print(f"🎬 Scenes: {len(manifest.get('scenes', []))}")
+
+    version = detect_manifest_version(manifest)
+    if version == "v2":
+        total_shots = sum(len(s.get("shots", [])) for s in manifest.get("scenes", []))
+        print(f"📸 Total shots: {total_shots} (budget: {manifest.get('total_shots_budget', '?')})")
+
     print(f"📁 Output: {output_dir}")
 
     # Ensure output directories exist
     (output_dir / "characters").mkdir(parents=True, exist_ok=True)
     (output_dir / "scenes").mkdir(parents=True, exist_ok=True)
-    (output_dir / "videos").mkdir(parents=True, exist_ok=True)
 
     # Run requested phase(s)
     if args.phase in ("characters", "all"):

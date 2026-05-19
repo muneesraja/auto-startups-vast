@@ -123,6 +123,28 @@ Common execution error:
 - **Prompt queue**: instant
 - **Polling**: 5-second intervals recommended
 
+## Vision Evaluation Pattern (Gemini 2.5 Flash)
+
+After generating a scene, evaluate it against the expected description using Gemini 2.5 Flash via direct REST API (not the CLI). See `references/evaluate-loop-design.md` for full design.
+
+```bash
+# Evaluate a single scene
+python3 evaluate_scene.py \
+  --manifest story_manifest.json \
+  --scene 1 \
+  --image scenes/scene_001_iter1.png \
+  --iteration 1 \
+  --output-dir ./feedback
+
+# Evaluate all scenes (finds images automatically)
+python3 evaluate_scene.py \
+  --manifest story_manifest.json \
+  --all \
+  --scenes-dir ./scenes
+```
+
+Requires `GEMINI_API_KEY` env var. The script uses `urllib` (not the broken Gemini CLI) to call the Google Generative Language API directly with JSON response mode.
+
 ## Manifest-Driven Usage
 
 ```bash
