@@ -261,7 +261,7 @@ Do **not** increase prompt length beyond 350 words to fix expression issues. Ins
 ## ComfyUI-Specific Notes
 
 - **4-step Lightning workflow**: Fast (~20-30 sec) but fewer inference steps = less prompt adherence for subtle expressions. Make expressions explicit.
-- **Resolution**: Default 1024×1024. Qwen Image Edit handles this well but expressions are more visible at closer camera angles.
+- **Resolution**: Default 1280×720 (16:9). Qwen Image Edit handles this well; the wider aspect ratio is optimized for video output. Expressions are more visible at closer camera angles.
 - **Seed**: Set seed for reproducibility. Same seed + same prompt = same output. Useful for debugging expression issues.
 - **Batch generation**: Currently sequential (one scene at a time). No batch API exposed yet.
 

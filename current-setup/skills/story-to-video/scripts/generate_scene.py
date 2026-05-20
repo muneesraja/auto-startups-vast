@@ -215,19 +215,19 @@ def build_workflow(image1, image2, image3, prompt_text, seed=42, filename_prefix
         "175": {"class_type": "LoadImage", "inputs": {"image": image2}},
         "182": {"class_type": "LoadImage", "inputs": {"image": image3}},
         "200": {"class_type": "ImageResizeKJv2", "inputs": {
-            "image": ["213", 0], "mask": ["213", 1], "width": 1024, "height": 1024,
+            "image": ["213", 0], "mask": ["213", 1], "width": 1280, "height": 720,
             "upscale_method": "lanczos", "keep_proportion": "total_pixels",
             "pad_color": "0, 0, 0", "crop_position": "center", "divisible_by": 32, "device": "cpu"}},
         "201": {"class_type": "ImageResizeKJv2", "inputs": {
-            "image": ["175", 0], "width": 1024, "height": 1024,
+            "image": ["175", 0], "width": 1280, "height": 720,
             "upscale_method": "lanczos", "keep_proportion": "total_pixels",
             "pad_color": "0, 0, 0", "crop_position": "center", "divisible_by": 32, "device": "cpu"}},
         "202": {"class_type": "ImageResizeKJv2", "inputs": {
-            "image": ["182", 0], "width": 1024, "height": 1024,
+            "image": ["182", 0], "width": 1280, "height": 720,
             "upscale_method": "lanczos", "keep_proportion": "total_pixels",
             "pad_color": "0, 0, 0", "crop_position": "center", "divisible_by": 32, "device": "cpu"}},
         "176": {"class_type": "EmptySD3LatentImage", "inputs": {
-            "width": 1024, "height": 1024, "batch_size": 1}},
+            "width": 1280, "height": 720, "batch_size": 1}},
         "154": {"class_type": "TextEncodeQwenImageEditPlus", "inputs": {
             "clip": ["38", 0], "prompt": prompt_text,
             "image1": ["200", 0], "image2": ["201", 0], "image3": ["202", 0]}},

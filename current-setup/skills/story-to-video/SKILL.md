@@ -39,7 +39,7 @@ Phase 1: Upload refs to ComfyUI + verify
 Phase 2: Generate scene images (ComfyUI Qwen Image Edit 2511)
                           (+ smart per-scene character refs)
                                         ↓
-                            Scene still images (1024×1024)
+                            Scene still images (1280×720)
                                         ↓
 Phase 2.5: Evaluate & refine (Gemini 2.5 Flash vision, optional)
                                         ↓
@@ -428,7 +428,7 @@ The complete working API workflow is in `assets/workflow-api-template.json`. Key
 | 154, 153 | TextEncodeQwenImageEditPlus | `prompt` = scene prompt |
 | 3 | KSampler | `seed`, `steps`, `denoise` |
 | 214 | SaveImage | `filename_prefix` |
-| 200, 201, 202 | ImageResizeKJv2 | `width`, `height` if not 1024×1024 |
+| 200, 201, 202 | ImageResizeKJv2 | `width`, `height` if not 1280×720 |
 
 ## Improvements Roadmap
 
