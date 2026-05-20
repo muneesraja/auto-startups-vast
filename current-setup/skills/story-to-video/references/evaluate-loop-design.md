@@ -273,53 +273,35 @@ When `facial_expression` is flagged as an issue:
 - Log: character_sheet_expression_warning true, character_id, observed_expression
 - Approval gate (Phase 0B) catches this before scene generation starts
 
-## Vision Model: Gemini 2.5 Flash (Direct API)
+## Vision Model Providers
+
+### Gemini 2.5 Flash (Default)
 
 **Why this model:**
 - Free tier, reliable, good at detailed image analysis with JSON mode
-- `qwen3-coder-next:cloud` does NOT support vision (returns 400 "this model does not support image input")
-- MiniMax MCP vision tool has auth issues (subscription being dropped)
 - `gemini-3.1-pro` exhausts free tier quota quickly (429 after a few calls)
-- Gemini CLI (`gemini` npm package) has broken `ripGrep.js` dependency on our VPS — use direct REST API instead
 
-**API call pattern (Python urllib, not Gemini CLI):**
-
+**API call pattern:**
 ```python
-import json, urllib.request, base64, os
-
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-
-def call_gemini_vision(prompt_text, image_path, api_key):
-    with open(image_path, "rb") as f:
-        img_b64 = base64.b64encode(f.read()).decode()
-
-    ext = os.path.splitext(image_path)[1].lower()
-    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
-
-    payload = {
-        "contents": [{"parts": [
-            {"text": prompt_text},
-            {"inline_data": {"mime_type": mime_map.get(ext, "image/png"), "data": img_b64}}
-        ]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",  # forces structured JSON output
-            "temperature": 0.2  # consistent scoring
-        }
-    }
-
-    url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.loads(resp.read().decode())
-        for candidate in data["candidates"]:
-            for part in candidate["content"]["parts"]:
-                if "text" in part:
-                    return part["text"]
+# Uses urllib.request, responseMimeType: "application/json"
 ```
 
-**Key pitfalls:**
-- `GEMINI_API_KEY` is in `~/.bashrc` but NOT auto-exported in subprocess environments. Must `source ~/.bashrc` first or pass `--api-key` flag to `evaluate_scene.py`.
-- Rate limiting: Free tier has req/min and token/day limits. Script retries on 429 with backoff (2 retries, 3s delay).
-- **Never use the Gemini CLI (`gemini` npm package)** on our VPS — it has a broken `ripGrep.js` dependency. Use the direct REST API pattern above.
+### Evaluation Provider (Gemini Only)
+
+**Model:** `gemini-2.5-flash`
+**API call pattern:**
+```python
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+# Direct REST API, JSON mode, temperature 0.2
+```
+
+**Usage:**
+```bash
+python3 generate_scene.py --manifest story_manifest.json --all --evaluate
+```
+
+**Key pitfall:**
+- `GEMINI_API_KEY` must be in `.env` file

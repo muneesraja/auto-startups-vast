@@ -475,18 +475,11 @@ The complete working API workflow is in `assets/workflow-api-template.json`. Key
 - [ ] **FFmpeg assembly**: Auto-stitch clips with transitions and audio
 - [ ] **Voiceover**: TTS narration per scene synced to video length
 
-## Vision Evaluation Model: Gemini 2.5 Flash
+## Vision Evaluation Model
 
-**Provider:** Google AI Studio (free tier) — `gemini-2.5-flash`
-**Why not other options:**
-- `qwen3-coder-next:cloud` — does NOT support vision (returns 400 "this model does not support image input")
-- `MiniMax MCP vision` — auth broken in our setup, and we're dropping the subscription
-- `gemini-3.1-pro` — rate limited (daily quota exhausted quickly)
-- `gemini-2.5-flash` — works reliably, free tier, JSON response mode, good at detailed image analysis
+**Provider:** Google AI Studio — `gemini-2.5-flash`
 
-**API:** Direct Google Generative Language API via `urllib` (not the Gemini CLI — CLI has broken `ripGrep.js` dependency and needs `--yolo` + JSON flags). The `evaluate_scene.py` script uses `urllib.request` to call the REST API directly.
-
-**Key pitfall:** `GEMINI_API_KEY` is set in `~/.bashrc` but NOT auto-exported in subprocess calls. The script reads it from `os.environ` — must either `source ~/.bashrc` first or pass `--api-key` flag.
+**API:** Direct REST API call via `urllib.request` to Google Generative Language API. `GEMINI_API_KEY` must be set in `.env` file.
 
 **Key pitfall:** When comparing skill dirs across repo vs Hermes, remember they are symlinks (see Repository Symlink section). Files appear in both paths but are the same physical files.
 
@@ -509,14 +502,14 @@ GENERATE ──▶ EVALUATE ──▶ PASS?
 ### CLI
 
 ```bash
-# Full pipeline with evaluation loop
+# Full pipeline with evaluation loop (Gemini)
 python3 generate_scene.py --manifest story_manifest.json --all --evaluate --max-iterations 3
 
-# Without evaluation (single-shot, current behavior)
+# Without evaluation (single-shot)
 python3 generate_scene.py --manifest story_manifest.json --all
 
-# Evaluate only (on existing images)
-python3 evaluate_scene.py --manifest story_manifest.json --scene 1 --image scenes/scene_001_iter1.png
+# Evaluate only on existing images
+python3 generate_scene.py --manifest story_manifest.json --evaluate-only --scene 1 --shot 1
 ```
 
 ### v2 Script Notes

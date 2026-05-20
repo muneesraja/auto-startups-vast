@@ -33,8 +33,10 @@ import time
 import urllib.request
 import urllib.error
 
+from expression_engine import expand_expression, expand_expressions_for_shot
+
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_BASE_URL = "https://mandi-qwen.muneesraja.com"
+DEFAULT_BASE_URL = "https://comfy-instance_mandi-qwen.muneesraja.com"
 DEFAULT_OUTPUT_DIR = "/root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video"
 MAX_ITERATIONS_DEFAULT = 3
 GEMINI_MODEL = "gemini-2.5-flash"
@@ -321,8 +323,9 @@ def load_manifest(manifest_path):
                 char_expr_map = {}
                 for cid, expr in shot_expressions.items():
                     name = char_names.get(cid, cid)
-                    expr_lines.append(f"- {name}: {expr}")
-                    char_expr_map[cid] = expr
+                    expanded_expr = expand_expression(expr)
+                    expr_lines.append(f"- {name}: {expanded_expr}")
+                    char_expr_map[cid] = expanded_expr
 
                 prompt_parts = ["Characters in this scene must match the provided reference images exactly:"]
                 prompt_parts.extend(char_descriptions)
@@ -334,9 +337,9 @@ def load_manifest(manifest_path):
 
                 prompt_parts.extend([
                     "",
-                    f"Scene setting: {setting}.",
-                    f"Action: {shot_action}.",
                     f"Mood: {mood}.",
+                    f"Action: {shot_action}.",
+                    f"Scene setting: {setting}.",
                     f"Camera: {shot_camera}.",
                     f"Style: {style}.",
                 ])
@@ -486,7 +489,7 @@ def call_gemini_vision(prompt_text, image_path, api_key, model=GEMINI_MODEL):
         except Exception as e:
             return json.dumps({"error": f"Gemini error: {str(e)}"})
 
-    return json.dumps({"error": "Max retries exceeded"})
+return json.dumps({"error": "Max retries exceeded"})
 
 
 def compute_weighted_score(category_scores, version="v2"):
@@ -629,8 +632,9 @@ def build_scene_eval_context(manifest, scene_data, scene_num, shot_num=None, ver
 
         for cid, expr in expr_map.items():
             name = char_names.get(cid, cid)
-            char_expressions[cid] = expr
-            expression_lines.append(f"- {name} expected expression: {expr}")
+            expanded = expand_expression(expr)
+            char_expressions[cid] = expanded
+            expression_lines.append(f"- {name} expected expression: {expanded}")
 
     # Build expected description
     setting = scene_data.get("setting", "")
@@ -681,17 +685,42 @@ def parse_eval_response(response_text, version="v2"):
         text = re.sub(r'^```(?:json)?\s*\n?', '', text)
         text = re.sub(r'\n?```\s*$', '', text)
 
+    # Remove control characters that break JSON parsing
+    # (Gemini sometimes includes literal newlines/tabs inside string values)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', ' ', text)
+
     try:
-        result = json.loads(text)
+        result = json.loads(text, strict=False)
     except json.JSONDecodeError:
-        # Try extracting JSON from within text
+        # Try extracting the first valid JSON object from within text
         match = re.search(r'\{[\s\S]+\}', text)
         if match:
+            candidate = match.group()
             try:
-                result = json.loads(match.group())
+                result = json.loads(candidate, strict=False)
             except json.JSONDecodeError:
-                print(f"   ⚠️ Could not parse eval response as JSON")
-                return None
+                # Try progressively shorter matches (greedy → first { to last })
+                # Find balanced braces
+                depth = 0
+                start = text.find('{')
+                if start != -1:
+                    for i in range(start, len(text)):
+                        if text[i] == '{':
+                            depth += 1
+                        elif text[i] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                try:
+                                    result = json.loads(text[start:i+1], strict=False)
+                                    break
+                                except json.JSONDecodeError:
+                                    continue
+                    else:
+                        print(f"   ⚠️ Could not parse eval response as JSON")
+                        return None
+                else:
+                    print(f"   ⚠️ No JSON found in eval response")
+                    return None
         else:
             print(f"   ⚠️ No JSON found in eval response")
             return None
@@ -719,7 +748,7 @@ def parse_eval_response(response_text, version="v2"):
 
 
 def evaluate_with_gemini(image_path, scene_info, api_key, version="v2"):
-    """Evaluate a generated scene image using Gemini Vision.
+    """Evaluate a generated scene image using Gemini 2.5 Flash.
 
     Args:
         image_path: Path to the generated image
@@ -910,11 +939,19 @@ def main():
                         help="Gemini API key (or set GEMINI_API_KEY env var)")
     parser.add_argument("--cleanup-iters", action="store_true",
                         help="Remove intermediate iteration images (keep only final)")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip shots that already have a _final.png file")
+    parser.add_argument("--auto-refine", action="store_true",
+                        help="With --evaluate-only, auto-regenerate failed shots using eval refined_prompt")
 
     args = parser.parse_args()
     base_url = args.url
     output_dir = args.output_dir
     scenes_dir = os.path.join(output_dir, "scenes")
+
+    # Load API key
+    if not args.api_key or args.api_key == "":
+        args.api_key = os.environ.get("GEMINI_API_KEY", "")
 
     os.makedirs(scenes_dir, exist_ok=True)
 
@@ -930,17 +967,31 @@ def main():
         manifest = json.load(open(args.manifest))
         version = detect_manifest_version(manifest)
 
-        # Find the most recent image in scenes_dir
-        images = sorted(
-            [os.path.join(scenes_dir, f) for f in os.listdir(scenes_dir)
-             if f.endswith(('.png', '.jpg', '.jpeg', '.webp'))],
-            key=lambda p: os.path.getmtime(p), reverse=True
-        )
-        if not images:
-            print("❌ No images found in scenes directory")
-            sys.exit(1)
+        # Find image for specified scene/shot, or most recent
+        if args.scene and args.shot:
+            target = f"scene_{args.scene:03d}_shot{args.shot:03d}_final.png"
+            image_path = os.path.join(scenes_dir, target)
+            if not os.path.exists(image_path):
+                # Try iter1 as fallback
+                target = f"scene_{args.scene:03d}_shot{args.shot:03d}_00001_.png"
+                image_path = os.path.join(scenes_dir, target)
+        elif args.scene:
+            # Find first matching scene image
+            pattern = f"scene_{args.scene:03d}_"
+            matches = [f for f in os.listdir(scenes_dir) if f.startswith(pattern) and f.endswith(("_final.png", "_00001_.png"))]
+            image_path = os.path.join(scenes_dir, sorted(matches)[0]) if matches else None
+        else:
+            # Most recent image
+            images = sorted(
+                [os.path.join(scenes_dir, f) for f in os.listdir(scenes_dir)
+                 if f.endswith(('.png', '.jpg', '.jpeg', '.webp'))],
+                key=lambda p: os.path.getmtime(p), reverse=True
+            )
+            image_path = images[0] if images else None
 
-        image_path = images[0]
+        if not image_path or not os.path.exists(image_path):
+            print(f"❌ No image found for scene {args.scene} shot {args.shot}")
+            sys.exit(1)
         print(f"🔍 Evaluating: {image_path}")
 
         if args.scene:
@@ -956,6 +1007,90 @@ def main():
         result = evaluate_with_gemini(image_path, scene_info, args.api_key, version)
         if result:
             print(f"\n📊 Final Score: {result.get('score', 0):.1f}/10 | {'✅ PASS' if result.get('passed') else '❌ FAIL'}")
+
+            # Auto-refine: if failed and refined_prompt available, regenerate and re-eval
+            if args.auto_refine and not result.get('passed') and result.get('refined_prompt'):
+                if not args.scene:
+                    print("   ⚠️ --auto-refine requires --scene and --shot for regeneration")
+                    return
+
+                print(f"\n🔄 Auto-refine: Using eval's refined prompt...")
+                refined_prompt = result['refined_prompt']
+                print(f"   Refined prompt preview: {refined_prompt[:150]}...")
+
+                # Load manifest and discover images for generation
+                title_refine, scenes_refine, ver_refine = load_manifest(args.manifest)
+                scene_data_refine = scenes_refine.get(args.scene)
+                if not scene_data_refine:
+                    print(f"   ❌ Scene {args.scene} not found for auto-refine")
+                    return
+
+                available = get_available_images(base_url)
+                ref_images_refine = {}
+                manifest_refine = json.load(open(args.manifest))
+                for c in manifest_refine.get("characters", []):
+                    if "reference_image" in c:
+                        ref_images_refine[c["id"]] = c["reference_image"]
+
+                # Generate with refined prompt (offset seed to avoid same output)
+                shot_data = {**scene_data_refine, "prompt": refined_prompt}
+                filename_prefix = f"scene_{args.scene:03d}_shot{args.shot:03d}" if args.shot else f"scene_{args.scene:03d}"
+                refine_seed = args.seed + 100  # Offset seed for variation
+
+                new_path = generate_scene(
+                    args.scene, shot_data, base_url, scenes_dir,
+                    available, ref_images_refine, DEFAULT_FALLBACKS,
+                    seed=refine_seed, filename_prefix=f"{filename_prefix}_refined"
+                )
+
+                if not new_path:
+                    print(f"   ❌ Refined generation failed")
+                    return
+
+                # Re-evaluate the refined image
+                print(f"   🔍 Re-evaluating refined image...")
+                new_result = evaluate_with_gemini(new_path, scene_info, args.api_key, version)
+
+                if new_result:
+                    new_score = new_result.get('score', 0)
+                    old_score = result.get('score', 0)
+                    print(f"\n📊 Comparison: Original {old_score:.1f} → Refined {new_score:.1f}")
+
+                    if new_score > old_score:
+                        # Use refined version — copy to _final.png
+                        final_path = os.path.join(scenes_dir, f"{filename_prefix}_final.png")
+                        shutil.copy2(new_path, final_path)
+                        print(f"   ✅ Refined version better! Copied to {final_path}")
+                    else:
+                        print(f"   ❌ Original was better, keeping it")
+
+                    # Second auto-refine iteration if still failing
+                    if not new_result.get('passed') and new_result.get('refined_prompt'):
+                        print(f"\n🔄 Auto-refine iteration 2...")
+                        refined_prompt_2 = new_result['refined_prompt']
+
+                        shot_data_2 = {**scene_data_refine, "prompt": refined_prompt_2}
+                        new_path_2 = generate_scene(
+                            args.scene, shot_data_2, base_url, scenes_dir,
+                            available, ref_images_refine, DEFAULT_FALLBACKS,
+                            seed=refine_seed + 100, filename_prefix=f"{filename_prefix}_refined2"
+                        )
+
+                        if new_path_2:
+                            print(f"   🔍 Re-evaluating refined image (iteration 2)...")
+                            new_result_2 = evaluate_with_gemini(new_path_2, scene_info, args.api_key, version)
+                            if new_result_2:
+                                s2 = new_result_2.get('score', 0)
+                                best_prev = max(old_score, new_score)
+                                print(f"   📊 Iteration 2 score: {s2:.1f} (previous best: {best_prev:.1f})")
+                                if s2 > best_prev:
+                                    final_path = os.path.join(scenes_dir, f"{filename_prefix}_final.png")
+                                    shutil.copy2(new_path_2, final_path)
+                                    print(f"   ✅ Iteration 2 is best! Updated {final_path}")
+                                else:
+                                    print(f"   ❌ Previous version still better")
+                else:
+                    print(f"   ❌ Refined evaluation returned no result")
         return
 
     # ── Generation mode ──
@@ -990,6 +1125,15 @@ def main():
                 # v2: generate each shot
                 for shot in scene_data["shots"]:
                     shot_num = shot["shot_number"]
+
+                    # Skip if final already exists
+                    if args.skip_existing:
+                        expected_path = os.path.join(scenes_dir, f"scene_{scene_num:03d}_shot{shot_num:03d}_final.png")
+                        if os.path.exists(expected_path):
+                            print(f"\n🎬 Scene {scene_num}, Shot {shot_num}: ⏭️  Skipping (final exists)")
+                            results[(scene_num, shot_num)] = {"path": expected_path, "iterations": 0, "passed": None, "skipped": True}
+                            continue
+
                     print(f"\n🎬 Scene {scene_num}, Shot {shot_num}: {scene_data.get('title', '')}")
 
                     if args.evaluate:
@@ -1012,6 +1156,13 @@ def main():
                     results[(scene_num, shot_num)] = result
             else:
                 # v1: single generation per scene
+                if args.skip_existing:
+                    expected_path = os.path.join(scenes_dir, f"scene_{scene_num:03d}_final.png")
+                    if os.path.exists(expected_path):
+                        print(f"\n🎬 Scene {scene_num}: ⏭️  Skipping (final exists)")
+                        results[(scene_num, None)] = {"path": expected_path, "iterations": 0, "passed": None, "skipped": True}
+                        continue
+
                 print(f"\n🎬 Scene {scene_num}: {scene_data.get('title', '')}")
 
                 if args.evaluate:
@@ -1034,15 +1185,23 @@ def main():
         print(f"\n{'='*60}")
         print(f"  Generation Summary: {title}")
         print(f"{'='*60}")
+        skipped = 0
         for key, result in results.items():
             scene_num, shot_num = key
             label = f"Scene {scene_num}" + (f", Shot {shot_num}" if shot_num else "")
             if result:
-                status = "✅" if result.get("passed") else ("⚠️" if result.get("path") else "❌")
+                if result.get("skipped"):
+                    status = "⏭️"
+                    skipped += 1
+                else:
+                    status = "✅" if result.get("passed") else ("⚠️" if result.get("path") else "❌")
                 score = f" (score: {result.get('final_score', '?')})" if result.get("final_score") else ""
                 print(f"  {label}: {status}{score} — {result.get('path', 'N/A')}")
             else:
                 print(f"  {label}: ❌ Failed")
+        total = len(results)
+        if skipped:
+            print(f"\n  ⏭️  {skipped}/{total} skipped (--skip-existing)")
 
     elif args.scene:
         # Generate a specific scene
