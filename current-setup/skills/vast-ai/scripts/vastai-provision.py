@@ -14,8 +14,9 @@ Options:
   --auto        Auto-select best offer without prompting
   --dry-run     Search and show offers without provisioning
   --max-price   Override max $/hr (default from GPU profile)
-  --monitor     Monitor instance after provisioning (default: true)
+    --monitor     Monitor instance after provisioning (default: true)
   --timeout     Max seconds to wait for instance to become running (default: 600)
+  --ssh-key     Path to SSH private key (default: auto-detect from ~/.ssh)
 """
 
 import argparse
@@ -36,6 +37,9 @@ from vastai import VastAI
 
 # Optional: enable SDK request/response tracing
 SDK_EXPLAIN = os.environ.get("VAST_SDK_EXPLAIN", "").lower() in ("1", "true", "yes")
+
+# Module-level SSH key path — set by detect_ssh_key() at startup
+SSH_KEY_PATH: str = ""
 
 
 def _load_dotenv():
@@ -177,6 +181,123 @@ def run_cmd(cmd: str, timeout: int = 30) -> dict:
         return {"stdout": result.stdout.strip(), "stderr": result.stderr.strip(), "code": result.returncode}
     except subprocess.TimeoutExpired:
         return {"stdout": "", "stderr": "Command timed out", "code": -1}
+
+# =============================================================================
+# SSH Key Management
+# =============================================================================
+
+def detect_ssh_key() -> str:
+    """Detect or generate SSH key for Vast.ai.
+
+    Orders:
+    1. Check ~/.ssh/vast_ai_dedicated (our dedicated key)
+    2. Check ~/.ssh/id_ed25519 (default)
+    3. Generate new key if no match found
+
+    Returns validated key path or raises exception.
+    """
+    global SSH_KEY_PATH
+
+    # Dedicated key path
+    dedicated_key = os.path.expanduser("~/.ssh/vast_ai_dedicated")
+    default_key = os.path.expanduser("~/.ssh/id_ed25519")
+
+    # Step 1: Try dedicated key
+    key_to_try = None
+    if os.path.exists(dedicated_key) and os.path.exists(dedicated_key + ".pub"):
+        log("ℹ️", "Found dedicated Vast.ai key at ~/.ssh/vast_ai_dedicated")
+        key_to_try = dedicated_key
+    elif os.path.exists(default_key) and os.path.exists(default_key + ".pub"):
+        log("ℹ️", "Found default SSH key at ~/.ssh/id_ed25519")
+        key_to_try = default_key
+
+    # Get Vast.ai registered keys
+    log("🔍", "Fetching Vast.ai registered SSH keys...")
+    try:
+        ssh_keys_raw = vast.show_ssh_keys(raw=True)
+        registered_keys = ssh_keys_raw.get("ssh_keys", []) if isinstance(ssh_keys_raw, dict) else []
+    except Exception as e:
+        log("⚠️", f"Could not fetch Vast.ai SSH keys: {e} - skipping validation")
+        registered_keys = []
+
+    # Validate key against Vast.ai
+    if key_to_try:
+        log("🔍", f"Checking fingerprint of {key_to_try} against Vast.ai...")
+        fp_result = run_cmd(f"ssh-keygen -y -f {key_to_try} -l", timeout=10)
+        if fp_result["code"] == 0:
+            # Extract fingerprint from output like: "256 SHA256:xxx user@host (ED25519)"
+            fp_match = re.search(r"SHA256:[A-Za-z0-9+/]+", fp_result["stdout"])
+            if fp_match:
+                key_fp = fp_match.group(0)
+                # Check if this fingerprint is registered
+                for key_info in registered_keys:
+                    if isinstance(key_info, dict) and key_info.get("fingerprint", "") == key_fp:
+                        log("✅", f"SSH key {key_to_try} matched Vast.ai registered key")
+                        SSH_KEY_PATH = key_to_try
+                        return key_to_try
+                log("⚠️", f"Key fingerprint {key_fp} not found in Vast.ai registered keys - will generate new key")
+
+    # Step 2: Generate new dedicated key if no match
+    log("⚠️", "No matching SSH key found - generating new dedicated key for Vast.ai")
+    log("⚠️", "IMPORTANT: OLD instances will NOT have this key - manual setup required")
+
+    # Create SSH directory if needed
+    ssh_dir = os.path.expanduser("~/.ssh")
+    os.makedirs(ssh_dir, exist_ok=True)
+
+    # Generate key
+    gen_result = run_cmd(
+        "ssh-keygen -t ed25519 -f ~/.ssh/vast_ai_dedicated -N '' -C 'aurora-vast-dedicated'",
+        timeout=30
+    )
+    if gen_result["code"] != 0:
+        raise RuntimeError(f"SSH key generation failed: {gen_result['stderr']}")
+    log("✅", "Generated new SSH key at ~/.ssh/vast_ai_dedicated")
+
+    # Read public key
+    pub_key_path = os.path.expanduser("~/.ssh/vast_ai_dedicated.pub")
+    with open(pub_key_path, "r") as f:
+        pub_key = f.read().strip()
+
+    # Register with Vast.ai
+    log("📋", "Registering new key with Vast.ai...")
+    try:
+        reg_result = vast.create_ssh_key("aurora-vast-dedicated", pub_key)
+        log("✅", f"SSH key registered with Vast.ai: {reg_result}")
+    except Exception as e:
+        log("⚠️", f"Could not register SSH key with Vast.ai: {e}")
+
+    SSH_KEY_PATH = dedicated_key
+    return dedicated_key
+
+
+def setup_ssh_config():
+    """Add SSH config entry for Vast.ai hosts to use dedicated key automatically."""
+    ssh_config_path = os.path.expanduser("~/.ssh/config")
+    os.makedirs(os.path.dirname(ssh_config_path), exist_ok=True)
+
+    # Check if entry already exists
+    if os.path.exists(ssh_config_path):
+        with open(ssh_config_path, "r") as f:
+            existing = f.read()
+        if "Host ssh*.vast.ai" in existing:
+            log("ℹ️", "SSH config entry for ssh*.vast.ai already exists")
+            return
+
+    # Add new entry
+    with open(ssh_config_path, "a") as f:
+        f.write("\n# Vast.ai dedicated SSH key configuration\n")
+        f.write("Host ssh*.vast.ai\n")
+        f.write(f"    IdentityFile {os.path.expanduser('~/.ssh/vast_ai_dedicated')}\n")
+    log("✅", "Added SSH config entry for ssh*.vast.ai hosts")
+
+
+def _build_ssh_cmd(ssh_host: str, ssh_port: str) -> str:
+    """Build SSH command string with key, host key checking disabled, and port."""
+    key_param = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+    return f"ssh {key_param} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
+
+
 
 
 def load_hf_token() -> str:
@@ -1123,6 +1244,8 @@ def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
     2. ComfyUI is responding on port 8188 or 18188
     3. If not, attempt manual fix and retry
     """
+    global SSH_KEY_PATH
+
     log("🏥", f"Running health check on instance {instance_id}...")
 
     # Get SSH URL via SDK
@@ -1143,7 +1266,9 @@ def health_check_instance(instance_id: int, timeout: int = 120) -> bool:
         return False
 
     ssh_host, ssh_port = match.group(1), match.group(2)
-    ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
+    # Use SSH key if available
+    key_param = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+    ssh_cmd = f"ssh {key_param} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {ssh_port} root@{ssh_host}"
     
     # Check 1: Workspace symlink
     log("🔍", "Checking /workspace/ComfyUI...")
@@ -1197,7 +1322,11 @@ def parse_args():
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait for running status")
     parser.add_argument("--verified-only", action="store_true", help="Only show verified hosts (default: prefer unverified/cheaper)")
     parser.add_argument("--no-tunnel", action="store_true", help="Skip Cloudflare named tunnel setup (use quick tunnels only)")
+    parser.add_argument("--vps-tunnel", action="store_true", default=True, help="Run cloudflared from VPS (not container) via SSH port-forward (default: enabled)")
+    parser.add_argument("--no-vps-tunnel", action="store_true", help="Run cloudflared from container (old behavior)")
+    parser.add_argument("--container-tunnel", action="store_true", help="Alias for --no-vps-tunnel (old behavior)")
     parser.add_argument("--show-failed", action="store_true", help="Display failed hosts history and exit")
+    parser.add_argument("--ssh-key", default=None, help="Path to SSH private key (default: auto-detect from ~/.ssh)")
     return parser.parse_args()
 
 
@@ -1240,6 +1369,8 @@ def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
     Polls /workspace/workflow.log every 30s until it sees 'All downloads completed'
     or 'Done!', or until timeout. Returns True if workflow completed successfully.
     """
+    global SSH_KEY_PATH
+
     if not ssh_url or ssh_url == "N/A":
         log("⚠️", "No SSH URL — skipping workflow wait")
         return False
@@ -1254,7 +1385,9 @@ def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
         return False
 
     host, port = match.group(1), match.group(2)
-    ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {port} root@{host}"
+    # Use SSH key if available
+    key_param = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+    ssh_cmd = f"ssh {key_param} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {port} root@{host}"
 
     elapsed = 0
     interval = 30
@@ -1308,8 +1441,213 @@ def wait_for_workflow(ssh_url: str, timeout: int = 600) -> bool:
     return False
 
 
+# =============================================================================]
+# VPS-side Cloudflare Tunnel Setup
+# =============================================================================
+
+# Process tracking for teardown: VPS_TUNNEL_PIDS[label] = {"cloudflared": pid, "ssh": pid}
+VPS_TUNNEL_PIDS: dict = {}
+
+
+def setup_vps_tunnel(label: str, cloudflare_config: dict, instance_ssh_host: str, instance_ssh_port: str) -> Optional[tuple[int, int]]:
+    """Setup VPS-side Cloudflare tunnel relay.
+
+    This script runs ON the VPS. It:
+    1. Establishes local SSH port-forward: VPS:18188 → instance:18188
+    2. Writes cloudflared config locally
+    3. Starts cloudflared locally pointing to localhost:18188
+
+    Returns (cloudflared_pid, ssh_pid) or None on failure.
+    """
+    global SSH_KEY_PATH
+
+    tunnel_id = cloudflare_config.get("tunnel_id", "")
+    hostname = cloudflare_config.get("hostname", f"comfy-{label}.muneesraja.com")
+
+    if not tunnel_id:
+        log("⚠️", "Cannot setup VPS tunnel: missing tunnel_id")
+        return None
+
+    # Step 1: Kill any existing SSH port-forward on port 18188 (stale from previous run)
+    run_cmd("fuser -k 18188/tcp 2>/dev/null || true", timeout=5)
+    time.sleep(1)
+
+    # Step 2: Establish SSH port-forward (local VPS port 18188 → instance port 18188)
+    key_param = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+    ssh_fwd_cmd = (
+        f"ssh {key_param} -fN "
+        f"-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=60 "
+        f"-L 18188:localhost:18188 "
+        f"-p {instance_ssh_port} root@{instance_ssh_host}"
+    )
+    log("🔌", f"Establishing SSH port forward: localhost:18188 → {instance_ssh_host}:18188")
+    result = run_cmd(ssh_fwd_cmd, timeout=30)
+    if result["code"] != 0:
+        log("❌", f"SSH port forward failed: {result['stderr']}")
+        return None
+
+    # Get SSH tunnel PID
+    ssh_pid_result = run_cmd("pgrep -f 'ssh -fN.*-L 18188:localhost:18188' || true", timeout=5)
+    ssh_pid = ssh_pid_result["stdout"].strip().split("\n")[-1] if ssh_pid_result["stdout"].strip() else "unknown"
+    log("✅", f"SSH port forward established (PID: {ssh_pid})")
+
+    # Step 1b: Kill Vast.ai quick tunnels inside container (Improvement 3)
+    # When using VPS-side tunnel, container-side cloudflared is not needed and may conflict
+    key_param = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+    ssh_to_instance = f"ssh {key_param} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p {instance_ssh_port} root@{instance_ssh_host}"
+    kill_result = run_cmd(f'{ssh_to_instance} "pkill -f \'cloudflared tunnel\' 2>/dev/null || true; supervisorctl stop tunnel_manager 2>/dev/null || true"', timeout=15)
+    if kill_result["code"] == 0:
+        log("🧹", "Killed container-side cloudflared processes (using VPS-side tunnel instead)")
+
+    # Step 3: Verify the port-forward works (ComfyUI reachable locally)
+    time.sleep(2)
+    check = run_cmd("curl -s -o /dev/null -w '%{http_code}' http://localhost:18188/system_stats 2>/dev/null", timeout=10)
+    if "200" not in check["stdout"]:
+        log("⚠️", f"ComfyUI not reachable via port-forward (HTTP {check['stdout']}) — tunnel may still work once cloudflared connects")
+
+    # Step 4: Write cloudflared config locally on this VPS
+    config_dir = f"/tmp/cf-config-{label}"
+    config_file = f"{config_dir}/config.yml"
+    credentials_file = f"/root/.cloudflared/{tunnel_id}.json"
+
+    if not os.path.exists(credentials_file):
+        log("⚠️", f"Tunnel credentials not found at {credentials_file} — tunnel will fail")
+        return None
+
+    os.makedirs(config_dir, exist_ok=True)
+    config_content = f"""tunnel: {tunnel_id}
+credentials-file: {credentials_file}
+
+ingress:
+  - hostname: {hostname}
+    service: http://localhost:18188
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+"""
+    with open(config_file, "w") as f:
+        f.write(config_content)
+    log("📝", f"Cloudflared config written to {config_file}")
+
+    # Step 5: Start cloudflared locally on this VPS in background
+    log_file = f"/tmp/cf-{label}.log"
+    cf_cmd = f"nohup /usr/bin/cloudflared tunnel --no-tls-verify --config {config_file} run {tunnel_id} > {log_file} 2>&1 &"
+    log("🌐", "Starting cloudflared on VPS")
+    run_cmd(cf_cmd, timeout=10)
+
+    time.sleep(5)  # Wait for cloudflared to connect
+
+    # Get cloudflared PID
+    cf_pid_result = run_cmd(f"pgrep -f 'cloudflared tunnel.*--config.*{config_file}' || true", timeout=5)
+    cf_pid = cf_pid_result["stdout"].strip().split("\n")[-1] if cf_pid_result["stdout"].strip() else "unknown"
+
+    if cf_pid != "unknown":
+        log("✅", f"cloudflared running on VPS (PID: {cf_pid})")
+    else:
+        # Check log for errors
+        log_result = run_cmd(f"tail -5 {log_file} 2>/dev/null || true", timeout=5)
+        if log_result["stdout"].strip():
+            log("⚠️", f"cloudflared log: {log_result['stdout'][:300]}")
+        log("⚠️", "Could not verify cloudflared PID — tunnel may still be functional")
+
+    # Store PIDs for teardown
+    VPS_TUNNEL_PIDS[label] = {
+        "cloudflared": cf_pid,
+        "ssh": ssh_pid,
+        "config_dir": config_dir,
+        "log_file": log_file,
+    }
+
+    return (int(cf_pid) if cf_pid != "unknown" else -1, int(ssh_pid) if ssh_pid != "unknown" else -1)
+
+
+def verify_tunnel(hostname: str, timeout: int = 30) -> bool:
+    """Verify Cloudflare tunnel is accessible from the outside.
+
+    Curls the hostname and checks for HTTP 200.
+    Returns True if tunnel is working.
+    """
+    log("🔍", f"Verifying tunnel accessibility: https://{hostname}")
+    start = time.time()
+    while time.time() - start < timeout:
+        result = run_cmd(
+            f"curl -s -o /dev/null -w '%{{http_code}}' https://{hostname}/system_stats 2>/dev/null",
+            timeout=10
+        )
+        if "200" in result["stdout"]:
+            log("✅", f"Tunnel verified: https://{hostname} is accessible!")
+            return True
+        time.sleep(5)
+
+    log("⚠️", f"Tunnel not accessible after {timeout}s — may need manual check")
+    return False
+
+
+def teardown_vps_tunnel(label: str) -> None:
+    """Clean up VPS-side tunnel processes for a label.
+
+    Kills both cloudflared and SSH tunnel processes, removes config dir.
+    """
+    if label not in VPS_TUNNEL_PIDS:
+        log("ℹ️", f"No VPS tunnel to tear down for label: {label}")
+        return
+
+    pids = VPS_TUNNEL_PIDS[label]
+    cf_pid = pids.get("cloudflared", "unknown")
+    ssh_pid = pids.get("ssh", "unknown")
+    config_dir = pids.get("config_dir", "")
+    log_file = pids.get("log_file", "")
+
+    log("🧹", f"Cleaning up VPS tunnel for {label}")
+
+    # Kill cloudflared
+    if cf_pid and cf_pid != "unknown":
+        run_cmd(f"kill {cf_pid} 2>/dev/null || true", timeout=5)
+        log("✅", f"Killed cloudflared (PID: {cf_pid})")
+
+    # Kill SSH port-forward
+    if ssh_pid and ssh_pid != "unknown":
+        run_cmd(f"kill {ssh_pid} 2>/dev/null || true", timeout=5)
+        log("✅", f"Killed SSH port forward (PID: {ssh_pid})")
+
+    # Kill any remaining processes on port 18188
+    run_cmd("fuser -k 18188/tcp 2>/dev/null || true", timeout=5)
+
+    # Clean up config directory
+    if config_dir and os.path.exists(config_dir):
+        run_cmd(f"rm -rf {config_dir}", timeout=5)
+
+    # Clean up log file
+    if log_file and os.path.exists(log_file):
+        run_cmd(f"rm -f {log_file}", timeout=5)
+
+    del VPS_TUNNEL_PIDS[label]
+    log("✅", f"VPS tunnel for {label} cleaned up")
+
+
+# =============================================================================]
+# Main
+# =============================================================================
+
 def main():
     args = parse_args()
+
+    # Detect SSH key early (before any provisioning)
+    # Handle --ssh-key override if provided
+    if hasattr(args, 'ssh_key') and args.ssh_key:
+        global SSH_KEY_PATH
+        SSH_KEY_PATH = os.path.expanduser(args.ssh_key)
+        log("ℹ️", f"Using user-provided SSH key: {SSH_KEY_PATH}")
+        if not os.path.exists(SSH_KEY_PATH):
+            raise FileNotFoundError(f"SSH key file not found: {SSH_KEY_PATH}")
+        if not os.path.exists(SSH_KEY_PATH + ".pub"):
+            raise FileNotFoundError(f"SSH public key not found: {SSH_KEY_PATH}.pub")
+    else:
+        # Auto-detect SSH key
+        SSH_KEY_PATH = detect_ssh_key()
+
+    # Ensure SSH config for Vast.ai hosts
+    setup_ssh_config()
 
     # Handle --show-failed flag
     if hasattr(args, 'show_failed') and args.show_failed:
@@ -1514,6 +1852,42 @@ def main():
     except Exception:
         ssh_url = "N/A"
 
+    # Parse SSH host/port from instance URL for VPS tunnel
+    instance_ssh_host = ""
+    instance_ssh_port = ""
+    if ssh_url and ssh_url != "N/A":
+        ssh_match = re.match(r"ssh://root@([^:]+):(\d+)", ssh_url)
+        if ssh_match:
+            instance_ssh_host = ssh_match.group(1)
+            instance_ssh_port = ssh_match.group(2)
+
+    # === VPS-side Cloudflare tunnel (Improvement 2) ===
+    use_vps_tunnel = not getattr(args, "no_vps_tunnel", False) and not getattr(args, "container_tunnel", False)
+    tunnel_verified = False
+
+    if use_vps_tunnel and cloudflare_config and health_ok and instance_ssh_host:
+        log("🌐", "VPS-side tunnel mode: running cloudflared on VPS via SSH port-forward")
+        tunnel_result = setup_vps_tunnel(
+            label=f"instance_{args.label}",
+            cloudflare_config=cloudflare_config,
+            instance_ssh_host=instance_ssh_host,
+            instance_ssh_port=instance_ssh_port,
+        )
+        if tunnel_result:
+            cf_pid, ssh_pid = tunnel_result
+            log("✅", f"VPS tunnel established (cloudflared PID: {cf_pid}, SSH PID: {ssh_pid})")
+            # Verify tunnel accessibility (Improvement 5)
+            cf_hostname = cloudflare_config.get("hostname", "")
+            if cf_hostname:
+                tunnel_verified = verify_tunnel(cf_hostname, timeout=30)
+                if not tunnel_verified:
+                    log("⚠️", "Tunnel not verified — ComfyUI URL may not be accessible yet")
+        else:
+            log("⚠️", "VPS tunnel setup failed — custom domain may not work")
+    elif not use_vps_tunnel and cloudflare_config:
+        log("ℹ️", "Container-side tunnel mode (deprecated) — cloudflared runs inside instance")
+        log("⚠️", "Container-side tunnels are unreliable — use VPS-side tunnel (default) if issues arise")
+
     # === Notification 1: Server Ready (immediate) ===
     print("\n" + "=" * 80)
     log("🎉", "SERVER READY!")
@@ -1526,7 +1900,9 @@ def main():
     print(f"  SSH:          {ssh_url}")
     print(f"  Portal:       https://cloud.vast.ai/instances/{instance_id}")
     if cloudflare_config and cloudflare_config.get("hostname"):
-        print(f"  🌐 Cloudflare: https://{cloudflare_config['hostname']}")
+        verified_marker = " ✅ verified" if tunnel_verified else " ⚠️ not yet verified"
+        tunnel_mode = "VPS-side" if use_vps_tunnel else "container-side"
+        print(f"  🌐 Cloudflare: https://{cloudflare_config['hostname']} ({tunnel_mode}{verified_marker})")
     if workflow_url:
         print(f"  Workflow:     {args.workflow} (downloading in background)")
     print("=" * 80)

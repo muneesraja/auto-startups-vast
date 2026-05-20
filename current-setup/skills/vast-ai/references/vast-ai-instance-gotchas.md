@@ -96,3 +96,51 @@ rm -f /usr/local/cuda-12.9/compat/libcuda.so* && ldconfig
 **History:**
 - 2026-05-13: Instance 36686102 failed with driver 525.x — driver too old
 - 2026-05-14: Multiple instances failed during GPU prep (unverified hosts)
+
+## SSH Key Mismatch: VPS Keys May Not Match Vast.ai Registered Keys
+
+The VPS `~/.ssh/id_ed25519` private key may not match any public key registered on Vast.ai, even if the `.pub` comment says "root-vast.ai". The private key can be regenerated after initial setup, breaking the match.
+
+**Impact:** SSH auth fails silently — health checks, workflow monitoring, and remote debugging all break.
+
+**Fix:** Use a dedicated key per the `detect_ssh_key()` function:
+- `~/.ssh/vast_ai_dedicated` — auto-validated against Vast.ai account
+- `vastai-provision.py --ssh-key /path/to/key` — manual override
+- Auto-adds `Host ssh*.vast.ai IdentityFile ~/.ssh/vast_ai_dedicated` to `~/.ssh/config`
+
+**History:**
+- 2026-05-19: Instance 37050866 unreachable — `id_ed25519` fingerprint mismatch. Generated `vast_ai_dedicated` key (ID 853182).
+
+## Cloudflare Named Tunnels Fail Inside Vast.ai Containers
+
+Cloudflared (v2026.3.0–v2026.5.0) fails to connect from inside Vast.ai containers with "control stream encountered a failure" — likely due to container network restrictions blocking Cloudflare edge connections.
+
+**Fix:** Run cloudflared on the VPS with SSH port-forward as the bridge:
+```
+User → comfy-*.muneesraja.com → Cloudflare → VPS (cloudflared) → SSH tunnel → Instance:18188
+```
+This is the default behavior of `vastai-provision.py` (`--vps-tunnel`, default: enabled).
+
+**Workaround:** Use `--container-tunnel` flag (deprecated) if you need the old container-side behavior.
+
+**History:**
+- 2026-05-19: Instance 37051117 — cloudflared inside container failed repeatedly. VPS-side relay worked immediately.
+
+## Vast.ai Quick Tunnels Conflict with Custom Named Tunnels
+
+The Vast.ai image's `tunnel_manager` supervisor service auto-spawns quick tunnels using `cloudflared tunnel --url`, generating random `.trycloudflare.com` URLs. These conflict with custom named tunnels.
+
+**Fix:** When using VPS-side tunnel (`--vps-tunnel`, default), `setup_vps_tunnel()` kills container-side cloudflared processes and stops `tunnel_manager`:
+```bash
+pkill -f 'cloudflared tunnel' 2>/dev/null
+supervisorctl stop tunnel_manager 2>/dev/null
+```
+
+## ComfyUI Port is 18188 (Not 8188)
+
+The current Vast.ai ComfyUI image (`vastai/comfy:v0.20.1-cuda-12.9-py312`) starts ComfyUI on port **18188** (configured via `COMFYUI_ARGS="--port 18188"` in the environment). Port 8188 is not used.
+
+**Impact:** SSH port-forwards and health checks must target port 18188, not 8188.
+
+**History:**
+- 2026-05-19: `health_check_instance()` checked both 8188 and 18188 — 18188 responded.

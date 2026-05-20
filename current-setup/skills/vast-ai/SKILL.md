@@ -46,8 +46,8 @@ When a user asks to "prepare a server", "rent a GPU", "set up a 3090/4090", or s
 # Auto-select best offer (no confirmation prompt)
 ~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 4090 --workflow wan22 --label balaji --auto
 
-# No FRP tunnel (use Cloudflare quick tunnels)
-~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-frp
+# No named tunnel (use Cloudflare quick tunnels only)
+~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --no-tunnel
 
 # Preview only (don't provision)
 ~/.hermes/skills/vast-ai/.venv/bin/python3 ~/.hermes/skills/vast-ai/scripts/vastai-provision.py --gpu 3090 --label mandi --dry-run
@@ -79,7 +79,11 @@ When a user asks to "prepare a server", "rent a GPU", "set up a 3090/4090", or s
 | `--dry-run` | Search and show offers without provisioning |
 | `--max-price` | Override max $/hr (default: from GPU profile) |
 | `--verified-only` | Only show verified hosts (default: prefer unverified/cheaper) |
-| `--no-frp` | Skip FRP tunnels, use Cloudflare quick tunnels |
+| `--no-tunnel` | Skip Cloudflare named tunnel setup, use quick tunnels only |
+| `--vps-tunnel` | Run cloudflared from VPS via SSH port-forward (default: enabled) |
+| `--no-vps-tunnel` | Run cloudflared inside container (deprecated — unreliable) |
+| `--container-tunnel` | Alias for `--no-vps-tunnel` |
+| `--ssh-key` | Path to SSH private key (default: auto-detect `~/.ssh/vast_ai_dedicated`) |
 | `--no-monitor` | Skip post-provision monitoring |
 | `--slow` | Use image's built-in provisioner instead of fast-provision.sh |
 | `--timeout` | Max seconds to wait for running status (default: 600) |
