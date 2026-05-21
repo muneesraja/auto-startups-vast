@@ -32,17 +32,21 @@ done
 
 echo "==> Starting downloads..."
 
+# NOTE: hf_download(repo, filename, local_dir) places file at local_dir/filename.
+# Since HF repos use subdirs (e.g. "checkpoints/file.safetensors"), pass $BASE_DIR
+# as local_dir so the repo structure is preserved correctly (avoids double nesting).
+
 # 1. HiDream O1 Image Dev FP8 checkpoint (~8.1GB)
 echo "[1/2] HiDream O1 Image Dev FP8 checkpoint..."
-hf_download "Comfy-Org/HiDream-O1-Image" "checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors" "$BASE_DIR/checkpoints"
+hf_download "Comfy-Org/HiDream-O1-Image" "checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors" "$BASE_DIR"
 
 # 2. Gemma 4 E4B FP8 text encoder (~9.1GB)
 echo "[2/3] Gemma 4 E4B FP8 text encoder..."
-hf_download "Comfy-Org/gemma-4" "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Comfy-Org/gemma-4" "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors" "$BASE_DIR"
 
 # 3. HiDream O1 Dev LoRA rank 224 BF16 (~1.3GB)
 echo "[3/3] HiDream O1 Dev LoRA rank 224 BF16..."
-hf_download "Kijai/hidream-O1-image_comfy" "loras/hidream_o1_image_dev_2604_lora_avg_rankg_224_bf16.safetensors" "$BASE_DIR/loras"
+hf_download "Kijai/hidream-O1-image_comfy" "loras/hidream_o1_image_dev_2604_lora_avg_rankg_224_bf16.safetensors" "$BASE_DIR"
 
 echo "==> All downloads completed!"
 echo "==> Done!"
