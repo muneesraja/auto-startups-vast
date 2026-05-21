@@ -85,11 +85,11 @@ WORKFLOW_ALIASES = {
     "qwen-image-edit-2511": "qwen-image-edit-2511-4steps.sh",
     "qwen-image-lightning-4steps": "qwen-image-edit-2511-4steps.sh",
     # HiDream O1 Image Dev I2I
-    "hidream-o1-dev-i2i": "hidream-o1-image-dev-i2i.sh",
-    "hidream-o1": "hidream-o1-image-dev-i2i.sh",
-    "hidream-o1-image-dev": "hidream-o1-image-dev-i2i.sh",
-    "hidream-i2i": "hidream-o1-image-dev-i2i.sh",
-    "hidream": "hidream-o1-image-dev-i2i.sh",
+    "hidream-o1-dev-i2i": "hidream-o1-dev-i2i.sh",
+    "hidream-o1": "hidream-o1-dev-i2i.sh",
+    "hidream-o1-image-dev": "hidream-o1-dev-i2i.sh",
+    "hidream-i2i": "hidream-o1-dev-i2i.sh",
+    "hidream": "hidream-o1-dev-i2i.sh",
 }
 
 # =============================================================================
