@@ -1,10 +1,10 @@
 #!/bin/bash
 # ---
-# name: HiDream O1 Dev + Gemma 4
+# name: HiDream O1 Dev + Gemma 4 + LoRA
 # workflow: hidream_001
-# aliases: [hidream-o1, hidream-o1-dev, hidream-gemma4, hidream-o1-gemma4, image-hidream-o1-dev-1]
-# description: Downloads HiDream O1 Image Dev FP8 checkpoint + Gemma 4 E4B text encoder for image generation.
-# size: ~17.2GB
+# aliases: [hidream-o1, hidream-o1-dev, hidream-gemma4, hidream-o1-gemma4, hidream-o1-lora, image-hidream-o1-dev-1]
+# description: Downloads HiDream O1 Image Dev FP8 checkpoint + Gemma 4 E4B text encoder + rank 64 LoRA for image generation.
+# size: ~17.6GB
 # min_vram: 24GB
 # ---
 set -e
@@ -22,7 +22,7 @@ else
 fi
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{checkpoints,text_encoders}
+mkdir -p "$BASE_DIR"/{checkpoints,text_encoders,loras}
 
 # Load shared HF download helper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,8 +37,12 @@ echo "[1/2] HiDream O1 Image Dev FP8 checkpoint..."
 hf_download "Comfy-Org/HiDream-O1-Image" "checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors" "$BASE_DIR/checkpoints"
 
 # 2. Gemma 4 E4B FP8 text encoder (~9.1GB)
-echo "[2/2] Gemma 4 E4B FP8 text encoder..."
+echo "[2/3] Gemma 4 E4B FP8 text encoder..."
 hf_download "Comfy-Org/gemma-4" "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
+
+# 3. HiDream O1 Dev LoRA rank 64 BF16 (~439MB)
+echo "[3/3] HiDream O1 Dev LoRA rank 64 BF16..."
+hf_download "Kijai/hidream-O1-image_comfy" "loras/hidream_o1_dev_lora_rank_64_bf16.safetensors" "$BASE_DIR/loras"
 
 echo "==> All downloads completed!"
 echo "==> Done!"
