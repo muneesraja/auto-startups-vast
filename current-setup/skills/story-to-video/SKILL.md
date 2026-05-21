@@ -276,7 +276,7 @@ After character sheet approval and reference upload, the agent composes `prompt.
 1. **Read `story_manifest.json`** — extract scene structure, characters, expressions, settings, moods
 2. **Read the model's prompting guide** — adapt prompt style to the target model:
    - For Qwen: `references/qwen-image-edit-prompting-guide.md`
-   - For HiDream: `references/hidream-prompting-guide.md` (TBD)
+   - For HiDream: `references/hidream-prompting-guide.md`
 3. **Select the workflow template** — set `workflow_template` field to match the model
 4. **For each shot, compose a detailed prompt** that includes:
    - Character visual identity descriptions (from manifest `identity_spec`)
@@ -336,7 +336,7 @@ The number of reference image slots depends on the model:
 | Model | Max References | Notes |
 |---|---|---|
 | Qwen Image Edit 2511 | 3 | Script pads to 3 by duplicating first ref |
-| HiDream O1 Dev 2604 | 10 | Supports up to 10 positional reference slots |
+| HiDream O1 Dev | 4 | Script pads to 4 by duplicating first ref |
 
 **Reference selection rules (for the agent):**
 1. Use `{character_id}_reference_sheet.png` naming convention
@@ -352,7 +352,7 @@ Workflow templates live in `assets/workflow-templates/`. Each is a ComfyUI API-f
 | Template | Model | Steps | Slots | Status |
 |---|---|---|---|---|
 | `qwen-image-edit-2511` | Qwen Image Edit 2511 + Lightning LoRA | 4 | 3 refs | ✅ Active |
-| `hidream-o1-dev-i2i` | HiDream O1 Dev 2604 FP8 | 28 | 10 refs | 🔄 Testing |
+| `hidream-o1-dev-i2i` | HiDream O1 Dev FP8 | 28 | 4 refs | ✅ Active |
 
 To add a new model: create a workflow template JSON with `__PROMPT__`, `__REFERENCE_N__`, `__SEED__`, `__WIDTH__`, `__HEIGHT__`, `__FILENAME_PREFIX__` placeholders.
 

@@ -72,7 +72,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `shot` | int | Yes | Shot number (from manifest). |
 | `prompt` | string | Yes | **Full prompt text** for this shot. This is the agent's creative output — no templates, no placeholders. The agent composes this by reading the manifest, character specs, expressions, and the model's prompting guide. |
 | `negative_prompt` | string | No | Shot-specific negative prompt. Overrides `global.negative_prompt` if set. |
-| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count (Qwen: max 3, HiDream: max 10). |
+| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count (Qwen: max 3, HiDream: max 4). |
 | `seed` | int | No | Seed for this shot. Defaults to `global.seed_base` if not set. |
 | `filename_prefix` | string | Yes | Output filename prefix (e.g., `"scene_001_shot001"`). |
 | `eval_context` | object | No | Metadata for Gemini Vision evaluation. Not used by the script for generation — only passed to the evaluator. |
@@ -97,12 +97,14 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Negative prompt**: Supported via separate conditioning node
 - See `references/qwen-image-edit-prompting-guide.md` for full best practices
 
-### HiDream O1 Dev 2604 (`workflow_template: "hidream-o1-dev-i2i"`)
+### HiDream O1 Dev (`workflow_template: "hidream-o1-dev-i2i"`)
 
-- **Max references**: 10 images
-- **Prompt style**: TBD (after workflow testing)
-- **Negative prompt**: Supported (CFG 5.0 + negative prompt node)
-- See `references/hidream-prompting-guide.md` for best practices (TBD)
+- **Max references**: 4 images
+- **Resolution**: 2560×1440 (native 16:9, trained resolution)
+- **Prompt style**: Natural language paragraphs using SCALIST framework (Subject, Composition, Action, Location, Image style, Specs)
+- **Negative prompt**: **Leave empty** (Dev model, CFG 1.0 — negative prompt causes artifacts)
+- **Steps**: 28, SamplerLCM, noise_scale 7.6
+- See `references/hidream-prompting-guide.md` for full best practices
 
 ## Example
 
