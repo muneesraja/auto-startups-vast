@@ -3,8 +3,8 @@
 # name: HiDream O1 Dev + Gemma 4 + LoRA
 # workflow: hidream_001
 # aliases: [hidream-o1, hidream-o1-dev, hidream-gemma4, hidream-o1-gemma4, hidream-o1-lora, image-hidream-o1-dev-1]
-# description: Downloads HiDream O1 Image Dev FP8 checkpoint + Gemma 4 E4B text encoder + rank 64 LoRA for image generation.
-# size: ~17.6GB
+# description: Downloads HiDream O1 Image Dev FP8 checkpoint + Gemma 4 E4B text encoder + rank 224 LoRA for image generation.
+# size: ~18.5GB
 # min_vram: 24GB
 # ---
 set -e
@@ -40,9 +40,9 @@ hf_download "Comfy-Org/HiDream-O1-Image" "checkpoints/hidream_o1_image_dev_fp8_s
 echo "[2/3] Gemma 4 E4B FP8 text encoder..."
 hf_download "Comfy-Org/gemma-4" "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
 
-# 3. HiDream O1 Dev LoRA rank 64 BF16 (~439MB)
-echo "[3/3] HiDream O1 Dev LoRA rank 64 BF16..."
-hf_download "Kijai/hidream-O1-image_comfy" "loras/hidream_o1_dev_lora_rank_64_bf16.safetensors" "$BASE_DIR/loras"
+# 3. HiDream O1 Dev LoRA rank 224 BF16 (~1.3GB)
+echo "[3/3] HiDream O1 Dev LoRA rank 224 BF16..."
+hf_download "Kijai/hidream-O1-image_comfy" "loras/hidream_o1_image_dev_2604_lora_avg_rankg_224_bf16.safetensors" "$BASE_DIR/loras"
 
 echo "==> All downloads completed!"
 echo "==> Done!"
