@@ -56,6 +56,8 @@ if [ ! -f "$NODES_DIR/__init__.py" ]; then
   # Install Python requirements
   if [ -f "$NODES_DIR/requirements.txt" ]; then
     /venv/main/bin/pip install -r "$NODES_DIR/requirements.txt" -q 2>/dev/null || true
+    # diffusers is needed by the HF loader but not listed in requirements.txt
+    /venv/main/bin/pip install diffusers -q 2>/dev/null || true
     echo "  ✅ Requirements installed"
   fi
   
