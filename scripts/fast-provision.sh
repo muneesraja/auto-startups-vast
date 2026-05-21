@@ -274,6 +274,34 @@ elif [ -f "/etc/supervisor/conf.d/jupyter.conf" ] || [ -f "/etc/supervisor/conf.
         fi
     done
 fi
+
+# =============================================================================
+# [5b/8] Update ComfyUI to latest release
+# =============================================================================
+echo "=== [5b/8] Updating ComfyUI ==="
+COMFYUI_DIR="/opt/workspace-internal/ComfyUI"
+if [ -d "$COMFYUI_DIR/.git" ]; then
+    cd "$COMFYUI_DIR"
+    CURRENT=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+    echo "Current version: $CURRENT"
+    # Pull latest — try main first, then master
+    if git pull --ff-only origin main 2>/dev/null || git pull --ff-only origin master 2>/dev/null; then
+        NEW=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+        if [ "$CURRENT" != "$NEW" ]; then
+            echo "✅ Updated: $CURRENT → $NEW"
+            # Install any new requirements using the container's venv
+            /venv/main/bin/pip install -r requirements.txt -q 2>/dev/null || true
+        else
+            echo "✅ Already up to date ($CURRENT)"
+        fi
+    else
+        echo "⚠️ git pull failed — keeping current version"
+    fi
+    cd - > /dev/null
+else
+    echo "⚠️ ComfyUI not a git repo — skipping update"
+fi
+
 echo "=== [6/8] Starting Supervisor ==="
 
 # supervisord may already be running from image init, or may need starting.

@@ -138,11 +138,9 @@ if [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_TUNNEL_HOSTNAME" ]; then
         echo "⚠️ No valid tunnel credentials — falling back to quick tunnels"
     else
         # Create config.yml with ingress rules
-        # Note: credentials-file must be just the filename in default .cloudflared dir
-        # for cloudflared to find it without --config flag (which is broken in v2026.3+)
         cat > /root/.cloudflared/config.yml << EOF
 tunnel: ${CF_TUNNEL_ID}
-credentials-file: /root/.cloudflared/${CF_TUNNEL_ID}.json
+credentials-file: ${CREDENTIALS_FILE}
 ingress:
   - hostname: ${CF_TUNNEL_HOSTNAME}
     service: http://localhost:18188
@@ -153,11 +151,9 @@ ingress:
 EOF
         echo "✅ config.yml created with ingress for ${CF_TUNNEL_HOSTNAME}"
 
-        # Start tunnel - use `tunnel run <ID>` without --config flag
-        # The --config flag is broken in cloudflared v2026.3+
-        # cloudflared finds config.yml in default /root/.cloudflared/ location
+        # Start tunnel
         pkill -f "cloudflared tunnel" 2>/dev/null || true
-        nohup "$CLOUDFLARED_BIN" tunnel --no-tls-verify run "$CF_TUNNEL_ID" \
+        nohup "$CLOUDFLARED_BIN" tunnel run --config /root/.cloudflared/config.yml \
           > /var/log/cloudflared.log 2>&1 &
 
         sleep 8
@@ -278,6 +274,34 @@ elif [ -f "/etc/supervisor/conf.d/jupyter.conf" ] || [ -f "/etc/supervisor/conf.
         fi
     done
 fi
+
+# =============================================================================
+# [5b/8] Update ComfyUI to latest release
+# =============================================================================
+echo "=== [5b/8] Updating ComfyUI ==="
+COMFYUI_DIR="/opt/workspace-internal/ComfyUI"
+if [ -d "$COMFYUI_DIR/.git" ]; then
+    cd "$COMFYUI_DIR"
+    CURRENT=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+    echo "Current version: $CURRENT"
+    # Pull latest — try main first, then master
+    if git pull --ff-only origin main 2>/dev/null || git pull --ff-only origin master 2>/dev/null; then
+        NEW=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+        if [ "$CURRENT" != "$NEW" ]; then
+            echo "✅ Updated: $CURRENT → $NEW"
+            # Install any new requirements using the container's venv
+            /venv/main/bin/pip install -r requirements.txt -q 2>/dev/null || true
+        else
+            echo "✅ Already up to date ($CURRENT)"
+        fi
+    else
+        echo "⚠️ git pull failed — keeping current version"
+    fi
+    cd - > /dev/null
+else
+    echo "⚠️ ComfyUI not a git repo — skipping update"
+fi
+
 echo "=== [6/8] Starting Supervisor ==="
 
 # supervisord may already be running from image init, or may need starting.
