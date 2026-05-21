@@ -1,7 +1,7 @@
 ---
 name: story-to-video
-version: 3.0.0
-description: "Turn story manifests into scene images and video clips using ComfyUI (Qwen Image Edit) + LTX 2.3 I2V. Covers multi-reference image selection, batch scene generation, prompt composition from story manifests, and animation with image-to-video models."
+version: 4.0.0
+description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation, prompt composition, batch scene generation, and Gemini vision evaluation."
 triggers:
   - story to video
   - generate scene images
@@ -10,18 +10,19 @@ triggers:
   - story illustration
   - animate story
   - character reference sheets
+  - prompt composition
 ---
 
 # Story-to-Video Pipeline
 
-Turn story manifests into illustrated scene images (ComfyUI Qwen Image Edit) and animated video clips (LTX 2.3 I2V).
+Turn story manifests into illustrated scene images using agent-composed prompts and config-driven ComfyUI workflow templates.
 
 ## Trigger
 
 - User has a `story_manifest.json` with characters and scenes
 - User wants to illustrate a story or generate scene-by-scene images
-- User wants to go from text → still images → animated video
-- Working with the Qwen Image Edit 2511 4-step workflow for character-consistent generation
+- User wants to compose optimized prompts for a specific model
+- User wants to swap image generation models without code changes
 
 ## Architecture
 
@@ -36,14 +37,17 @@ story_manifest.json + approved character reference sheets
         ↓
 Phase 1: Upload refs to ComfyUI + verify
         ↓
-Phase 2: Generate scene images (ComfyUI Qwen Image Edit 2511)
-                          (+ smart per-scene character refs)
+Phase 1.5: Agent composes prompt.json ← (reads manifest + prompting guide)
+        ↓
+prompt.json (agent-composed, model-optimized prompts per shot)
+        ↓
+Phase 2: generate_scene.py reads prompt.json → loads workflow template → ComfyUI
                                         ↓
                             Scene still images (1280×720)
                                         ↓
 Phase 2.5: Evaluate & refine (Gemini 2.5 Flash vision, optional)
                                         ↓
-Phase 3: Animate (LTX 2.3 I2V motion prompts)
+Phase 3: Animate (LTX 2.3 I2V — FUTURE, in testing)
                                         ↓
                             Scene video clips → Final video
 ```
@@ -263,85 +267,148 @@ for img in data['LoadImage']['input']['required']['image'][0]: print(f'  - {img}
 
 Define fallbacks in the script config (e.g., fox missing → tortoise as similar woodland character).
 
+## Phase 1.5: Prompt Composition (Agent)
+
+After character sheet approval and reference upload, the agent composes `prompt.json` — the intermediate artifact that bridges the story manifest and the generation script.
+
+### What the Agent Does
+
+1. **Read `story_manifest.json`** — extract scene structure, characters, expressions, settings, moods
+2. **Read the model's prompting guide** — adapt prompt style to the target model:
+   - For Qwen: `references/qwen-image-edit-prompting-guide.md`
+   - For HiDream: `references/hidream-prompting-guide.md` (TBD)
+3. **Select the workflow template** — set `workflow_template` field to match the model
+4. **For each shot, compose a detailed prompt** that includes:
+   - Character visual identity descriptions (from manifest `identity_spec`)
+   - Facial expressions using 3-region descriptors (mouth + eyes + brow)
+   - Scene setting, lighting, and mood
+   - Action being depicted
+   - Camera angle
+   - Art style directive
+5. **Select reference images** — list the character reference sheet filenames per shot
+6. **Populate `eval_context`** — include expected expressions, characters, setting for Gemini evaluation
+7. **Write `prompt.json`** to the story working directory
+8. **Optionally present to user for review** before generation
+
+### prompt.json Schema
+
+See `references/prompt-json-schema.md` for the full schema reference.
+
+```json
+{
+  "version": "1.0",
+  "model": "qwen-image-edit-2511",
+  "workflow_template": "qwen-image-edit-2511",
+  "global": {
+    "style": "high-quality 3D rendered animation...",
+    "negative_prompt": "deformed, extra limbs, blurry",
+    "seed_base": 42,
+    "width": 1280,
+    "height": 720
+  },
+  "shots": [
+    {
+      "scene": 1,
+      "shot": 1,
+      "prompt": "Full agent-composed prompt text here...",
+      "negative_prompt": "shot-specific overrides",
+      "references": ["toby_reference_sheet.png", "taro_reference_sheet.png"],
+      "seed": 42,
+      "filename_prefix": "scene_001_shot001",
+      "eval_context": {
+        "characters_present": ["toby", "taro"],
+        "setting": "brightly lit jungle clearing",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "toby": "puzzled slight frown, eyes downcast"
+        },
+        "action": "Toby stands alone looking at his stripe-less chest"
+      }
+    }
+  ]
+}
+```
+
+### Multi-Reference Image Selection
+
+The number of reference image slots depends on the model:
+
+| Model | Max References | Notes |
+|---|---|---|
+| Qwen Image Edit 2511 | 3 | Script pads to 3 by duplicating first ref |
+| HiDream O1 Dev 2604 | 10 | Supports up to 10 positional reference slots |
+
+**Reference selection rules (for the agent):**
+1. Use `{character_id}_reference_sheet.png` naming convention
+2. Include only characters present in the shot
+3. Order by visual importance (most important character first)
+4. If fewer refs than model slots, script auto-pads by duplicating
+5. Verify refs exist on the ComfyUI instance before composing
+
+### Available Workflow Templates
+
+Workflow templates live in `assets/workflow-templates/`. Each is a ComfyUI API-format JSON with placeholder tokens.
+
+| Template | Model | Steps | Slots | Status |
+|---|---|---|---|---|
+| `qwen-image-edit-2511` | Qwen Image Edit 2511 + Lightning LoRA | 4 | 3 refs | ✅ Active |
+| `hidream-o1-dev-i2i` | HiDream O1 Dev 2604 FP8 | 28 | 10 refs | 🔄 Testing |
+
+To add a new model: create a workflow template JSON with `__PROMPT__`, `__REFERENCE_N__`, `__SEED__`, `__WIDTH__`, `__HEIGHT__`, `__FILENAME_PREFIX__` placeholders.
+
+---
+
 ## Phase 2: Generate Scene Images
 
 ### Using the Script
 
 ```bash
-# Generate a single scene from a story manifest
-python3 generate_scene.py --manifest story_manifest.json --scene 1 --seed 42
+# Generate all shots from prompt.json
+python3 generate_scene.py --prompts prompt.json
 
-# Generate all scenes
-python3 generate_scene.py --manifest story_manifest.json --all
+# Generate a specific shot
+python3 generate_scene.py --prompts prompt.json --shot scene_001_shot001
+
+# Dry-run (parse + build workflows without queuing)
+python3 generate_scene.py --prompts prompt.json --dry-run
+
+# With evaluation
+python3 generate_scene.py --prompts prompt.json --evaluate
 
 # Override ComfyUI URL and output directory
-python3 generate_scene.py --manifest story_manifest.json --all \
+python3 generate_scene.py --prompts prompt.json \
   --url https://mandi-qwen.muneesraja.com \
-  --output-dir /root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video/hare-and-tortoise
+  --output-dir /root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video/little-tiger
+
+# Skip already-generated shots
+python3 generate_scene.py --prompts prompt.json --skip-existing
+
+# Evaluate existing images without regenerating
+python3 generate_scene.py --prompts prompt.json --evaluate-only
 ```
 
-### Multi-Reference Image Selection
+### How the Script Works
 
-The Qwen Image Edit workflow takes exactly **3 reference images**. Stories often have 1-5 characters per scene.
-
-**Auto-mapping (convention-based):** The `pick_images()` function auto-derives the character→filename mapping using the `{character_id}_reference_sheet.png` naming convention (matching `generate_story_assets.py` output). This means ANY new story works without editing `DEFAULT_REF_IMAGES`. The `build_ref_mapping()` function checks available images on the instance and matches them to character IDs from the manifest automatically.
-
-**Rules:**
-1. Auto-map character IDs to `{character_id}_reference_sheet.png` using `build_ref_mapping()` (works for any story)
-2. If auto-map misses (naming mismatch), fall back to hardcoded `DEFAULT_REF_IMAGES` (backward compat for hare-and-tortoise)
-3. If a character's ref is still missing from the instance, fall back to the closest available character (e.g., fox → tortoise as similar woodland character) via `DEFAULT_FALLBACKS`
-4. If no fallback defined, use `example.png` as last resort
-5. Deduplicate — don't pass the same image twice (wastes a slot)
-6. If fewer than 3 unique refs, fill remaining slots by duplicating the first ref
-7. Never pass more than 3 images — the workflow enforces this
-
-**⚠️ Pitfall:** If all refs fall back to `example.png`, the auto-mapping is failing. This originally happened because `DEFAULT_REF_IMAGES` was hardcoded for hare-and-tortoise only. The `build_ref_mapping()` fix (v2.2) resolved this by deriving mappings from the naming convention dynamically.
-
-| Characters in Scene | Image Assignment | Rationale |
-|---|---|---|
-| 1 | [ref, ref, ref] | Duplicate to fill 3 slots |
-| 2 | [ref1, ref2, ref1] | Fill 3rd slot with most important char |
-| 3 | [ref1, ref2, ref3] | Perfect fit |
-| 4+ | [ref1, ref2, ref3] | Pick top 3 by visual importance |
-
-### Scene Prompt Composition (v2)
-
-Each **shot** prompt combines: **Characters (with expressions) + Setting + Action + Mood + Camera + Style**
-
-```text
-Characters in this scene must match the provided reference images exactly:
-- {name}: {identity_spec}. Expression: {facial_expression[character_id]}
-
-Scene setting: {setting}.
-Action: {shot.description}.
-Mood: {scene.mood}.
-Camera: {shot.camera_override or scene.camera}.
-Style: {style}.
-```
-
-**Key changes from v1:**
-- `facial_expression` is now **required per shot** — describe mouth + eyes + brow for each character
-- `mood` replaces `emotion` — set at scene level, expressions are per-shot
-- `camera_override` allows per-shot camera angles
-- See `references/qwen-image-edit-prompting-guide.md` for expression best practices
-- See `references/facial-expression-vocabulary.md` for approved expression descriptors
-
-**Tips:**
-- For scenes with many characters (3+), use abbreviated identity specs (key features only) to keep prompts within limits
-- **Always include expressions** — even abbreviated prompts must have expressions
-- Always include "must match the provided reference images exactly" — this anchors the model to reference consistency
-- The style should match the reference sheet style for consistency
-- Put expression descriptions BEFORE action in the prompt for better adherence
+1. Reads `prompt.json` → validates schema
+2. Loads the workflow template matching `workflow_template` field from `assets/workflow-templates/`
+3. For each shot:
+   - Replaces template placeholders with shot data (prompt, refs, seed, dimensions)
+   - Queues the workflow to ComfyUI API
+   - Polls `/history/{prompt_id}` until completion
+   - Downloads output image
+4. If `--evaluate`: sends image + `eval_context` to Gemini Vision for scoring
+5. If evaluation fails: uses `refined_prompt` from Gemini, increments seed, retries (max 3 iterations)
 
 ### Generation Timing
 
-- **Per scene**: ~20-30 seconds on RTX 3090 (4-step Lightning)
-- **6 scenes**: ~3 minutes total (sequential)
+- **Per shot (Qwen 4-step)**: ~20-30 seconds on RTX 3090
+- **Per shot (HiDream 28-step)**: ~60-90 seconds on RTX 3090 (estimated)
 - **Prompt queue**: instant
-- **Polling**: 5-second intervals recommended
+- **Polling**: 5-second intervals
 
-## Phase 3: Animate Scenes (LTX 2.3 I2V)
+## Phase 3: Animate Scenes (LTX 2.3 I2V) — FUTURE
 
+> **Status: In testing.** This phase is not yet integrated into the automated pipeline.
 > Requires `ltx23-video-gen` skill for RunPod provisioning.
 
 ### Motion Prompt Format
