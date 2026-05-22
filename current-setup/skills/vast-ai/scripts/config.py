@@ -20,13 +20,13 @@ GPU_PROFILES = {
         "min_inet_up_mbps": 300,
         "min_cpu_cores": 2,
         "min_reliability": 0.95,    # 95% — host must be mostly reliable
-        "cuda_min": 12.8,           # cuda-12.9 image requires CUDA 12.8+ hardware capability
+        "cuda_min": 12.8,           # cuda-13.2 image requires CUDA 12.8+ hardware capability (3090/4090 both fine)
         "driver_min": "570.0.0",    # NV driver 570+ REQUIRED for CUDA 12.9 (560/565 fail with Error 804)
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options
         "max_inet_down_cost_tb": 0.05,
-        "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
+        "docker_image": "vastai/comfy:v0.22.0-cuda-13.2-py312",
         "skip_countries": ["CN"],        # China hosts have slow/failed downloads
-        "notes": "32GB system RAM is fine for ComfyUI. Driver 580.x preferred (native CUDA 13.0). Driver 570.x works but may need compat lib fix.",
+        "notes": "32GB system RAM is fine for ComfyUI. Driver 580.x preferred (native CUDA 13.2). Driver 570.x works but may need compat lib fix.",
     },
     "4090": {
         "name": "RTX_4090",
@@ -41,7 +41,7 @@ GPU_PROFILES = {
         "driver_min": "570.0.0",    # NV driver 570+ REQUIRED for CUDA 12.9
         "max_price_hr": 0.50,       # Relaxed from 0.40
         "max_inet_down_cost_tb": 0.05,
-        "docker_image": "vastai/comfy:v0.20.1-cuda-12.9-py312",
+        "docker_image": "vastai/comfy:v0.22.0-cuda-13.2-py312",
         "skip_countries": ["CN"],
         "notes": "4090 has 24GB VRAM, better perf/$ than 3090 for many workloads",
     },
@@ -75,6 +75,10 @@ WORKFLOW_ALIASES = {
     # LTX 2.3 — I2V Distilled
     "ltx-23-i2v-distilled": "ltx-23-i2v-distilled.sh",
     "ltx23-distilled": "ltx-23-i2v-distilled.sh",
+    # LTX 2.3 — I2V Official (Lightricks)
+    "ltx-23-i2v-official": "ltx-23-i2v-official.sh",
+    "ltx23-official": "ltx-23-i2v-official.sh",
+    "ltx-official": "ltx-23-i2v-official.sh",
     # Qwen Image Edit
     "qwen": "qwen-image-edit.sh",
     "qwen-image": "qwen-image-edit.sh",

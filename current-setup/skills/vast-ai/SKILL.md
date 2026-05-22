@@ -196,7 +196,7 @@ Present cheapest valid offer, ask permission to spend money. **DO NOT PROCEED WI
 ### 3. Provision
 ```bash
 vastai create instance <OFFER_ID> \
-  --image vastai/comfy:v0.20.1-cuda-12.9-py312 \
+  --image vastai/comfy:v0.22.0-cuda-13.2-py312 \
   --env '-p 8188:8188 -e COMFYUI_ARGS="--disable-auto-launch --port 18188 --enable-cors-header" -e PROVISIONING_SCRIPT="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh" -e DISCORD_WEBHOOK_URL="<WEBHOOK>" -e HF_TOKEN="<TOKEN>" -e WORKFLOW_SCRIPT="<URL>" -e PORTAL_CONFIG="localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal" -e OPEN_BUTTON_PORT="1111" -e JUPYTER_DIR="/" -e DATA_DIRECTORY="/workspace/" -e OPEN_BUTTON_TOKEN="1"' \
   --disk 100 --label "<name>" --direct --ssh --jupyter --onstart-cmd 'entrypoint.sh'
 ```
