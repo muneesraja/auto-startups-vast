@@ -49,4 +49,5 @@ temp/hare-and-tortoise-race/*
 config/
 .cache/
 .failed_hosts.json
+failed_hosts.json
 
