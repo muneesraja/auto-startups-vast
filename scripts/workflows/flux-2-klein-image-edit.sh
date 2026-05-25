@@ -33,41 +33,31 @@ done
 echo "==> Starting downloads..."
 
 # 1. Flux.2 Klein 9B FP8 diffusion model (~9.43GB)
-# ⚠️ GATED MODEL: Requires HF account to accept FLUX Non-Commercial License at
-#    https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8
-#    Set HF_TOKEN env var before running.
 echo "[1/3] Flux.2 Klein 9B FP8 diffusion model..."
 hf_download "black-forest-labs/FLUX.2-klein-9b-fp8" "flux-2-klein-9b-fp8.safetensors" "$BASE_DIR/diffusion_models"
 
 # 2. Qwen 3 8B FP8 text encoder (~8.7GB)
-# HF repo stores this under split_files/text_encoders/ — download to $BASE_DIR
-# then move to the correct text_encoders/ dir for ComfyUI
+# HF repo stores this under split_files/text_encoders/ prefix
+# hf_download helper can't handle nested paths properly, so use direct Python
 echo "[2/3] Qwen 3 8B FP8 text encoder..."
 mkdir -p "$BASE_DIR/text_encoders"
-python3 << PYEOF
-import os, time
-from huggingface_hub import hf_hub_download
-
+python3 << 'PYEOF'
+import os, time, sys, shutil
 os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
-token = "${HF_TOKEN:-}" or None
-repo_id = "Comfy-Org/flux2-klein-9B"
-filename = "split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors"
-target_dir = "$BASE_DIR/text_encoders"
-
+token = os.environ.get('HF_TOKEN') or None
+dest = os.path.join(os.environ['BASE_DIR'], 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
 start = time.time()
 try:
-    # Download to a temp location that preserves the HF path
+    from huggingface_hub import hf_hub_download
     downloaded = hf_hub_download(
-        repo_id=repo_id,
-        filename=filename,
+        repo_id='Comfy-Org/flux2-klein-9B',
+        filename='split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
         token=token,
     )
-    # Move to the target dir with the correct filename
-    dest = os.path.join(target_dir, os.path.basename(filename))
-    os.makedirs(target_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     if os.path.exists(dest):
         os.remove(dest)
-    os.rename(downloaded, dest)
+    shutil.move(downloaded, dest)
     elapsed = time.time() - start
     size = os.path.getsize(dest)
     speed = size / elapsed / 1024 / 1024
