@@ -107,10 +107,13 @@ def provision_instance_launch(
         f"inet_up>={min_inet}"
     )
 
+    # Build geolocation exclusion for launch_instance (it doesn't support skip_countries natively)
+    skip_countries = [c.upper() for c in profile.get("skip_countries", [])]
+
     log("🚀", f"Atomic launch via SDK: {profile['name']} ≤ ${price:.2f}/hr")
 
     try:
-        data = vast.launch_instance(
+        launch_kwargs = dict(
             gpu_name=profile["name"],
             num_gpus=str(profile["num_gpus"]),
             image=profile["docker_image"],
@@ -126,6 +129,30 @@ def provision_instance_launch(
             order="dph_total",
             limit=5,
         )
+
+        # Add geolocation filter to exclude skipped countries from atomic launch
+        if skip_countries:
+            # Build a query dict that excludes specific countries
+            # The SDK's query format uses {"field": {"op": value}} syntax
+            from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+            base_args = (
+                f"num_gpus={profile['num_gpus']} gpu_name={profile['name']} "
+                f"disk_space>={disk} dph<={price + 0.10} "
+                f"cuda_max_good>={profile['cuda_min'] - 0.5} "
+                f"driver_version>={profile.get('driver_min', '570.0.0')} "
+                f"inet_down>={profile.get('min_inet_down_mbps', 400)} "
+                f"inet_up>={profile.get('min_inet_up_mbps', 300)}"
+            )
+            # Add exclusion for each skipped country
+            for cc in skip_countries:
+                base_args += f" geolocation != {cc}"
+            base_query = {"verified": {"eq": True}, "external": {"eq": False},
+                          "rentable": {"eq": True}, "rented": {"eq": False}}
+            query_dict = parse_query(base_args, base_query, offers_fields, offers_alias, offers_mult)
+            launch_kwargs["query"] = query_dict
+            log("🚫", f"Excluding countries: {skip_countries} from atomic launch")
+
+        data = vast.launch_instance(**launch_kwargs)
     except Exception as e:
         error_text = str(e)
         api_error = ""

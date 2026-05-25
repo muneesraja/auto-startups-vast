@@ -284,6 +284,26 @@ def main():
 
             chosen_offer = best
 
+        # --- Post-launch country check ---
+        # Atomic launch doesn't accept country filters, so verify after creation
+        skip_countries = [c.upper() for c in profile.get("skip_countries", [])]
+        if skip_countries:
+            instance_info = get_instance_info(instance_id)
+            if instance_info:
+                geo = instance_info.get("geolocation", "")
+                # geolocation format: "City, CC" or ", CC" or just "CC"
+                country_code = geo.split(",")[-1].strip().upper() if geo else ""
+                if country_code in skip_countries:
+                    log("🚫", f"Instance {instance_id} is in skipped country {country_code} (geolocation: '{geo}') — destroying and retrying")
+                    try:
+                        vast = get_client()
+                        vast.destroy_instance(id=instance_id)
+                        log("💥", f"Instance {instance_id} destroyed (skipped country: {country_code})")
+                    except Exception as e:
+                        log("⚠️", f"Could not destroy instance {instance_id}: {e}")
+                    attempt += 1
+                    continue
+
         # --- Monitor the instance ---
         if args.monitor and not args.no_monitor:
             host_id = chosen_offer.host_id if chosen_offer else 0

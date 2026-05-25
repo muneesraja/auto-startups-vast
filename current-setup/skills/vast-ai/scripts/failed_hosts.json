@@ -4,5 +4,11 @@
     "count": 1,
     "permanent": true,
     "last_error": "CDI GPU injection failure \u2014 host NVIDIA runtime broken"
+  },
+  "155385": {
+    "timestamp": 1779447168,
+    "count": 1,
+    "permanent": true,
+    "last_error": "SSH key auth failure + HF downloads stuck"
   }
 }
