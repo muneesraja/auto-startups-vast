@@ -17,7 +17,7 @@ HiDream O1 is a pixel-native generative model built on a **Pixel-level Unified T
 | CFG | 1.0 |
 | Noise Scale | 7.6 |
 | Noise Clip Std | 2.5 |
-| Reference Slots | 4 (via `HiDreamO1ReferenceImages` node) |
+| Reference Slots | Dynamic: 1 to 12 slots (automatically pruned or spawned) |
 | Negative Prompt | **Empty** (Dev model only) |
 
 ---
@@ -115,7 +115,7 @@ When reference images are provided, **don't over-describe** what's already visib
 
 1. **Define characters FIRST** in the prompt, before describing the scene
 2. **Use explicit spatial anchoring**: "standing on the left", "sitting in the foreground"
-3. **Limit 2-3 characters** per image for best identity consistency (4 max with 4 ref slots)
+3. **Limit 2-3 characters** per image for best identity consistency (supporting up to 12 references)
 4. **One reference per character** — don't mix character refs in the same slot
 5. **Order refs by visual importance** — slot 1 is the primary character
 
@@ -129,14 +129,29 @@ Identity bleed = characters swapping features (colors, expressions, proportions)
 - Specify unique visual anchors: clothing, accessories, size differences
 - Include spatial separation: "on the left" / "on the right" / "in the background"
 
-### Reference Slot Assignment
+### Dynamic Reference Slot Assignment
 
-| Characters | Slot 1 | Slot 2 | Slot 3 | Slot 4 |
-|---|---|---|---|---|
-| 1 char | char_ref | char_ref (dup) | char_ref (dup) | char_ref (dup) |
-| 2 chars | main_char | secondary_char | main_char (dup) | secondary_char (dup) |
-| 3 chars | char_1 | char_2 | char_3 | char_1 (dup) |
-| 4 chars | char_1 | char_2 | char_3 | char_4 |
+Reference slots are now dynamic. Do NOT pad reference lists manually in `prompt.json`. Simply list the actual references needed. The runner script automatically:
+- **Prunes** unused reference slots from the template when fewer than 4 are provided (e.g., if 1 reference is provided, only 1 slot is sent; others are deleted to avoid concept blending).
+- **Spawns** extra reference slots when more than 4 are provided (supporting up to 12 references).
+
+For legacy models (Qwen), the old padding behavior is still used.
+
+## Workflow Overrides
+
+The agent can specify per-shot `overrides` in `prompt.json` to control generation parameters dynamically.
+
+| Override Key | Type | Default | Description |
+|---|---|---|---|
+| `image_edit` | bool | `true` | Toggle I2I edit mode vs T2I generation. Set to `false` for pure T2I. |
+| `cfg` | float | `1.0` | Classifier-free guidance scale. Dev model: keep at 1.0. |
+| `steps` | int | `28` | Sampling steps. Dev: 28, Fast: 16, Full: 50. |
+| `denoise` | float | `1.0` | Denoise strength. 1.0 = full generation, 0.5 = partial edit. |
+| `noise_scale` | float | `7.6` | Diffusion noise scaling factor. Dev: 7.5–7.6. |
+| `noise_clip_std` | float | `2.5` | Noise clipping standard deviation. |
+| `scheduler` | string | `"normal"` | Scheduler type: `normal`, `simple`, `karras`. |
+| `width` | int | `2560` | Output width (must be multiple of 32). |
+| `height` | int | `1440` | Output height (must be multiple of 32). |
 
 ---
 

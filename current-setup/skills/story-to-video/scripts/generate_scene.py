@@ -173,22 +173,109 @@ def load_workflow_template(template_name, templates_dir=None):
     with open(template_path) as f:
         template = json.load(f)
 
-    # Remove metadata keys (start with _)
-    return {k: v for k, v in template.items() if not k.startswith("_")}
+    # Return raw template preserving metadata starting with _
+    return template
 
 
-def build_workflow_from_template(template, shot_data, global_cfg):
-    """Build a ComfyUI API workflow by replacing template placeholders.
+def _apply_overrides(workflow, overrides, overrides_map):
+    """Apply agent-specified parameter overrides to workflow nodes.
 
     Args:
-        template: Raw workflow template dict (from load_workflow_template)
-        shot_data: A single shot object from prompt.json
-        global_cfg: Global config from prompt.json
-
-    Returns:
-        dict: Ready-to-submit ComfyUI API workflow
+        workflow: The workflow dict (modified in place)
+        overrides: Dict of override_name → value from prompt.json shot
+        overrides_map: Dict of override_name → {"node": id, "key": input_key}
+                       from template metadata
     """
-    # Deep copy to avoid mutating the template
+    if not overrides or not overrides_map:
+        return workflow
+
+    applied = []
+    for name, value in overrides.items():
+        mapping = overrides_map.get(name)
+        if mapping is None:
+            print(f"   ⚠️ Unknown override '{name}' — skipping")
+            continue
+
+        node_id = mapping["node"]
+        input_key = mapping["key"]
+
+        if node_id not in workflow:
+            print(f"   ⚠️ Override '{name}' targets node {node_id} which doesn't exist — skipping")
+            continue
+
+        workflow[node_id]["inputs"][input_key] = value
+        applied.append(f"{name}={value}")
+
+    if applied:
+        print(f"   🎛️  Overrides applied: {', '.join(applied)}")
+
+    return workflow
+
+
+def _prune_unused_refs(workflow, num_refs, ref_slots, conditioning_node, conditioning_input_pattern):
+    """Prune unused LoadImage nodes and their connections on the conditioning node.
+
+    Args:
+        workflow: The workflow dict (modified in place)
+        num_refs: Number of actual references provided
+        ref_slots: Dict mapping slot number (str/int) -> {"load_image_node": node_id, "required": bool}
+        conditioning_node: Node ID of conditioning node (e.g. "104")
+        conditioning_input_pattern: Pattern like "images.image_{N}"
+    """
+    sorted_slots = sorted(ref_slots.items(), key=lambda x: int(x[0]))
+
+    for slot_str, info in sorted_slots:
+        slot_num = int(slot_str)
+        if slot_num > num_refs:
+            if info.get("required", False):
+                continue
+
+            node_id = info["load_image_node"]
+            if node_id in workflow:
+                del workflow[node_id]
+
+            if conditioning_node in workflow:
+                input_key = conditioning_input_pattern.format(N=slot_num)
+                if input_key in workflow[conditioning_node]["inputs"]:
+                    del workflow[conditioning_node]["inputs"][input_key]
+
+
+def _spawn_extra_refs(workflow, num_refs, template_refs, spawn_node_id_start, conditioning_node, conditioning_input_pattern):
+    """Spawn new LoadImage nodes for reference slots beyond the template count.
+
+    Args:
+        workflow: The workflow dict (modified in place)
+        num_refs: Number of actual references provided
+        template_refs: Number of slots in the base template (e.g. 4)
+        spawn_node_id_start: Starting integer for new node IDs (e.g. 1001)
+        conditioning_node: Node ID of conditioning node (e.g. "104")
+        conditioning_input_pattern: Pattern like "images.image_{N}"
+    """
+    if num_refs <= template_refs:
+        return workflow
+
+    for slot_num in range(template_refs + 1, num_refs + 1):
+        spawn_id = str(spawn_node_id_start + (slot_num - template_refs - 1))
+
+        # 1. Create LoadImage node
+        workflow[spawn_id] = {
+            "inputs": {
+                "image": f"__REFERENCE_{slot_num}__"
+            },
+            "class_type": "LoadImage",
+            "_meta": {"title": f"Load Image (ref {slot_num})"}
+        }
+
+        # 2. Connect to conditioning node
+        if conditioning_node in workflow:
+            input_key = conditioning_input_pattern.format(N=slot_num)
+            workflow[conditioning_node]["inputs"][input_key] = [spawn_id, 0]
+
+    return workflow
+
+
+def _build_workflow_legacy(template, shot_data, global_cfg):
+    """Build a ComfyUI API workflow by replacing template placeholders (legacy fallback)."""
     workflow = copy.deepcopy(template)
 
     # Build replacement map
@@ -201,7 +288,6 @@ def build_workflow_from_template(template, shot_data, global_cfg):
     references = list(shot_data.get("references", []))
 
     # Pad references to ensure we have enough for the template's slots
-    # (e.g., Qwen needs 3, HiDream needs up to 10)
     while len(references) < 10:
         references.append(references[0] if references else "example.png")
 
@@ -219,12 +305,10 @@ def build_workflow_from_template(template, shot_data, global_cfg):
         if placeholder in workflow_str:
             workflow_str = workflow_str.replace(placeholder, _json_escape(references[i]))
 
-    # Numeric replacements — need special handling since they might be strings or ints in JSON
-    # Replace quoted versions first (string placeholders), then unquoted (int placeholders)
+    # Numeric replacements
     workflow_str = workflow_str.replace('"__SEED__"', str(seed))
     workflow_str = workflow_str.replace('"__WIDTH__"', str(width))
     workflow_str = workflow_str.replace('"__HEIGHT__"', str(height))
-    # Also handle if they appear as bare strings
     workflow_str = workflow_str.replace('__SEED__', str(seed))
     workflow_str = workflow_str.replace('__WIDTH__', str(width))
     workflow_str = workflow_str.replace('__HEIGHT__', str(height))
@@ -236,7 +320,107 @@ def build_workflow_from_template(template, shot_data, global_cfg):
     if remaining:
         print(f"   ⚠️ Unreplaced placeholders in workflow: {set(remaining)}")
 
-    return result
+    # Strip metadata keys starting with _
+    return {k: v for k, v in result.items() if not k.startswith("_")}
+
+
+def build_dynamic_workflow(template, shot_data, global_cfg):
+    """Build a ComfyUI API workflow dynamically supporting pruning, spawning, and overrides.
+
+    Falls back to legacy builder if template does not have _reference_slots metadata.
+    """
+    ref_slots = template.get("_reference_slots")
+    if ref_slots is None:
+        return _build_workflow_legacy(template, shot_data, global_cfg)
+
+    # Deep copy raw template
+    workflow = copy.deepcopy(template)
+
+    # Get references and configurations
+    references = list(shot_data.get("references", []))
+    num_refs = len(references)
+
+    # Limit number of references to max_references
+    max_refs = template.get("_max_references", 12)
+    if num_refs > max_refs:
+        print(f"   ⚠️ Too many references ({num_refs}) for model max ({max_refs}). Truncating to {max_refs}.")
+        references = references[:max_refs]
+        num_refs = max_refs
+
+    template_refs = template.get("_template_references", 4)
+    spawn_node_id_start = template.get("_spawn_node_id_start", 1001)
+    conditioning_node = template.get("_conditioning_node", "104")
+    conditioning_input_pattern = template.get("_conditioning_input_pattern", "images.image_{N}")
+
+    # Apply reference modifications
+    if num_refs < template_refs:
+        _prune_unused_refs(
+            workflow,
+            num_refs,
+            ref_slots,
+            conditioning_node,
+            conditioning_input_pattern
+        )
+    elif num_refs > template_refs:
+        _spawn_extra_refs(
+            workflow,
+            num_refs,
+            template_refs,
+            spawn_node_id_start,
+            conditioning_node,
+            conditioning_input_pattern
+        )
+
+    # Apply parameter overrides
+    overrides = shot_data.get("overrides", {})
+    overrides_map = template.get("_overrides_map", {})
+    workflow = _apply_overrides(workflow, overrides, overrides_map)
+
+    # Apply text substitutions
+    prompt_text = shot_data["prompt"]
+    negative_prompt = shot_data.get("negative_prompt", global_cfg.get("negative_prompt", ""))
+    seed = shot_data.get("seed", global_cfg.get("seed_base", 42))
+    width = global_cfg["width"]
+    height = global_cfg["height"]
+    filename_prefix = shot_data["filename_prefix"]
+
+    # Pad references to ensure all remaining slots are replaced
+    effective_refs_count = max(1, num_refs)
+    padded_refs = list(references)
+    while len(padded_refs) < effective_refs_count:
+        padded_refs.append(padded_refs[0] if padded_refs else "example.png")
+
+    # Walk the workflow dict and replace placeholder strings
+    workflow_str = json.dumps(workflow)
+
+    # String replacements
+    workflow_str = workflow_str.replace("__PROMPT__", _json_escape(prompt_text))
+    workflow_str = workflow_str.replace("__NEGATIVE_PROMPT__", _json_escape(negative_prompt))
+    workflow_str = workflow_str.replace("__FILENAME_PREFIX__", _json_escape(filename_prefix))
+
+    # Reference image replacements
+    for i in range(len(padded_refs)):
+        placeholder = f"__REFERENCE_{i+1}__"
+        if placeholder in workflow_str:
+            workflow_str = workflow_str.replace(placeholder, _json_escape(padded_refs[i]))
+
+    # Numeric replacements
+    workflow_str = workflow_str.replace('"__SEED__"', str(seed))
+    workflow_str = workflow_str.replace('"__WIDTH__"', str(width))
+    workflow_str = workflow_str.replace('"__HEIGHT__"', str(height))
+    workflow_str = workflow_str.replace('__SEED__', str(seed))
+    workflow_str = workflow_str.replace('__WIDTH__', str(width))
+    workflow_str = workflow_str.replace('__HEIGHT__', str(height))
+
+    result = json.loads(workflow_str)
+
+    # Verify no remaining placeholders
+    remaining = re.findall(r'__[A-Z_]+__', workflow_str)
+    if remaining:
+        print(f"   ⚠️ Unreplaced placeholders in workflow: {remaining}")
+
+    # Strip metadata keys starting with _
+    return {k: v for k, v in result.items() if not k.startswith("_")}
 
 
 def _json_escape(text):
@@ -290,7 +474,7 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
         shot_data_copy = shot_data
 
     # Build the workflow from template
-    workflow = build_workflow_from_template(workflow_template, shot_data_copy, global_cfg)
+    workflow = build_dynamic_workflow(workflow_template, shot_data_copy, global_cfg)
 
     # Queue the workflow
     result = curl_json("POST", "/prompt", base_url,
@@ -731,7 +915,7 @@ def main():
     if args.dry_run:
         print(f"\n🔍 Dry-run: building workflows for {len(shots)} shots...")
         for shot in shots:
-            workflow = build_workflow_from_template(workflow_template, shot, global_cfg)
+            workflow = build_dynamic_workflow(workflow_template, shot, global_cfg)
             prefix = shot["filename_prefix"]
             refs = shot.get("references", [])
             print(f"   ✅ {prefix}: {len(workflow)} nodes, refs={refs}")

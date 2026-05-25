@@ -1,6 +1,27 @@
 {
   "_comment": "HiDream O1 Image Dev (28-step, FP8) I2I workflow template. Placeholders: __PROMPT__, __REFERENCE_1-4__, __SEED__, __WIDTH__, __HEIGHT__, __FILENAME_PREFIX__",
-  "_max_references": 4,
+  "_max_references": 12,
+  "_template_references": 4,
+  "_reference_slots": {
+    "1": {"load_image_node": "213", "required": true},
+    "2": {"load_image_node": "233"},
+    "3": {"load_image_node": "234"},
+    "4": {"load_image_node": "235"}
+  },
+  "_conditioning_node": "104",
+  "_conditioning_input_pattern": "images.image_{N}",
+  "_spawn_node_id_start": 1001,
+  "_overrides_map": {
+    "image_edit":     {"node": "154", "key": "value"},
+    "cfg":            {"node": "108", "key": "cfg"},
+    "steps":          {"node": "112", "key": "steps"},
+    "denoise":        {"node": "112", "key": "denoise"},
+    "scheduler":      {"node": "112", "key": "scheduler"},
+    "noise_scale":    {"node": "124", "key": "noise_scale"},
+    "noise_clip_std": {"node": "125", "key": "noise_clip_std"},
+    "width":          {"node": "156", "key": "width"},
+    "height":         {"node": "156", "key": "height"}
+  },
   "_model_id": "hidream-o1-dev-2604",
   "_notes": "This workflow uses image-edit mode (Switch to Image Edit = true). Latent size is derived from first reference image. Prompt Refine is disabled (the agent composes the prompt). Supported 16:9 native resolution: 2560x1440.",
   "6": {

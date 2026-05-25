@@ -72,10 +72,25 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `shot` | int | Yes | Shot number (from manifest). |
 | `prompt` | string | Yes | **Full prompt text** for this shot. This is the agent's creative output — no templates, no placeholders. The agent composes this by reading the manifest, character specs, expressions, and the model's prompting guide. |
 | `negative_prompt` | string | No | Shot-specific negative prompt. Overrides `global.negative_prompt` if set. |
-| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count (Qwen: max 3, HiDream: max 4). |
+| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count. Qwen: max 3 (legacy padding), HiDream: max 12 (dynamic pruning/spawning). |
 | `seed` | int | No | Seed for this shot. Defaults to `global.seed_base` if not set. |
 | `filename_prefix` | string | Yes | Output filename prefix (e.g., `"scene_001_shot001"`). |
+| `overrides` | object | No | Optional workflow parameter overrides. Only applies to templates with `_overrides_map` metadata (currently HiDream only). Each key is an override name; value is written directly to the corresponding node input. |
 | `eval_context` | object | No | Metadata for Gemini Vision evaluation. Not used by the script for generation — only passed to the evaluator. |
+
+### Overrides Reference (HiDream O1 Dev)
+
+| Override Key | Type | Default | Description | Notes |
+|---|---|---|---|---|
+| `image_edit` | bool | `true` | Toggle I2I edit mode vs T2I generation | When `false`, references are bypassed — pure text-to-image |
+| `cfg` | float | `1.0` | Classifier-free guidance scale | Dev model: keep at 1.0. Full model: 3.0–5.0 |
+| `steps` | int | `28` | Sampling steps | Dev: 28, Fast: 16, Full: 50 |
+| `denoise` | float | `1.0` | Denoise strength | 1.0 = full generation, 0.5 = partial edit |
+| `noise_scale` | float | `7.6` | Diffusion noise scaling factor | Dev: 7.5–7.6, Full: 8.0 |
+| `noise_clip_std` | float | `2.5` | Noise clipping standard deviation | Usually keep at 2.5 |
+| `scheduler` | string | `"normal"` | Scheduler type | `normal`, `simple`, `karras` |
+| `width` | int | `2560` | Output width (must be multiple of 32) | Use HiDream native resolutions |
+| `height` | int | `1440` | Output height (must be multiple of 32) | Use HiDream native resolutions |
 
 ### Eval Context (for Gemini Vision evaluation)
 
@@ -99,7 +114,9 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 
 ### HiDream O1 Dev (`workflow_template: "hidream-o1-dev-i2i"`)
 
-- **Max references**: 4 images
+- **Max references**: 12 images (dynamic — script spawns LoadImage nodes as needed)
+- **Min references**: 1 image (required for latent size calculation)
+- **Overrides**: Supports per-shot `overrides` object for CFG, steps, noise_scale, image_edit toggle, etc.
 - **Resolution**: 2560×1440 (native 16:9, trained resolution)
 - **Prompt style**: Natural language paragraphs using SCALIST framework (Subject, Composition, Action, Location, Image style, Specs)
 - **Negative prompt**: **Leave empty** (Dev model, CFG 1.0 — negative prompt causes artifacts)

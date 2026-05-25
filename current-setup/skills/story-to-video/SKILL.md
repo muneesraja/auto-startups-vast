@@ -335,15 +335,18 @@ The number of reference image slots depends on the model:
 
 | Model | Max References | Notes |
 |---|---|---|
-| Qwen Image Edit 2511 | 3 | Script pads to 3 by duplicating first ref |
-| HiDream O1 Dev | 4 | Script pads to 4 by duplicating first ref |
+| Qwen Image Edit 2511 | 3 | Legacy template with static slot counts (pads to 3 by duplicating) |
+| HiDream O1 Dev | 12 | Dynamic template (prunes unused slots when <4, spawns slots when >4 up to 12) |
 
 **Reference selection rules (for the agent):**
 1. Use `{character_id}_reference_sheet.png` naming convention
-2. Include only characters present in the shot
+2. Include only characters present in the shot. **Do NOT pad reference lists manually** — the script handles pruning and spawning automatically.
 3. Order by visual importance (most important character first)
-4. If fewer refs than model slots, script auto-pads by duplicating
-5. Verify refs exist on the ComfyUI instance before composing
+4. Verify refs exist on the ComfyUI instance before composing
+
+### Agent Workflow Overrides
+
+For dynamic templates, the agent can specify an optional `overrides` object in `prompt.json` for per-shot parameter tuning (e.g. `image_edit` toggle, `cfg`, `steps`, `denoise`, `noise_scale`, `noise_clip_std`, `scheduler`, `width`, `height`). This gives the agent programmatic control over the generation process per shot. Required slot 1 is always preserved for latent size calculation in image-to-image mode.
 
 ### Available Workflow Templates
 
@@ -484,6 +487,9 @@ The `.json` files saved by ComfyUI UI use a different structure (`nodes[]` + `li
 
 ### 10. `Any Switch (rgthree)` Required for Routing
 Nodes 184 and 205 are Any Switch nodes that select between reference/latent inputs. They must be included in the API format — omitting them breaks the execution graph.
+
+### 11. Optional Inputs Can Be Omitted entirely
+In ComfyUI REST API format, optional inputs (such as additional reference image inputs on `HiDreamO1ReferenceImages`) can and should be omitted entirely from the JSON payload when unused. Sending them as `null` or empty strings can trigger validation errors on the server. Simply delete the key from the dictionary.
 
 ## Full Workflow Template (30 Nodes)
 
