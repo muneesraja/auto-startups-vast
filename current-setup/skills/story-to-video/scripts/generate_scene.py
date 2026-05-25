@@ -69,7 +69,7 @@ def curl_json(method, endpoint, base_url, data=None, timeout=30):
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
-def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=180):
+def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=600):
     """Poll /history/{prompt_id} until completion or error."""
     start = time.time()
     while time.time() - start < max_wait:

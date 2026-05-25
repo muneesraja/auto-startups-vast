@@ -3,24 +3,60 @@
   "_max_references": 12,
   "_template_references": 4,
   "_reference_slots": {
-    "1": {"load_image_node": "213", "required": true},
-    "2": {"load_image_node": "233"},
-    "3": {"load_image_node": "234"},
-    "4": {"load_image_node": "235"}
+    "1": {
+      "load_image_node": "213",
+      "required": true
+    },
+    "2": {
+      "load_image_node": "233"
+    },
+    "3": {
+      "load_image_node": "234"
+    },
+    "4": {
+      "load_image_node": "235"
+    }
   },
   "_conditioning_node": "104",
   "_conditioning_input_pattern": "images.image_{N}",
   "_spawn_node_id_start": 1001,
   "_overrides_map": {
-    "image_edit":     {"node": "154", "key": "value"},
-    "cfg":            {"node": "108", "key": "cfg"},
-    "steps":          {"node": "112", "key": "steps"},
-    "denoise":        {"node": "112", "key": "denoise"},
-    "scheduler":      {"node": "112", "key": "scheduler"},
-    "noise_scale":    {"node": "124", "key": "noise_scale"},
-    "noise_clip_std": {"node": "125", "key": "noise_clip_std"},
-    "width":          {"node": "156", "key": "width"},
-    "height":         {"node": "156", "key": "height"}
+    "image_edit": {
+      "node": "154",
+      "key": "value"
+    },
+    "cfg": {
+      "node": "108",
+      "key": "cfg"
+    },
+    "steps": {
+      "node": "112",
+      "key": "steps"
+    },
+    "denoise": {
+      "node": "112",
+      "key": "denoise"
+    },
+    "scheduler": {
+      "node": "112",
+      "key": "scheduler"
+    },
+    "noise_scale": {
+      "node": "124",
+      "key": "noise_scale"
+    },
+    "noise_clip_std": {
+      "node": "125",
+      "key": "noise_clip_std"
+    },
+    "width": {
+      "node": "156",
+      "key": "width"
+    },
+    "height": {
+      "node": "156",
+      "key": "height"
+    }
   },
   "_model_id": "hidream-o1-dev-2604",
   "_notes": "This workflow uses image-edit mode (Switch to Image Edit = true). Latent size is derived from first reference image. Prompt Refine is disabled (the agent composes the prompt). Supported 16:9 native resolution: 2560x1440.",
@@ -29,68 +65,133 @@
       "ckpt_name": "hidream_o1_image_dev_fp8_scaled.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
-    "_meta": {"title": "Load Checkpoint"}
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
   },
   "104": {
     "inputs": {
-      "positive": ["110", 0],
-      "negative": ["188", 0],
-      "images.image_1": ["213", 0],
-      "images.image_2": ["233", 0],
-      "images.image_3": ["234", 0],
-      "images.image_4": ["235", 0]
+      "positive": [
+        "110",
+        0
+      ],
+      "negative": [
+        "188",
+        0
+      ],
+      "images.image_1": [
+        "213",
+        0
+      ],
+      "images.image_2": [
+        "233",
+        0
+      ],
+      "images.image_3": [
+        "234",
+        0
+      ],
+      "images.image_4": [
+        "235",
+        0
+      ]
     },
     "class_type": "HiDreamO1ReferenceImages",
-    "_meta": {"title": "HiDream-O1 Reference Images"}
+    "_meta": {
+      "title": "HiDream-O1 Reference Images"
+    }
   },
   "105": {
     "inputs": {
-      "samples": ["108", 0],
-      "vae": ["6", 2]
+      "samples": [
+        "108",
+        0
+      ],
+      "vae": [
+        "6",
+        2
+      ]
     },
     "class_type": "VAEDecode",
-    "_meta": {"title": "VAE Decode"}
+    "_meta": {
+      "title": "VAE Decode"
+    }
   },
   "108": {
     "inputs": {
       "add_noise": true,
       "noise_seed": "__SEED__",
       "cfg": 1,
-      "model": ["124", 0],
-      "positive": ["152", 0],
-      "negative": ["153", 0],
-      "sampler": ["125", 0],
-      "sigmas": ["112", 0],
-      "latent_image": ["155", 0]
+      "model": [
+        "124",
+        0
+      ],
+      "positive": [
+        "152",
+        0
+      ],
+      "negative": [
+        "153",
+        0
+      ],
+      "sampler": [
+        "125",
+        0
+      ],
+      "sigmas": [
+        "112",
+        0
+      ],
+      "latent_image": [
+        "155",
+        0
+      ]
     },
     "class_type": "SamplerCustom",
-    "_meta": {"title": "SamplerCustom"}
+    "_meta": {
+      "title": "SamplerCustom"
+    }
   },
   "110": {
     "inputs": {
       "text": "__PROMPT__",
-      "clip": ["6", 1]
+      "clip": [
+        "6",
+        1
+      ]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": {"title": "CLIP Text Encode (Prompt)"}
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
   },
   "112": {
     "inputs": {
       "scheduler": "normal",
       "steps": 28,
       "denoise": 1,
-      "model": ["124", 0]
+      "model": [
+        "124",
+        0
+      ]
     },
     "class_type": "BasicScheduler",
-    "_meta": {"title": "BasicScheduler"}
+    "_meta": {
+      "title": "BasicScheduler"
+    }
   },
   "124": {
     "inputs": {
       "noise_scale": 7.6,
-      "model": ["6", 0]
+      "model": [
+        "6",
+        0
+      ]
     },
     "class_type": "ModelNoiseScale",
-    "_meta": {"title": "ModelNoiseScale"}
+    "_meta": {
+      "title": "ModelNoiseScale"
+    }
   },
   "125": {
     "inputs": {
@@ -99,41 +200,78 @@
       "noise_clip_std": 2.5
     },
     "class_type": "SamplerLCM",
-    "_meta": {"title": "SamplerLCM"}
+    "_meta": {
+      "title": "SamplerLCM"
+    }
   },
   "152": {
     "inputs": {
-      "switch": ["154", 0],
-      "on_false": ["110", 0],
-      "on_true": ["104", 0]
+      "switch": [
+        "154",
+        0
+      ],
+      "on_false": [
+        "110",
+        0
+      ],
+      "on_true": [
+        "104",
+        0
+      ]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": {"title": "Switch (positive conditioning)"}
+    "_meta": {
+      "title": "Switch (positive conditioning)"
+    }
   },
   "153": {
     "inputs": {
-      "switch": ["154", 0],
-      "on_false": ["188", 0],
-      "on_true": ["104", 1]
+      "switch": [
+        "154",
+        0
+      ],
+      "on_false": [
+        "188",
+        0
+      ],
+      "on_true": [
+        "104",
+        1
+      ]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": {"title": "Switch (negative conditioning)"}
+    "_meta": {
+      "title": "Switch (negative conditioning)"
+    }
   },
   "154": {
     "inputs": {
       "value": true
     },
     "class_type": "PrimitiveBoolean",
-    "_meta": {"title": "Switch to Image Edit"}
+    "_meta": {
+      "title": "Switch to Image Edit"
+    }
   },
   "155": {
     "inputs": {
-      "switch": ["154", 0],
-      "on_false": ["156", 0],
-      "on_true": ["172", 0]
+      "switch": [
+        "154",
+        0
+      ],
+      "on_false": [
+        "156",
+        0
+      ],
+      "on_true": [
+        "172",
+        0
+      ]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": {"title": "Switch (latent image)"}
+    "_meta": {
+      "title": "Switch (latent image)"
+    }
   },
   "156": {
     "inputs": {
@@ -142,92 +280,81 @@
       "batch_size": 1
     },
     "class_type": "EmptyHiDreamO1LatentImage",
-    "_meta": {"title": "Empty HiDream-O1 Latent Image (T2I fallback)"}
-  },
-  "157": {
-    "inputs": {
-      "image": ["196", 0]
-    },
-    "class_type": "GetImageSize",
-    "_meta": {"title": "Get Image Size"}
+    "_meta": {
+      "title": "Empty HiDream-O1 Latent Image (T2I fallback)"
+    }
   },
   "172": {
     "inputs": {
-      "width": ["218", 1],
-      "height": ["219", 1],
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
       "batch_size": 1
     },
     "class_type": "EmptyHiDreamO1LatentImage",
-    "_meta": {"title": "Empty HiDream-O1 Latent Image (I2I from ref)"}
+    "_meta": {
+      "title": "Empty HiDream-O1 Latent Image (I2I from ref)"
+    }
   },
   "188": {
     "inputs": {
       "text": "__NEGATIVE_PROMPT__",
-      "clip": ["6", 1]
+      "clip": [
+        "6",
+        1
+      ]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": {"title": "CLIP Text Encode (Negative)"}
-  },
-  "196": {
-    "inputs": {
-      "upscale_method": "lanczos",
-      "megapixels": 4,
-      "resolution_steps": 1,
-      "image": ["213", 0]
-    },
-    "class_type": "ImageScaleToTotalPixels",
-    "_meta": {"title": "ImageScaleToTotalPixels"}
+    "_meta": {
+      "title": "CLIP Text Encode (Negative)"
+    }
   },
   "213": {
     "inputs": {
       "image": "__REFERENCE_1__"
     },
     "class_type": "LoadImage",
-    "_meta": {"title": "Load Image (ref 1)"}
-  },
-  "218": {
-    "inputs": {
-      "expression": "floor(a/32)*32",
-      "values.a": ["157", 0]
-    },
-    "class_type": "ComfyMathExpression",
-    "_meta": {"title": "Math Expression (width)"}
-  },
-  "219": {
-    "inputs": {
-      "expression": "floor(a/32)*32",
-      "values.a": ["157", 1]
-    },
-    "class_type": "ComfyMathExpression",
-    "_meta": {"title": "Math Expression (height)"}
+    "_meta": {
+      "title": "Load Image (ref 1)"
+    }
   },
   "227": {
     "inputs": {
       "filename_prefix": "__FILENAME_PREFIX__",
-      "images": ["105", 0]
+      "images": [
+        "105",
+        0
+      ]
     },
     "class_type": "SaveImage",
-    "_meta": {"title": "Save Image"}
+    "_meta": {
+      "title": "Save Image"
+    }
   },
   "233": {
     "inputs": {
       "image": "__REFERENCE_2__"
     },
     "class_type": "LoadImage",
-    "_meta": {"title": "Load Image (ref 2)"}
+    "_meta": {
+      "title": "Load Image (ref 2)"
+    }
   },
   "234": {
     "inputs": {
       "image": "__REFERENCE_3__"
     },
     "class_type": "LoadImage",
-    "_meta": {"title": "Load Image (ref 3)"}
+    "_meta": {
+      "title": "Load Image (ref 3)"
+    }
   },
   "235": {
     "inputs": {
       "image": "__REFERENCE_4__"
     },
     "class_type": "LoadImage",
-    "_meta": {"title": "Load Image (ref 4)"}
+    "_meta": {
+      "title": "Load Image (ref 4)"
+    }
   }
 }
