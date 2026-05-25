@@ -75,7 +75,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count. Qwen: max 3 (legacy padding), HiDream: max 12 (dynamic pruning/spawning). |
 | `seed` | int | No | Seed for this shot. Defaults to `global.seed_base` if not set. |
 | `filename_prefix` | string | Yes | Output filename prefix (e.g., `"scene_001_shot001"`). |
-| `overrides` | object | No | Optional workflow parameter overrides. Only applies to templates with `_overrides_map` metadata (currently HiDream only). Each key is an override name; value is written directly to the corresponding node input. |
+| `overrides` | object | No | Optional workflow parameter overrides. Only applies to templates with `_overrides_map` metadata (such as HiDream and Flux). Each key is an override name; value is written directly to the corresponding node input. |
 | `eval_context` | object | No | Metadata for Gemini Vision evaluation. Not used by the script for generation — only passed to the evaluator. |
 
 ### Overrides Reference (HiDream O1 Dev)
@@ -91,6 +91,18 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `scheduler` | string | `"normal"` | Scheduler type | `normal`, `simple`, `karras` |
 | `width` | int | `2560` | Output width (must be multiple of 32) | Use HiDream native resolutions |
 | `height` | int | `1440` | Output height (must be multiple of 32) | Use HiDream native resolutions |
+
+### Overrides Reference (Flux 2 Klein 9B)
+
+| Override Key | Type | Default | Description | Notes |
+|---|---|---|---|---|
+| `cfg` | float | `1.0` | Guidance scale | Keep at 1.0 — distilled model; higher values cause artifacts |
+| `steps` | int | `4` | Sampling steps | 4 is optimal for Klein distilled; more steps give no quality gain |
+| `seed` | int | random | Noise seed | Direct write to `RandomNoise` node |
+| `megapixels_scale` | float | `1.0` | Reference image scaling factor | Applies to slot 1 only; spawned refs inherit 1.0 |
+
+> [!NOTE]
+> **Width and height are not overridable for Flux 2 Klein.** Resolution is locked to **1344×768** (Flux native 16:9, ~1MP) via hardcoded `INTConstant` nodes. This prevents incompatible aspect ratio combinations and ensures optimal quality. Use HiDream if you need different resolutions.
 
 ### Eval Context (for Gemini Vision evaluation)
 
@@ -110,7 +122,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Prompt style**: Include "Characters in this scene must match the provided reference images exactly" as anchor
 - **Expression format**: Use 3-region descriptors (mouth + eyes + brow)
 - **Negative prompt**: Supported via separate conditioning node
-- See `references/qwen-image-edit-prompting-guide.md` for full best practices
+- See `references/models/qwen-image-edit-prompting-guide.md` for full best practices
 
 ### HiDream O1 Dev (`workflow_template: "hidream-o1-dev-i2i"`)
 
@@ -121,8 +133,19 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Prompt style**: Natural language paragraphs using SCALIST framework (Subject, Composition, Action, Location, Image style, Specs)
 - **Negative prompt**: **Leave empty** (Dev model, CFG 1.0 — negative prompt causes artifacts)
 - **Steps**: 28, SamplerLCM, noise_scale 7.6
-- See `references/hidream-prompting-guide.md` for full best practices
+- See `references/models/hidream-prompting-guide.md` for full best practices
+
+### Flux 2 Klein 9B (`workflow_template: "flux-2-klein-image-edit"`)
+
+- **Max references**: 4 images (dynamic ReferenceLatent chain — script spawns LoadImage+Scale+VAE+ReferenceLatent sub-pipelines as needed)
+- **Min references**: 1 image (required for latent size calculation)
+- **Overrides**: Supports per-shot `overrides` object for CFG, steps, noise seed, and megapixels scale.
+- **Resolution**: 1344×768 (native 16:9, locked in workflow)
+- **Prompt style**: Natural language paragraphs with Reference Mapping Header.
+- **Negative prompt**: **Do not use** (model uses ConditioningZeroOut natively)
+- **Steps**: 4, SamplerCustomAdvanced, CFG 1.0
+- See `references/models/flux-2-klein-prompting-guide.md` for full best practices
 
 ## Example
 
-See `assets/examples/prompt-example-little-tiger.json` for a complete example using the little-tiger story.
+See `assets/examples/qwen/prompt-example-little-tiger.json` for a complete example using the little-tiger story.

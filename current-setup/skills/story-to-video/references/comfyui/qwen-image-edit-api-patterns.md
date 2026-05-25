@@ -125,7 +125,7 @@ Common execution error:
 
 ## Vision Evaluation Pattern (Gemini 2.5 Flash)
 
-After generating a scene, evaluate it against the expected description using Gemini 2.5 Flash via direct REST API (not the CLI). See `references/evaluate-loop-design.md` for full design.
+After generating a scene, evaluate it against the expected description using Gemini 2.5 Flash via direct REST API (not the CLI). See `references/evaluation/evaluate-loop-design.md` for full design.
 
 ```bash
 # Evaluate a single scene

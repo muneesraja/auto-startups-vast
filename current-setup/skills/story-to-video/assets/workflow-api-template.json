@@ -1,5 +1,5 @@
 {
-  "_comment": "Qwen Image Edit 2511 (4-step Lightning) API-format workflow template. Customize: image filenames (213/175/182), prompt (154/153), seed (3), filename_prefix (214). See references/comfyui-api-pitfalls.md for critical API gotchas.",
+  "_comment": "Qwen Image Edit 2511 (4-step Lightning) API-format workflow template. Customize: image filenames (213/175/182), prompt (154/153), seed (3), filename_prefix (214). See references/comfyui/api-pitfalls.md for critical API gotchas.",
   "197": {"class_type": "UNETLoader", "inputs": {"unet_name": "qwen_image_edit_2511_fp8_e4m3fn.safetensors", "weight_dtype": "default"}},
   "209": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["197", 0], "lora_name": "Qwen-Image-Lightning-4steps-V2.0.safetensors", "strength_model": 1}},
   "149": {"class_type": "TorchCompileModelQwenImage", "inputs": {"model": ["209", 0], "backend": "inductor", "fullgraph": false, "mode": "default", "dynamic": false, "creduce": true, "compile_shape": 64}},
