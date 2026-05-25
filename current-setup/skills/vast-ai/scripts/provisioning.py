@@ -52,6 +52,17 @@ def build_provisioning_env(profile: dict, workflow_url: Optional[str], hf_token:
     else:
         log("ℹ️", "No Cloudflare tunnel — instance will use quick tunnels")
 
+    # SSH fallback pubkey — injected into every instance via fast-provision.sh.
+    # Ensures guaranteed SSH access even if Vast.ai's key injection fails.
+    fallback_pub_path = os.path.expanduser("~/.ssh/vast_fallback.pub")
+    if os.path.exists(fallback_pub_path):
+        import base64
+        with open(fallback_pub_path, "rb") as f:
+            env["FALLBACK_PUBKEY_B64"] = base64.b64encode(f.read()).decode("ascii")
+        log("🔑", "SSH fallback pubkey included (injected by fast-provision.sh)")
+    else:
+        log("⚠️", "No ~/.ssh/vast_fallback.pub — SSH fallback not available")
+
     return env
 
 

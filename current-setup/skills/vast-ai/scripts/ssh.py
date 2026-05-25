@@ -15,13 +15,41 @@ from utils import log, run_cmd
 SSH_KEY_PATH: str = ""
 
 
+def get_fallback_pubkey_b64() -> str:
+    """Return base64-encoded fallback public key for env injection."""
+    fallback_pub = os.path.expanduser("~/.ssh/vast_fallback.pub")
+    if not os.path.exists(fallback_pub):
+        return ""
+    import base64
+    with open(fallback_pub, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+
+def generate_fallback_key() -> str:
+    """Generate the fallback SSH key if missing."""
+    key_path = os.path.expanduser("~/.ssh/vast_fallback")
+    if os.path.exists(key_path) and os.path.exists(key_path + ".pub"):
+        return key_path
+    ssh_dir = os.path.expanduser("~/.ssh")
+    os.makedirs(ssh_dir, exist_ok=True)
+    gen_result = run_cmd(
+        "ssh-keygen -t ed25519 -f ~/.ssh/vast_fallback -N '' -C 'vast-fallback'",
+        timeout=30
+    )
+    if gen_result["code"] != 0:
+        log("⚠️", f"Fallback SSH key generation failed: {gen_result['stderr']}")
+        return ""
+    log("✅", "Generated fallback SSH key at ~/.ssh/vast_fallback")
+    return key_path
+
+
 def detect_ssh_key(vast_client) -> str:
     """Detect or generate SSH key for Vast.ai.
 
-    Orders:
-    1. Check ~/.ssh/vast_ai_dedicated (our dedicated key)
-    2. Check ~/.ssh/id_ed25519 (default)
-    3. Generate new key if no match found
+    Priority:
+    1. ~/.ssh/vast_fallback (guaranteed — injected into every instance)
+    2. ~/.ssh/vast_ai_dedicated (registered with Vast.ai dashboard)
+    3. ~/.ssh/id_ed25519 (default system key)
 
     Args:
         vast_client: Initialized VastAI client instance.
@@ -30,11 +58,18 @@ def detect_ssh_key(vast_client) -> str:
     """
     global SSH_KEY_PATH
 
-    # Dedicated key path
+    # Step 0: Fallback key (our guaranteed access — ALWAYS works on instances
+    # where we inject the pubkey in fast-provision.sh)
+    fallback_key = os.path.expanduser("~/.ssh/vast_fallback")
+    if os.path.exists(fallback_key):
+        log("✅", "Using fallback SSH key at ~/.ssh/vast_fallback")
+        SSH_KEY_PATH = fallback_key
+        return fallback_key
+
+    # Step 1: Vast.ai registered keys
     dedicated_key = os.path.expanduser("~/.ssh/vast_ai_dedicated")
     default_key = os.path.expanduser("~/.ssh/id_ed25519")
 
-    # Step 1: Try dedicated key
     key_to_try = None
     if os.path.exists(dedicated_key) and os.path.exists(dedicated_key + ".pub"):
         log("ℹ️", "Found dedicated Vast.ai key at ~/.ssh/vast_ai_dedicated")
@@ -43,7 +78,6 @@ def detect_ssh_key(vast_client) -> str:
         log("ℹ️", "Found default SSH key at ~/.ssh/id_ed25519")
         key_to_try = default_key
 
-    # Validate key against Vast.ai by checking if the public key content matches
     if key_to_try:
         pub_path = key_to_try + ".pub"
         if os.path.exists(pub_path):
@@ -63,13 +97,11 @@ def detect_ssh_key(vast_client) -> str:
 
     # Step 2: Generate new dedicated key if no match
     log("⚠️", "No matching SSH key found - generating new dedicated key for Vast.ai")
-    log("⚠️", "IMPORTANT: OLD instances will NOT have this key - manual setup required")
+    log("⚠️", "IMPORTANT: OLD instances will NOT have this key")
 
-    # Create SSH directory if needed
     ssh_dir = os.path.expanduser("~/.ssh")
     os.makedirs(ssh_dir, exist_ok=True)
 
-    # Generate key
     gen_result = run_cmd(
         "ssh-keygen -t ed25519 -f ~/.ssh/vast_ai_dedicated -N '' -C 'aurora-vast-dedicated'",
         timeout=30
@@ -78,12 +110,10 @@ def detect_ssh_key(vast_client) -> str:
         raise RuntimeError(f"SSH key generation failed: {gen_result['stderr']}")
     log("✅", "Generated new SSH key at ~/.ssh/vast_ai_dedicated")
 
-    # Read public key
     pub_key_path = os.path.expanduser("~/.ssh/vast_ai_dedicated.pub")
     with open(pub_key_path, "r") as f:
         pub_key = f.read().strip()
 
-    # Register with Vast.ai
     log("📋", "Registering new key with Vast.ai...")
     try:
         reg_result = vast_client.create_ssh_key("aurora-vast-dedicated", pub_key)

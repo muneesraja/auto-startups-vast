@@ -65,6 +65,8 @@ class Offer:
             issues.append(f"Price ${self.dph_total:.4f} > ${profile['max_price_hr']:.2f}")
         if self.cuda_max_good < profile["cuda_min"]:
             issues.append(f"CUDA {self.cuda_max_good} < {profile['cuda_min']}")
+        if self.inet_down_cost_tb > profile.get("max_inet_down_cost_tb", 0.05):
+            issues.append(f"Internet cost ${self.inet_down_cost_tb:.2f}/TB > ${profile['max_inet_down_cost_tb']:.2f}/TB")
 
         # Driver version check (570.0.0+ required for CUDA 12.9)
         driver_min = profile.get("driver_min", "570.0.0")

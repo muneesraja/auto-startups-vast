@@ -81,7 +81,9 @@ def setup_vps_tunnel(label: str, cloudflare_config: dict, instance_ssh_host: str
     if "200" not in check["stdout"]:
         log("⚠️", f"ComfyUI not reachable via port-forward (HTTP {check['stdout']}) — tunnel may still work once cloudflared connects")
 
-    # Step 4: Write cloudflared config locally on this VPS
+    # Step 4: Write cloudflared config locally on this VPS in the DEFAULT path
+    # cloudflared v2026.3+ requires config to be at ~/.cloudflared/config.yml
+    # We use a label-specific symlink so multiple tunnels can coexist.
     config_dir = f"/tmp/cf-config-{label}"
     config_file = f"{config_dir}/config.yml"
     credentials_file = f"/root/.cloudflared/{tunnel_id}.json"
@@ -91,6 +93,7 @@ def setup_vps_tunnel(label: str, cloudflare_config: dict, instance_ssh_host: str
         return None
 
     os.makedirs(config_dir, exist_ok=True)
+    os.makedirs("/root/.cloudflared", exist_ok=True)
     config_content = f"""tunnel: {tunnel_id}
 credentials-file: {credentials_file}
 
@@ -105,16 +108,28 @@ ingress:
         f.write(config_content)
     log("📝", f"Cloudflared config written to {config_file}")
 
+    # Create symlink so cloudflared finds it at the default path.
+    # Multiple symlinked configs won't work simultaneously since all use
+    # ~/.cloudflared/config.yml. We rely on the provisioner only running
+    # one tunnel-setup at a time for a given label.
+    default_config = "/root/.cloudflared/config.yml"
+    # Backup any existing config
+    if os.path.exists(default_config) or os.path.islink(default_config):
+        run_cmd(f"mv {default_config} {default_config}.bak_$(date +%s) 2>/dev/null || true", timeout=5)
+    run_cmd(f"ln -sf {config_file} {default_config}", timeout=5)
+    log("🔗", f"Symlinked {default_config} -> {config_file}")
+
     # Step 5: Start cloudflared locally on this VPS in background
+    # v2026.3+ syntax: cloudflared tunnel run <TUNNEL_ID> (config is auto-loaded from ~/.cloudflared/)
     log_file = f"/tmp/cf-{label}.log"
-    cf_cmd = f"nohup /usr/bin/cloudflared tunnel --no-tls-verify --config {config_file} run {tunnel_id} > {log_file} 2>&1 &"
+    cf_cmd = f"nohup /usr/bin/cloudflared tunnel --no-tls-verify run {tunnel_id} > {log_file} 2>&1 &"
     log("🌐", "Starting cloudflared on VPS")
     run_cmd(cf_cmd, timeout=10)
 
     time.sleep(5)  # Wait for cloudflared to connect
 
     # Get cloudflared PID
-    cf_pid_result = run_cmd(f"pgrep -f 'cloudflared tunnel.*--config.*{config_file}' || true", timeout=5)
+    cf_pid_result = run_cmd(f"pgrep -f 'cloudflared tunnel.*run {tunnel_id}' || true", timeout=5)
     cf_pid = cf_pid_result["stdout"].strip().split("\n")[-1] if cf_pid_result["stdout"].strip() else "unknown"
 
     if cf_pid != "unknown":
@@ -178,26 +193,26 @@ def teardown_vps_tunnel(label: str) -> None:
     log("🧹", f"Cleaning up VPS tunnel for {label}")
 
     # Kill cloudflared
-    if cf_pid and cf_pid != "unknown":
-        run_cmd(f"kill {cf_pid} 2>/dev/null || true", timeout=5)
-        log("✅", f"Killed cloudflared (PID: {cf_pid})")
+    if cf_pid != "unknown":
+        run_cmd(f"kill -9 {cf_pid} 2>/dev/null || true", timeout=5)
+        log("🧹", f"Killed cloudflared (PID: {cf_pid})")
 
-    # Kill SSH port-forward
-    if ssh_pid and ssh_pid != "unknown":
-        run_cmd(f"kill {ssh_pid} 2>/dev/null || true", timeout=5)
-        log("✅", f"Killed SSH port forward (PID: {ssh_pid})")
+    # Kill SSH tunnel
+    if ssh_pid != "unknown":
+        run_cmd(f"kill -9 {ssh_pid} 2>/dev/null || true", timeout=5)
+        log("🧹", f"Killed SSH tunnel (PID: {ssh_pid})")
 
-    # Kill any remaining processes on the tunnel's local port
-    local_port = pids.get("local_port", "18188")
-    run_cmd(f"fuser -k {local_port}/tcp 2>/dev/null || true", timeout=5)
+    # Remove config dir and symlink
+    if config_dir:
+        run_cmd(f"rm -rf {config_dir} 2>/dev/null || true", timeout=5)
+        run_cmd("rm -f /root/.cloudflared/config.yml 2>/dev/null || true", timeout=5)
+        # Restore backup config if exists
+        run_cmd("ls -t /root/.cloudflared/config.yml.bak_* 2>/dev/null | head -1 | xargs -I {} mv {} /root/.cloudflared/config.yml 2>/dev/null || true", timeout=5)
+        log("🧹", f"Removed tunnel config for {label}")
 
-    # Clean up config directory
-    if config_dir and os.path.exists(config_dir):
-        run_cmd(f"rm -rf {config_dir}", timeout=5)
-
-    # Clean up log file
-    if log_file and os.path.exists(log_file):
-        run_cmd(f"rm -f {log_file}", timeout=5)
+    # Clean up log
+    if log_file:
+        run_cmd(f"rm -f {log_file} 2>/dev/null || true", timeout=5)
 
     del VPS_TUNNEL_PIDS[label]
-    log("✅", f"VPS tunnel for {label} cleaned up")
+    log("✅", f"VPS tunnel cleanup complete for {label}")

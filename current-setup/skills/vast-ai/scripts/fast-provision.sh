@@ -25,6 +25,25 @@ CF_TUNNEL_ID="${CF_TUNNEL_ID:-}"
 WORKFLOW_SCRIPT="${WORKFLOW_SCRIPT:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
+FALLBACK_PUBKEY_B64="${FALLBACK_PUBKEY_B64:-}"
+
+# =============================================================================
+# [0/8] SSH Fallback Key Injection
+# =============================================================================
+echo "=== [0/8] SSH Fallback Key Injection ==="
+
+if [ -n "$FALLBACK_PUBKEY_B64" ]; then
+    echo "Injecting fallback SSH key..."
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    echo "$FALLBACK_PUBKEY_B64" | base64 -d >> /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    # Ensure sshd reloads to pick up the new key (if sshd is already running)
+    pkill -HUP sshd 2>/dev/null || supervisorctl restart sshd 2>/dev/null || true
+    echo "✅ Fallback SSH key injected into /root/.ssh/authorized_keys"
+else
+    echo "⚠️ No FALLBACK_PUBKEY_B64 passed — relying on Vast.ai key injection (may fail on bad hosts)"
+fi
 
 # =============================================================================
 # [1/8] Wait for SSH
@@ -151,9 +170,10 @@ ingress:
 EOF
         echo "✅ config.yml created with ingress for ${CF_TUNNEL_HOSTNAME}"
 
-        # Start tunnel
+        # Start tunnel (cloudflared v2026.3+ dropped --config flag.
+        # Config must be at the default ~/.cloudflared/ path.)
         pkill -f "cloudflared tunnel" 2>/dev/null || true
-        nohup "$CLOUDFLARED_BIN" tunnel run --config /root/.cloudflared/config.yml \
+        nohup "$CLOUDFLARED_BIN" tunnel --no-tls-verify run "${CF_TUNNEL_ID}" \
           > /var/log/cloudflared.log 2>&1 &
 
         sleep 8
