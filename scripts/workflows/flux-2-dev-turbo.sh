@@ -33,7 +33,15 @@ for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
 done
 
 echo "==> Setting up ComfyUI nodes..."
-cd /workspace/ComfyUI
+# Platform-aware ComfyUI directory detection
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
+elif [ -d "/workspace/ComfyUI" ]; then
+  COMFYUI_DIR="/workspace/ComfyUI"
+else
+  COMFYUI_DIR="/workspace/ComfyUI"
+fi
+cd "$COMFYUI_DIR"
 if [ -f /venv/main/bin/activate ]; then
   source /venv/main/bin/activate
 fi
