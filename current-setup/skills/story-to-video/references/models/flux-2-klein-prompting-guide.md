@@ -1,6 +1,6 @@
 # Flux 2 Klein 9B Prompting Guide
 
-Flux 2 Klein 9B is a distilled flow-matching model using the Qwen 2.5 8B VL text/image encoder. It is optimized for 4-step generation and has a unique reference-guided character consistency pattern.
+Flux 2 Klein 9B is a distilled flow-matching model using the Qwen3 8B text/image encoder. It is optimized for 4-step generation and has a unique reference-guided character consistency pattern.
 
 ---
 
@@ -75,7 +75,15 @@ Toby stands in the sunlit clearing, looking down at his own stripe-less belly in
 - Since the model doesn't use negative conditioning, writing "no stripes on belly" or "not dark" in the prompt will cause the model to generate stripes or make the scene dark (because it sees those words in the positive text).
 - **Correct strategy**: Describe what IS present instead of what is NOT. Write: "plain orange fur" or "brightly lit clearing".
 
-### 3. Aspect Ratio Distortion
+> [!CAUTION]
+> **Do not populate the `negative_prompt` field**: The Flux pipeline utilizes `ConditioningZeroOut` for negative conditioning. Adding negative text to `negative_prompt` has no effect but creates visual noise and confusion in prompt.json. Always leave the `negative_prompt` field empty (`""`).
+
+### 3. Red-Saturation Bias & Color Correction
+- FLUX.2 Klein has a known tendency to output overly warm, reddish, or sunburned skin tones and landscapes.
+- **Mandatory suffix fix**: Always append a color grading suffix to the style block of every prompt:
+  `"balanced white balance, natural color grading, true-to-reference skin tones"`
+
+### 4. Aspect Ratio Distortion
 - Flux is highly sensitive to aspect ratio. The template locks dimensions to `1344×768` (16:9). Do not try to bypass this via overrides; always prompt with composition cues (e.g., "horizontal landscape view", "wide panoramic view") that fit a 16:9 container.
 
 ### 4. Characters Too Close Together
@@ -118,8 +126,9 @@ Before writing each shot prompt to `prompt.json`, the agent **MUST** verify all 
 | ✅ | **Shot-level character filter** | Only characters *actively in the shot action* get refs | If Toby is alone, only `["toby_reference_sheet.png"]` — no Taro ref |
 | ✅ | **Spatial positioning** (multi-char) | Explicit left/right/foreground/background placement | `"Toby foreground left, Taro background right"` |
 | ✅ | **Positive body-anchoring** | Describe the correct body, NOT what to avoid | `"one clean unbroken tail, four well-formed paws"` |
-| ✅ | **Token budget** | Prompt ≈ 50–150 tokens, hard cap 200 | If >200 tokens → abbreviate identity specs, drop repeated setting details |
+| ✅ | **Token budget** | Prompt ≈ 50–180 tokens, hard cap 250 | If >250 tokens → abbreviate identity specs, drop repeated setting details |
 | ✅ | **Camera framing** | Shot type + implied distance between chars | `"wide shot"`, `"medium shot, separated by several paces"` |
+| ✅ | **Color-grading suffix** | Color bias correction tokens at prompt end | `"balanced white balance, natural color grading"` |
 
 ### For MULTI-CHARACTER shots (2+ characters), ALSO verify:
 
@@ -135,4 +144,4 @@ After the **first shot** of a scene, you can abbreviate repeated elements:
 - **Style**: Drop after first shot in a scene (model carries context). Just `"3D Pixar-style"` instead of full style string.
 - **Setting**: Shorten to key nouns. `"jungle clearing"` instead of `"brightly lit jungle clearing with tall grass, wildflowers..."`.
 - **Identity specs**: After first mention, use short key features only. `"Toby: plain orange cub, blue eyes"` instead of full `identity_spec`.
-- **Never abbreviate**: Facial expressions, body-anchoring, spatial positioning.
+- **Never abbreviate**: Facial expressions, body-anchoring, spatial positioning, color-grading suffix.

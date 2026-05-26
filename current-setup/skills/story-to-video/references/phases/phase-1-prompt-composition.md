@@ -27,6 +27,8 @@ After character sheet approval and reference upload, the agent composes `prompt.
    - Art style directive
    - **Spatial positioning** for multi-character shots (e.g., "Toby foreground left, Taro background right")
    - **Positive body-anchoring** to prevent deformations (e.g., "one clean tail, four well-formed paws")
+   - **Color-grading suffix** (for Flux to fix red-saturation bias: `"balanced white balance, natural color grading"`)
+   - **Caution**: For Flux, ensure the `negative_prompt` field is left empty (`""`) or omitted from the shot.
 7. **Select reference images** — list the character reference sheet filenames per shot **based on shot-level character presence (step 2), NOT scene-level characters_present**
 8. **Populate `eval_context`** — include expected expressions, characters (shot-level), setting for Gemini evaluation
 9. **Write `prompt.json`** to the story working directory
@@ -42,7 +44,7 @@ Each model has an optimal prompt token range. The agent MUST stay within budget:
 |---|---|---|---|
 | Qwen Image Edit | 50–150 | 200 | Concise SCALIST style |
 | HiDream O1 Dev | 50–150 | 200 | Natural language paragraphs |
-| Flux 2 Klein | 50–150 | 200 | Concise natural language |
+| Flux 2 Klein | 50–180 | 250 | Concise natural language + color suffix |
 
 **How to stay within budget:**
 1. **Abbreviate identity after first mention**: In the first shot of a scene, use the full `identity_spec`. For subsequent shots in the same scene, shorten to: `"Toby (small orange cub, no stripes, blue eyes)"` — just enough to anchor the reference.

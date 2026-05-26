@@ -86,6 +86,15 @@ def load_prompts(prompts_path):
     # Validate prompt token lengths (warn if exceeding model budget)
     _validate_prompt_lengths(data)
 
+    # Warn if negative_prompt is set for Flux models (which ignore it)
+    model = data.get("model", "")
+    if "flux" in model.lower():
+        if global_cfg.get("negative_prompt"):
+            print("   ⚠️  WARNING: negative_prompt is populated in global settings, but Flux uses ConditioningZeroOut natively. It will be ignored.")
+        for shot in data.get("shots", []):
+            if shot.get("negative_prompt"):
+                print(f"   ⚠️  WARNING: Shot {shot.get('filename_prefix', 'unknown')} has negative_prompt set, which will be ignored by Flux.")
+
     return data
 
 
@@ -99,7 +108,7 @@ _CHARS_PER_TOKEN = 4
 _TOKEN_BUDGETS = {
     "qwen-image-edit-2511": {"ideal": 150, "max": 200},
     "hidream-o1-dev": {"ideal": 150, "max": 200},
-    "flux-2-klein-9b": {"ideal": 150, "max": 200},
+    "flux-2-klein-9b": {"ideal": 180, "max": 250},
 }
 _DEFAULT_TOKEN_BUDGET = {"ideal": 150, "max": 200}
 

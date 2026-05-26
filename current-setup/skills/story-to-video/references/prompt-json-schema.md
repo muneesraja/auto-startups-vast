@@ -59,7 +59,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `style` | string | Yes | — | Art style directive (e.g., `"children's book watercolor illustration"`). |
-| `negative_prompt` | string | No | `""` | Default negative prompt applied to all shots. |
+| `negative_prompt` | string | No | `""` | Default negative prompt applied to all shots. **For Flux 2 Klein**: Leave empty (`""`) as Flux uses ConditioningZeroOut and ignores negative text. |
 | `seed_base` | int | No | `42` | Base seed. Individual shots can override. |
 | `width` | int | Yes | — | Output image width in pixels. |
 | `height` | int | Yes | — | Output image height in pixels. |
@@ -70,8 +70,8 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 |---|---|---|---|
 | `scene` | int | Yes | Scene number (from manifest). |
 | `shot` | int | Yes | Shot number (from manifest). |
-| `prompt` | string | Yes | **Full prompt text** for this shot. This is the agent's creative output — no templates, no placeholders. The agent composes this by reading the manifest, character specs, expressions, and the model's prompting guide. |
-| `negative_prompt` | string | No | Shot-specific negative prompt. Overrides `global.negative_prompt` if set. |
+| `prompt` | string | Yes | **Full prompt text** for this shot. This is the agent's creative output. The agent composes this by reading the manifest, character specs, and the model's prompting guide. **For Flux 2 Klein**: Include the Reference Mapping Header and append color grading suffix tokens (staying under the 250 token budget). |
+| `negative_prompt` | string | No | Shot-specific negative prompt. Overrides `global.negative_prompt` if set. Ignored by Flux models. |
 | `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count. Qwen: max 3 (legacy padding), HiDream: max 12 (dynamic pruning/spawning). |
 | `seed` | int | No | Seed for this shot. Defaults to `global.seed_base` if not set. |
 | `filename_prefix` | string | Yes | Output filename prefix (e.g., `"scene_001_shot001"`). |
@@ -141,8 +141,8 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Min references**: 1 image (required for latent size calculation)
 - **Overrides**: Supports per-shot `overrides` object for CFG, steps, noise seed, and megapixels scale.
 - **Resolution**: 1344×768 (native 16:9, locked in workflow)
-- **Prompt style**: Natural language paragraphs with Reference Mapping Header.
-- **Negative prompt**: **Do not use** (model uses ConditioningZeroOut natively)
+- **Prompt style**: Natural language paragraphs with Reference Mapping Header and a color-grading suffix (`"balanced white balance, natural color grading"`). Keep within **250 tokens** warning budget (ideal: 180).
+- **Negative prompt**: **Do not use** (leave empty `""`; model uses ConditioningZeroOut natively)
 - **Steps**: 4, SamplerCustomAdvanced, CFG 1.0
 - See `references/models/flux-2-klein-prompting-guide.md` for full best practices
 
