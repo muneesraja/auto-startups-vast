@@ -146,6 +146,7 @@ The pipeline is split into distinct logical phases:
 | `qwen-image-edit-2511` | Qwen Image Edit 2511 + Lightning LoRA | 4 | 3 refs | ✅ Active |
 | `hidream-o1-dev-i2i` | HiDream O1 Dev FP8 | 28 | 4 refs | ✅ Active |
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
+| `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
 
 ---
 

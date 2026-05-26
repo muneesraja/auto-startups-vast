@@ -285,14 +285,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
 
     Falls back to legacy builder if template does not have _reference_slots metadata.
     """
-    ref_slots = template.get("_reference_slots")
-    if ref_slots is None:
-        return _build_workflow_legacy(template, shot_data, global_cfg)
-
-    # Deep copy raw template
-    workflow = copy.deepcopy(template)
-
-    # Get references and configurations
+    builder_type = template.get("_builder")
     references = list(shot_data.get("references", []))
 
     # Deduplicate references — same image in multiple slots causes
@@ -309,6 +302,19 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     references = deduped_refs
     num_refs = len(references)
 
+    if builder_type == "flux_reference_chain" and num_refs == 0:
+        # Auto-switch to T2I template (no references)
+        print("   🔄 Zero references — auto-switching to flux-2-klein-t2i template")
+        t2i_template = load_workflow_template("flux-2-klein-t2i")
+        return build_dynamic_workflow(t2i_template, shot_data, global_cfg)
+
+    ref_slots = template.get("_reference_slots")
+    if ref_slots is None and builder_type != "flux_t2i":
+        return _build_workflow_legacy(template, shot_data, global_cfg)
+
+    # Deep copy raw template
+    workflow = copy.deepcopy(template)
+
     # Limit number of references to max_references
     max_refs = template.get("_max_references", 12)
     if num_refs > max_refs:
@@ -322,8 +328,10 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     conditioning_input_pattern = template.get("_conditioning_input_pattern", "images.image_{N}")
 
     # Apply reference modifications
-    builder_type = template.get("_builder")
-    if builder_type == "flux_reference_chain":
+    if builder_type == "flux_t2i":
+        # Zero-reference T2I workflow has no references to prune or spawn
+        pass
+    elif builder_type == "flux_reference_chain":
         chain_endpoints = template.get("_chain_endpoints", {})
         if num_refs < template_refs:
             _prune_flux_refs(

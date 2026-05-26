@@ -29,7 +29,7 @@ After character sheet approval and reference upload, the agent composes `prompt.
    - **Positive body-anchoring** to prevent deformations (e.g., "one clean tail, four well-formed paws")
    - **Color-grading suffix** (for Flux to fix red-saturation bias: `"balanced white balance, natural color grading"`)
    - **Caution**: For Flux, ensure the `negative_prompt` field is left empty (`""`) or omitted from the shot.
-7. **Select reference images** — list the character reference sheet filenames per shot **based on shot-level character presence (step 2), NOT scene-level characters_present**
+7. **Select reference images** — list the character reference sheet filenames per shot **based on shot-level character presence (step 2), NOT scene-level characters_present**, or set `references: []` (empty array) for environment-only/establishing shots with no characters. The workflow builder will automatically switch to the T2I pipeline.
 8. **Populate `eval_context`** — include expected expressions, characters (shot-level), setting for Gemini evaluation
 9. **Write `prompt.json`** to the story working directory
 10. **Optionally present to user for review** before generation
@@ -144,5 +144,6 @@ Workflow templates live in `assets/workflow-templates/`. Each is a ComfyUI API-f
 | `qwen-image-edit-2511` | Qwen Image Edit 2511 + Lightning LoRA | 4 | 3 refs | ✅ Active |
 | `hidream-o1-dev-i2i` | HiDream O1 Dev FP8 | 28 | 4 refs | ✅ Active |
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
+| `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
 
 To add a new model: create a workflow template JSON with `__PROMPT__`, `__REFERENCE_N__`, `__SEED__`, `__WIDTH__`, `__HEIGHT__`, `__FILENAME_PREFIX__` placeholders.

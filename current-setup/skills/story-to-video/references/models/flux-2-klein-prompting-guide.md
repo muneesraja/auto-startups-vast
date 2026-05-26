@@ -65,6 +65,22 @@ Toby stands in the sunlit clearing, looking down at his own stripe-less belly in
 
 ---
 
+## Establishing Shots (Zero References)
+
+For shots that establish the environment or show landscapes where no characters are present, you should use the zero-reference Text-to-Image (T2I) pipeline:
+
+### How to configure:
+1. Set `"references": []` in the shot object in `prompt.json`.
+2. Do **NOT** include the Reference Mapping Header in the prompt text.
+3. The workflow builder will automatically detect `num_refs == 0` and switch the template from `flux-2-klein-image-edit` to `flux-2-klein-t2i`.
+
+### Zero-Reference Prompt Example:
+```text
+Wide panoramic establishing shot of a lush tropical jungle — tall bamboo stalks, broad banana leaves, colorful wildflowers, golden sunlight streaming through a thick emerald canopy, misty air. 3D Pixar-style animation, rich textures, balanced white balance, natural color grading.
+```
+
+---
+
 ## Performance & Quality Pitfalls
 
 ### 1. The "Keyword Salad" Pitfall
@@ -122,8 +138,8 @@ Before writing each shot prompt to `prompt.json`, the agent **MUST** verify all 
 
 | # | Check | What to include | Example |
 |---|---|---|---|
-| ✅ | **Reference mapping header** | Anchor phrase + per-character ref mapping | `"Characters in this scene must match the provided reference images exactly: - Toby (first reference): ..."` |
-| ✅ | **Shot-level character filter** | Only characters *actively in the shot action* get refs | If Toby is alone, only `["toby_reference_sheet.png"]` — no Taro ref |
+| ✅ | **Reference mapping header** | Anchor phrase + per-character ref mapping | `"Characters in this scene must match the provided reference images exactly: - Toby (first reference): ..."` (Skip for zero-reference shots) |
+| ✅ | **Shot-level character filter** | Only characters *actively in the shot action* get refs | If Toby is alone, only `["toby_reference_sheet.png"]` — no Taro ref (Empty `[]` for zero-reference shots) |
 | ✅ | **Spatial positioning** (multi-char) | Explicit left/right/foreground/background placement | `"Toby foreground left, Taro background right"` |
 | ✅ | **Positive body-anchoring** | Describe the correct body, NOT what to avoid | `"one clean unbroken tail, four well-formed paws"` |
 | ✅ | **Token budget** | Prompt ≈ 50–180 tokens, hard cap 250 | If >250 tokens → abbreviate identity specs, drop repeated setting details |

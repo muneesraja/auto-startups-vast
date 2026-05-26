@@ -72,7 +72,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `shot` | int | Yes | Shot number (from manifest). |
 | `prompt` | string | Yes | **Full prompt text** for this shot. This is the agent's creative output. The agent composes this by reading the manifest, character specs, and the model's prompting guide. **For Flux 2 Klein**: Include the Reference Mapping Header and append color grading suffix tokens (staying under the 250 token budget). |
 | `negative_prompt` | string | No | Shot-specific negative prompt. Overrides `global.negative_prompt` if set. Ignored by Flux models. |
-| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count. Qwen: max 3 (legacy padding), HiDream: max 12 (dynamic pruning/spawning). |
+| `references` | array[string] | Yes | List of reference image filenames available on the ComfyUI instance. Variable length — adapts to model's reference slot count. Qwen: max 3 (legacy padding), HiDream: max 12 (dynamic pruning/spawning). May be empty (`[]`) for establishing shots with no characters — the workflow builder will auto-switch to the T2I template. |
 | `seed` | int | No | Seed for this shot. Defaults to `global.seed_base` if not set. |
 | `filename_prefix` | string | Yes | Output filename prefix (e.g., `"scene_001_shot001"`). |
 | `overrides` | object | No | Optional workflow parameter overrides. Only applies to templates with `_overrides_map` metadata (such as HiDream and Flux). Each key is an override name; value is written directly to the corresponding node input. |
@@ -99,7 +99,7 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 | `cfg` | float | `1.0` | Guidance scale | Keep at 1.0 — distilled model; higher values cause artifacts |
 | `steps` | int | `4` | Sampling steps | 4 is optimal for Klein distilled; more steps give no quality gain |
 | `seed` | int | random | Noise seed | Direct write to `RandomNoise` node |
-| `megapixels_scale` | float | `1.0` | Reference image scaling factor | Applies to slot 1 only; spawned refs inherit 1.0 |
+| `megapixels_scale` | float | `1.0` | Reference image scaling factor | Applies to slot 1 only; spawned refs inherit 1.0; ignored in T2I mode |
 
 > [!NOTE]
 > **Width and height are not overridable for Flux 2 Klein.** Resolution is locked to **1344×768** (Flux native 16:9, ~1MP) via hardcoded `INTConstant` nodes. This prevents incompatible aspect ratio combinations and ensures optimal quality. Use HiDream if you need different resolutions.
@@ -135,14 +135,14 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Steps**: 28, SamplerLCM, noise_scale 7.6
 - See `references/models/hidream-prompting-guide.md` for full best practices
 
-### Flux 2 Klein 9B (`workflow_template: "flux-2-klein-image-edit"`)
+### Flux 2 Klein 9B (`workflow_template: "flux-2-klein-image-edit"` or `"flux-2-klein-t2i"`)
 
-- **Max references**: 4 images (dynamic ReferenceLatent chain — script spawns LoadImage+Scale+VAE+ReferenceLatent sub-pipelines as needed)
-- **Min references**: 1 image (required for latent size calculation)
-- **Overrides**: Supports per-shot `overrides` object for CFG, steps, noise seed, and megapixels scale.
+- **Max references**: 4 images for `flux-2-klein-image-edit` (dynamic ReferenceLatent chain); 0 images for `flux-2-klein-t2i`
+- **Min references**: 0 images (setting `references: []` in prompt.json auto-switches to the `flux-2-klein-t2i` template)
+- **Overrides**: Supports per-shot `overrides` object for CFG, steps, noise seed, and megapixels scale (megapixels scale is I2I only).
 - **Resolution**: 1344×768 (native 16:9, locked in workflow)
-- **Prompt style**: Natural language paragraphs with Reference Mapping Header and a color-grading suffix (`"balanced white balance, natural color grading"`). Keep within **250 tokens** warning budget (ideal: 180).
-- **Negative prompt**: **Do not use** (leave empty `""`; model uses ConditioningZeroOut natively)
+- **Prompt style**: Natural language paragraphs. For I2I, include Reference Mapping Header. For both, append a color-grading suffix (`"balanced white balance, natural color grading"`). Keep within **250 tokens** warning budget (ideal: 180).
+- **Negative prompt**: **Do not use** (leave empty `""`; model uses ConditioningZeroOut or empty CLIPTextEncode natively)
 - **Steps**: 4, SamplerCustomAdvanced, CFG 1.0
 - See `references/models/flux-2-klein-prompting-guide.md` for full best practices
 

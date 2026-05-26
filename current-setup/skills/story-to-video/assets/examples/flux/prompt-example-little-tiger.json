@@ -63,6 +63,20 @@
         },
         "action": "Taro bounds over to Toby with an encouraging expression, one paw raised mid-stride. Toby looks up from the ground."
       }
+    },
+    {
+      "scene": 2,
+      "shot": 1,
+      "prompt": "Wide panoramic establishing shot of a lush tropical jungle — tall bamboo stalks, broad banana leaves, colorful wildflowers, golden sunlight streaming through a thick emerald canopy, misty air. 3D Pixar-style animation, rich textures, balanced white balance, natural color grading.",
+      "references": [],
+      "seed": 45,
+      "filename_prefix": "scene_002_shot001",
+      "eval_context": {
+        "characters_present": [],
+        "setting": "lush tropical jungle with bamboo, banana leaves, wildflowers, and misty golden light",
+        "mood": "serene, inviting",
+        "action": "Establishing wide shot of the jungle environment"
+      }
     }
   ]
 }
