@@ -81,21 +81,45 @@ GPU_PROFILES = {
 }
 
 WORKFLOW_ALIASES = {
-    "wan22": "wan22-download.sh",
-    "wan": "wan22-download.sh",
-    "wan 2.2": "wan22-download.sh",
-    "wan2.2": "wan22-download.sh",
-    "wanvideo": "wan22-download.sh",
-    "prompt_relay_ltx23_test_02": "prompt_relay_ltx23_test_02.sh",
-    "prompt-relay-ltx23-test-02": "prompt_relay_ltx23_test_02.sh",
-    "ltx23-prompt-relay": "prompt_relay_ltx23_test_02.sh",
-    "ltx23-oldman-redpanda": "prompt_relay_ltx23_test_02.sh",
-    "kijai-ltx2.3": "kijai-ltx2.3.sh",
-    "ltx-23-prompt-relay": "ltx-23-prompt-relay-download.sh",
-    "ltx2-keyframing": "ltx2-keyframing.sh",
-    "ltx2.3-img2video": "ltx2.3-img2video.sh",
-    "qwen": "qwen-image-download.sh",
-    "qwen-image": "qwen-image-download.sh",
+    # Wan 2.2
+    "wan22": "wan-22-i2v-keyframe.sh",
+    "wan": "wan-22-i2v-keyframe.sh",
+    "wan 2.2": "wan-22-i2v-keyframe.sh",
+    "wan2.2": "wan-22-i2v-keyframe.sh",
+    "wanvideo": "wan-22-i2v-keyframe.sh",
+    "wan-22-i2v-keyframe": "wan-22-i2v-keyframe.sh",
+    # LTX 2.3 — Prompt Relay
+    "ltx-23-prompt-relay": "ltx-23-prompt-relay.sh",
+    "ltx23-prompt-relay": "ltx-23-prompt-relay.sh",
+    "ltx23-pr": "ltx-23-prompt-relay.sh",
+    # LTX 2.3 — I2V Keyframe
+    "ltx-23-i2v-keyframe": "ltx-23-i2v-keyframe.sh",
+    "ltx-keyframe": "ltx-23-i2v-keyframe.sh",
+    # LTX 2.3 — I2V Distilled
+    "ltx-23-i2v-distilled": "ltx-23-i2v-distilled.sh",
+    "ltx-distilled": "ltx-23-i2v-distilled.sh",
+    # LTX 2.3 — I2V Official (Lightricks)
+    "ltx-23-i2v-official": "ltx-23-i2v-official.sh",
+    "ltx-official": "ltx-23-i2v-official.sh",
+    # Qwen Image Edit
+    "qwen": "qwen-image-edit.sh",
+    "qwen-image": "qwen-image-edit.sh",
+    "qwen-image-edit": "qwen-image-edit.sh",
+    # Qwen Image Edit 2511 4-Step Lightning
+    "qwen-2511": "qwen-image-edit-2511-4steps.sh",
+    "qwen-image-edit-2511-4steps": "qwen-image-edit-2511-4steps.sh",
+    "qwen-image-edit-2511": "qwen-image-edit-2511-4steps.sh",
+    "qwen-image-lightning-4steps": "qwen-image-edit-2511-4steps.sh",
+    # HiDream O1 Image Dev I2I
+    "hidream-o1": "hidream-o1-dev-i2i.sh",
+    "hidream-o1-dev-i2i": "hidream-o1-dev-i2i.sh",
+    "hidream": "hidream-o1-dev-i2i.sh",
+    "hidream-o1-dev": "hidream-o1-dev-i2i.sh",
+    "hidream-gemma4": "hidream-o1-dev-i2i.sh",
+    # Flux.2 Klein 9B Image Edit
+    "flux-2-klein": "flux-2-klein-image-edit.sh",
+    "flux-klein": "flux-2-klein-image-edit.sh",
+    "flux2-klein": "flux-2-klein-image-edit.sh",
 }
 
 

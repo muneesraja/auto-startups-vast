@@ -1,9 +1,18 @@
 ---
 name: runpod-ai
-description: Provision, monitor, and manage RunPod Community Cloud RTX 3090 pods with runpodctl. Includes a budget-conscious provisioning script, lifecycle commands, and troubleshooting notes for daily rent-and-destroy workflows.
+description: Provision, monitor, and manage RunPod Community Cloud RTX 3090 pods with runpodctl. Includes a budget-conscious provisioning script, lifecycle commands, remote workflow execution on existing pods, and troubleshooting notes for daily rent-and-destroy workflows.
 ---
 
 # RunPod - Community Cloud GPU Pod Provisioning
+
+## Repo Awareness
+
+All workflow scripts live in the **`muneesraja/auto-startups-vast`** GitHub repo under `scripts/workflows/`. The provisioning script and this skill resolve friendly aliases to raw GitHub URLs. Workflow scripts are platform-aware — they detect RunPod vs Vast.ai and set `BASE_DIR` accordingly:
+
+- **RunPod:** `/workspace/runpod-slim/ComfyUI/models`
+- **Vast.ai:** `/workspace/ComfyUI/models`
+
+The `~/.hermes/skills/runpod-ai` directory is a symlink to the repo at `~/repos/auto-startups-vast/current-setup/skills/runpod-ai`. Changes made via the Hermes skill path are reflected in the repo and vice versa.
 
 ## Provisioning - USE THE SCRIPT
 
@@ -52,13 +61,6 @@ What the script does:
     - Downloads workflow script from GitHub
     - Launches workflow in tmux session `workflow`
 
-Workflow aliases:
-
-- `wan22`, `wan`, `wan 2.2`, `wanvideo` -> `wan22-download.sh`
-- `prompt_relay_ltx23_test_02`, `ltx23-prompt-relay` -> `prompt_relay_ltx23_test_02.sh`
-- `qwen`, `qwen-image` -> `qwen-image-download.sh`
-- `kijai-ltx2.3`, `ltx2.3-img2video`, `ltx2-keyframing`, etc.
-
 Default template:
 
 ```text
@@ -68,6 +70,154 @@ runpod/comfyui:latest (template ID: cw3nka7d08)
 The provisioning script uses the RunPod ComfyUI template which comes with ComfyUI pre-installed. Workflow scripts auto-detect the platform and use the correct base directory:
 - RunPod: `/workspace/runpod-slim/ComfyUI/models`
 - Vast.ai: `/workspace/ComfyUI/models`
+
+---
+
+## Running Workflows on Existing Pods
+
+When the user says "run this script on the instance" or "run flux-2-klein on pod jgcsq9hytybk5i", use the SSH execution method below. This works for **any** pod that's already running — no re-provisioning needed.
+
+### Workflow Alias Registry
+
+All workflow scripts come from `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/`. Use the alias to resolve the filename:
+
+| Alias(es) | Script File | Size | Min VRAM |
+|---|---|---|---|
+| `wan22`, `wan`, `wan 2.2`, `wanvideo` | `wan-22-i2v-keyframe.sh` | ~25GB | 24GB |
+| `ltx-23-prompt-relay`, `ltx23-pr` | `ltx-23-prompt-relay.sh` | ~61.4GB | 24GB |
+| `ltx-23-i2v-keyframe`, `ltx-keyframe` | `ltx-23-i2v-keyframe.sh` | ~60GB | 24GB |
+| `ltx-23-i2v-distilled`, `ltx-distilled` | `ltx-23-i2v-distilled.sh` | ~35GB | 24GB |
+| `ltx-23-i2v-official`, `ltx-official` | `ltx-23-i2v-official.sh` | ~47GB | 24GB |
+| `qwen`, `qwen-image`, `qwen-image-edit` | `qwen-image-edit.sh` | varies | 24GB |
+| `qwen-2511`, `qwen-image-edit-2511-4steps` | `qwen-image-edit-2511-4steps.sh` | ~31.4GB | 24GB |
+| `hidream-o1`, `hidream-o1-dev-i2i`, `hidream` | `hidream-o1-dev-i2i.sh` | ~18.5GB | 24GB |
+| `flux-2-klein`, `flux-klein`, `flux2-klein` | `flux-2-klein-image-edit.sh` | ~18.4GB | 24GB |
+
+You can also pass the exact filename (with or without `.sh`).
+
+### Step-by-Step: Run a Workflow on an Existing Pod
+
+**1. Get SSH connection info**
+
+```bash
+runpodctl ssh info <POD_ID>
+```
+
+This outputs JSON with `ip` and `port` fields. The SSH key is at `/root/.runpod/ssh/RunPod-Key-Go`.
+
+**2. Upload the HF download helper**
+
+```bash
+SSH_KEY="/root/.runpod/ssh/RunPod-Key-Go"
+curl -sSL "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/_hf_download.sh" | \
+  ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p <PORT> root@<IP> "cat > /workspace/_hf_download.sh && chmod +x /workspace/_hf_download.sh"
+```
+
+**3. Download the workflow script onto the pod**
+
+```bash
+WF_URL="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<SCRIPT_FILE>"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p <PORT> root@<IP> \
+  "curl -sSL '$WF_URL' -o /workspace/workflow-setup.sh && chmod +x /workspace/workflow-setup.sh"
+```
+
+**4. Run the workflow in tmux**
+
+```bash
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p <PORT> root@<IP> \
+  "tmux kill-session -t workflow 2>/dev/null || true; \
+   tmux new-session -d -s workflow 'export HF_TOKEN=\"<HF_TOKEN>\" && export HF_HUB_ENABLE_HF_TRANSFER=1 && bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log'"
+```
+
+**5. Monitor progress**
+
+```bash
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p <PORT> root@<IP> \
+  "tail -20 /workspace/workflow.log"
+```
+
+Or check if the tmux session is still running:
+
+```bash
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p <PORT> root@<IP> \
+  "tmux list-sessions 2>/dev/null && echo '--- Running ---' || echo '--- No sessions ---'"
+```
+
+**6. Quick one-liner (all steps combined)**
+
+For convenience, here's a template that does steps 2-4 in one go:
+
+```bash
+POD_ID="<POD_ID>"
+SSH_KEY="/root/.runpod/ssh/RunPod-Key-Go"
+WORKFLOW="<alias_or_filename>"
+HF_TOKEN="<HF_TOKEN>"
+
+# Resolve alias to filename
+case "$WORKFLOW" in
+  wan22|wan|wan2.2|wanvideo) WF_FILE="wan-22-i2v-keyframe.sh" ;;
+  ltx-23-prompt-relay|ltx23-pr) WF_FILE="ltx-23-prompt-relay.sh" ;;
+  ltx-23-i2v-keyframe|ltx-keyframe) WF_FILE="ltx-23-i2v-keyframe.sh" ;;
+  ltx-23-i2v-distilled|ltx-distilled) WF_FILE="ltx-23-i2v-distilled.sh" ;;
+  ltx-23-i2v-official|ltx-official) WF_FILE="ltx-23-i2v-official.sh" ;;
+  qwen|qwen-image|qwen-image-edit) WF_FILE="qwen-image-edit.sh" ;;
+  qwen-2511|qwen-image-edit-2511-4steps) WF_FILE="qwen-image-edit-2511-4steps.sh" ;;
+  hidream-o1|hidream-o1-dev-i2i|hidream) WF_FILE="hidream-o1-dev-i2i.sh" ;;
+  flux-2-klein|flux-klein|flux2-klein) WF_FILE="flux-2-klein-image-edit.sh" ;;
+  *) WF_FILE="${WORKFLOW%.sh}.sh" ;;
+esac
+
+WF_URL="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/$WF_FILE"
+
+# Get SSH info
+SSH_INFO=$(runpodctl ssh info "$POD_ID" -o json)
+IP=$(echo "$SSH_INFO" | jq -r '.ip // .host')
+PORT=$(echo "$SSH_INFO" | jq -r '.port')
+
+echo "📋 Pod: $POD_ID | IP: $IP | Port: $PORT | Workflow: $WF_FILE"
+
+# Upload HF helper + download workflow + run in tmux
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p "$PORT" "root@$IP" "
+  mkdir -p /root/config
+  echo '{\"huggingface_token\": \"$HF_TOKEN\"}' > /root/config/token.json
+  curl -sSL 'https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/_hf_download.sh' -o /workspace/_hf_download.sh
+  chmod +x /workspace/_hf_download.sh
+  curl -sSL '$WF_URL' -o /workspace/workflow-setup.sh
+  chmod +x /workspace/workflow-setup.sh
+  tmux kill-session -t workflow 2>/dev/null || true
+  tmux new-session -d -s workflow 'export HF_TOKEN=\"$HF_TOKEN\" && export HF_HUB_ENABLE_HF_TRANSFER=1 && export BASE_DIR=/workspace/runpod-slim/ComfyUI/models && bash /workspace/workflow-setup.sh 2>&1 | tee /workspace/workflow.log'
+  echo '✅ Workflow launched in tmux session: workflow'
+  echo '📊 Monitor with: ssh -i $SSH_KEY -p $PORT root@$IP \"tail -20 /workspace/workflow.log\"'
+"
+```
+
+### HF Token
+
+The HF token is stored at `/root/config/token.json`:
+
+```json
+{
+  "huggingface_token": "hf_...",
+  "runpod_api_key": "rpa_...",
+  "discord_webhook_url": "https://discord.com/api/webhooks/..."
+}
+```
+
+It's also available as `HF_TOKEN` in `/root/.hermes/skills/runpod-ai/.env` (if symlinks are set up) and `/root/.hermes/skills/vast-ai/.env`.
+
+### Troubleshooting Remote Workflow Execution
+
+| Problem | Solution |
+|---|---|
+| `runpodctl ssh info` returns empty | Wait 30-60s after pod RUNNING; SSH can lag |
+| `Permission denied (publickey)` | Verify the SSH key path: `ls -la /root/.runpod/ssh/RunPod-Key-Go` |
+| `curl: command not found` on pod | Pod may still be bootstrapping; wait and retry |
+| Workflow script fails with `hf_download: not found` | The `_hf_download.sh` helper wasn't uploaded properly — re-upload it |
+| Downloads are slow (<10 MB/s) | Check `HF_TOKEN` is set — anonymous downloads are rate-limited |
+| Models go to wrong directory | Verify `BASE_DIR` — RunPod uses `/workspace/runpod-slim/ComfyUI/models` |
+| tmux session not found | The workflow finished (or crashed). Check `/workspace/workflow.log` for errors |
+
+---
 
 ## GPU Requirements & Fallback Hierarchy
 
