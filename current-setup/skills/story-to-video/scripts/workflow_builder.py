@@ -294,6 +294,19 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
 
     # Get references and configurations
     references = list(shot_data.get("references", []))
+
+    # Deduplicate references — same image in multiple slots causes
+    # the model to hallucinate duplicate characters
+    seen = set()
+    deduped_refs = []
+    for ref in references:
+        if ref not in seen:
+            deduped_refs.append(ref)
+            seen.add(ref)
+    if len(deduped_refs) < len(references):
+        removed = len(references) - len(deduped_refs)
+        print(f"   ⚠️ Deduplicated references: removed {removed} duplicate ref(s) ({references} → {deduped_refs})")
+    references = deduped_refs
     num_refs = len(references)
 
     # Limit number of references to max_references
@@ -360,13 +373,9 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     height = global_cfg["height"]
     filename_prefix = shot_data["filename_prefix"]
 
-    # Pad references to ensure all remaining slots are replaced
-    effective_refs_count = max(1, num_refs)
-    padded_refs = list(references)
-    while len(padded_refs) < effective_refs_count:
-        padded_refs.append(padded_refs[0] if padded_refs else "example.png")
-
-    # Walk the workflow dict and replace placeholder strings
+    # Replace reference placeholders — do NOT pad with duplicates
+    # If a placeholder remains after pruning (shouldn't happen), it will be caught
+    # by the remaining-placeholders check below
     workflow_str = json.dumps(workflow)
 
     # String replacements
@@ -374,11 +383,10 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     workflow_str = workflow_str.replace("__NEGATIVE_PROMPT__", _json_escape(negative_prompt))
     workflow_str = workflow_str.replace("__FILENAME_PREFIX__", _json_escape(filename_prefix))
 
-    # Reference image replacements
-    for i in range(len(padded_refs)):
+    for i in range(len(references)):
         placeholder = f"__REFERENCE_{i+1}__"
         if placeholder in workflow_str:
-            workflow_str = workflow_str.replace(placeholder, _json_escape(padded_refs[i]))
+            workflow_str = workflow_str.replace(placeholder, _json_escape(references[i]))
 
     # Numeric replacements
     workflow_str = workflow_str.replace('"__SEED__"', str(seed))

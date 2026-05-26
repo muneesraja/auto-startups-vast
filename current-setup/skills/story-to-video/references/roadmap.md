@@ -28,6 +28,36 @@
 - [ ] **Fox reference sheet**: Generate the missing character ref and upload
 - [ ] **Character consistency late scenes**: Multi-character scenes (4+ chars like Scene 6) show character drift — some characters don't match their reference sheets. Likely caused by only 3 ref slots (4th+ character gets no visual anchor). Investigate: stronger identity text in prompt, negative prompts for wrong features, or split multi-char scenes.
 
+## Post-Execution Debug (Little Tiger, Flux 2 Klein Run — May 25)
+
+### 🔴 Critical: Reference Duplication
+- **21/42 shots** had `toby_reference_sheet.png` duplicated to pad the 2-slot minimum
+- Causes model to hallucinate duplicate characters (two Tobys)
+- **Fix applied**: Updated Phase 1.5 docs — "NEVER duplicate refs, builder handles it"
+- **Remaining**: Verify `workflow_builder.py` correctly handles single-ref pruning for Flux (template min = 2 slots)
+
+### 🔴 Critical: Shot-level Character Filtering
+- **7 shots** attached Taro's reference when Taro was NOT in the shot action (close-ups, solo shots)
+- Model invented phantom third tigers to "use" the unused reference
+- **Fix applied**: Added "Shot-level Character Filtering (CRITICAL)" section to Phase 1.5 docs
+- **Remaining**: Consider adding `characters_present` per-shot override to manifest v3 schema
+
+### 🟡 Major: No Spatial/Positioning Cues
+- Characters placed side-by-side with zero distance cues
+- **Fix applied**: Added "Characters Too Close Together" pitfalls (#4) to Flux prompting guide
+- **Remaining**: Add spatial positioning as mandatory checklist item in prompt composition
+
+### 🟡 Major: No Anti-Deformation Anchoring
+- Extra tails, deformed limbs in several shots
+- **Fix applied**: Added "Deformed Characters" pitfalls (#5) with positive anchoring technique to Flux guide
+- **Remaining**: Add body-anchoring line as mandatory in prompt template
+
+### 🟡 Major: Prompts Too Long (1,000–1,500 chars / 250–350+ tokens)
+- Flux guide says 50-150 tokens ideal, but actual prompts were 2–3x over
+- Full identity_spec repeated every shot, full scene setting, full style directive
+- **Fix needed**: Token budget system — abbreviate identity specs after first mention, abbreviate style to short form, don't re-describe settings if already in previous shot of same scene
+- **Remaining**: Add prompt length validation and auto-truncation to composition guidelines
+
 ## Nice-to-Have
 - [ ] **Parallel generation**: Queue multiple scenes at once (ComfyUI handles queuing)
 - [ ] **Seed sweep**: Generate multiple seeds per scene for best-pick selection

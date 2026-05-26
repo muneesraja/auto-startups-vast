@@ -1,6 +1,6 @@
 ---
 name: story-to-video
-version: 4.0.0
+version: 4.1.0
 description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation, prompt composition, batch scene generation, and Gemini vision evaluation."
 triggers:
   - story to video
@@ -92,13 +92,14 @@ Override with `--output-dir` flag on `generate_scene.py`.
 The pipeline is split into distinct logical phases:
 
 1. **[Phase 0 & 1: Expansion, Reference Sheets & Upload](references/phases/phase-0-story-expansion.md)**
-   - Expand story to v2 manifest schema.
+   - Expand story to v3 manifest schema (with per-shot `characters_present`).
    - Generate neutral character reference sheets using Gemini.
    - Handle Phase 0B approval gate & neutrality checks.
    - Upload sheets to ComfyUI input directory.
 
 2. **[Phase 1.5: Prompt Composition](references/phases/phase-1-prompt-composition.md)**
    - Compose target-model optimized prompts per shot.
+   - Apply the **Mandatory Prompt Checklist** from the model's prompting guide (spatial positioning, body-anchoring, token budget, shot-level refs).
    - Manage multi-reference limitations (e.g. max 4 characters for Flux).
    - Write `prompt.json` intermediate generation config.
 

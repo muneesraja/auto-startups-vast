@@ -5,26 +5,50 @@ After character sheet approval and reference upload, the agent composes `prompt.
 ## What the Agent Does
 
 1. **Read `story_manifest.json`** — extract scene structure, characters, expressions, settings, moods
-2. **Read the model's prompting guide** — adapt prompt style to the target model:
+2. **Determine per-shot character presence** (v3 feature):
+   - If a shot has `characters_present` set at the shot level → use that list
+   - If not set → fall back to scene-level `characters_present`
+   - Cross-check with the shot's `description` and `facial_expression` keys: if a character is in the scene-level list but has no expression AND isn't mentioned in the action, they're likely off-screen — set shot-level `characters_present` explicitly to exclude them
+3. **Read the model's prompting guide** — adapt prompt style to the target model:
    - For Qwen: [references/models/qwen-image-edit-prompting-guide.md](../models/qwen-image-edit-prompting-guide.md)
    - For HiDream: [references/models/hidream-prompting-guide.md](../models/hidream-prompting-guide.md)
    - For Flux 2 Klein: [references/models/flux-2-klein-prompting-guide.md](../models/flux-2-klein-prompting-guide.md)
-3. **Select the workflow template** — set `workflow_template` field to match the model
-4. **Enforce reference constraints at prompt-composition stage**:
+4. **Select the workflow template** — set `workflow_template` field to match the model
+5. **Enforce reference constraints at prompt-composition stage**:
    - For Flux 2 Klein, **scenes are strictly limited to 4 characters maximum**.
    - If a scene contains more than 4 characters in the story manifest, the agent **MUST split the shot** or **exclude background characters** to keep reference sheets <= 4.
    - Flag this decision explicitly in `eval_context` (e.g. by setting `excluded_characters` or noting it in `action`) so evaluators account for intentional character exclusions.
-5. **For each shot, compose a detailed prompt** that includes:
+6. **For each shot, compose a detailed prompt** that includes:
    - Character visual identity descriptions (from manifest `identity_spec`)
    - Facial expressions using 3-region descriptors (mouth + eyes + brow)
    - Scene setting, lighting, and mood
    - Action being depicted
    - Camera angle
    - Art style directive
-6. **Select reference images** — list the character reference sheet filenames per shot
-7. **Populate `eval_context`** — include expected expressions, characters, setting for Gemini evaluation
-8. **Write `prompt.json`** to the story working directory
-9. **Optionally present to user for review** before generation
+   - **Spatial positioning** for multi-character shots (e.g., "Toby foreground left, Taro background right")
+   - **Positive body-anchoring** to prevent deformations (e.g., "one clean tail, four well-formed paws")
+7. **Select reference images** — list the character reference sheet filenames per shot **based on shot-level character presence (step 2), NOT scene-level characters_present**
+8. **Populate `eval_context`** — include expected expressions, characters (shot-level), setting for Gemini evaluation
+9. **Write `prompt.json`** to the story working directory
+10. **Optionally present to user for review** before generation
+
+---
+
+## Prompt Length Budget
+
+Each model has an optimal prompt token range. The agent MUST stay within budget:
+
+| Model | Ideal Tokens | Max Tokens | Strategy |
+|---|---|---|---|
+| Qwen Image Edit | 50–150 | 200 | Concise SCALIST style |
+| HiDream O1 Dev | 50–150 | 200 | Natural language paragraphs |
+| Flux 2 Klein | 50–150 | 200 | Concise natural language |
+
+**How to stay within budget:**
+1. **Abbreviate identity after first mention**: In the first shot of a scene, use the full `identity_spec`. For subsequent shots in the same scene, shorten to: `"Toby (small orange cub, no stripes, blue eyes)"` — just enough to anchor the reference.
+2. **Style = short form after first shot**: Use the full style directive in Scene 1 Shot 1 only. After that, use: `"3D Pixar-style animation"` (4 words, not 30).
+3. **Setting = scene-level, not shot-level**: Don't repeat the full setting description in every shot. For shot 2+, just reference changes: `"Same clearing, now with longer shadows"`.
+4. **No redundancy**: If the action already implies the expression, don't repeat it in a separate expression line.
 
 ---
 
@@ -81,9 +105,25 @@ The number of reference image slots depends on the model:
 
 **Reference selection rules (for the agent):**
 1. Use `{character_id}_reference_sheet.png` naming convention
-2. Include only characters present in the shot. **Do NOT pad reference lists manually** — the script handles pruning and spawning automatically.
-3. Order by visual importance (most important character first)
-4. Verify refs exist on the ComfyUI instance before composing
+2. Include only characters **actively present and mentioned in the shot action** — NOT scene-level characters. See "Shot-level character filtering" below.
+3. **NEVER duplicate a reference to pad minimum slots.** The workflow builder handles slot pruning/spawning automatically. Duplicating refs causes the model to hallucinate duplicate characters (e.g., attaching `toby_reference_sheet.png` twice generates two Tobys).
+4. Order by visual importance (most important character first)
+5. Verify refs exist on the ComfyUI instance before composing
+
+### Shot-level Character Filtering (CRITICAL)
+
+The story manifest defines `characters_present` at the **scene level**, but individual shots may focus on a subset. The agent MUST determine per-shot character presence:
+
+1. **Read the shot's `description`**: If only one character is mentioned by name in the action, that character alone gets a reference — even if the scene has more characters.
+2. **Check `facial_expression` keys**: If a character has no expression entry for a shot, they are likely off-screen or not the focus.
+3. **Close-up / focus shots**: If a shot is "Close-up of Toby..." — only include Toby's reference. Adding Taro's reference when Taro is not in the action causes the model to invent extra characters.
+4. **Override `eval_context.characters_present`**: Set this to the shot-level subset, NOT the scene-level list.
+
+**Example of incorrect vs correct:**
+- ❌ Scene 1 Shot 4 (Toby close-up): refs = `[toby, taro]`, characters_present = `[toby, taro]`
+- ✅ Scene 1 Shot 4 (Toby close-up): refs = `[toby]`, characters_present = `[toby]`
+- ❌ Scene 2 Shot 1 (Toby-alone scene): refs = `[toby, toby]` (duplicated to pad)
+- ✅ Scene 2 Shot 1 (Toby-alone scene): refs = `[toby]` (single ref, builder handles the rest)
 
 ---
 

@@ -1,10 +1,15 @@
 # Story Manifest Format & Prompt Composition Rules
 
-## Story Manifest JSON Schema (v2)
+## Story Manifest JSON Schema (v2 → v3)
 
-The v2 manifest adds **shots** (sub-divisions of scenes), **facial_expression** per shot, and a **total_shots_budget**. This enables fine-grained control over character emotions at the per-shot level.
+The v3 manifest adds **per-shot `characters_present`** to solve the ghost-character problem where scene-level characters are off-screen in specific shots.
 
-### Breaking Changes from v1
+### Changelog
+
+#### v3 (from v2)
+- **Added**: `shots[].characters_present` (optional) — per-shot character list that overrides scene-level `characters_present`. When set, only these characters get reference images attached for that shot. When omitted, falls back to scene-level list.
+
+#### v2 (from v1)
 - `scenes[].shots` is now **required** (replaces single-scene generation)
 - `scenes[].emotion` renamed to `scenes[].mood` (shots have their own `facial_expression`)
 - `total_shots_budget` is required at the top level
@@ -38,6 +43,7 @@ The v2 manifest adds **shots** (sub-divisions of scenes), **facial_expression** 
         {
           "shot_number": 1,
           "description": "What happens in this specific shot",
+          "characters_present": ["character_id"],
           "facial_expression": {
             "character_id": "expression descriptor (e.g., 'beaming smile, eyes bright')"
           },
@@ -57,6 +63,7 @@ The v2 manifest adds **shots** (sub-divisions of scenes), **facial_expression** 
 | `total_shots_budget` | Root | ✅ | Target total shots (e.g., 50). The agent distributes these across scenes. |
 | `total_duration_seconds` | Root | ✅ | Target total duration (e.g., 300 = 5 min). Default 6 sec/shot. |
 | `shots[]` | Scene | ✅ | Array of shots within a scene. Each shot = 1 generated image. |
+| `characters_present` | Shot | Optional | **v3**: Per-shot character list. Overrides scene-level `characters_present`. Only these characters get reference images attached. When omitted, falls back to scene-level list. |
 | `facial_expression` | Shot | ✅ | Per-character expression mapping for this shot. At least one character must have an expression. |
 | `camera_override` | Shot | Optional | Per-shot camera that overrides the scene-level camera. |
 | `personality_traits` | Character | Optional | Helps the agent choose appropriate expressions when expanding story → shots. |
@@ -151,12 +158,47 @@ Motion prompts describe **movement**, not the still image. They should:
 
 ## Character-to-Image Mapping
 
-| Characters in Scene | Ref Image Assignment | Notes |
+| Characters in Shot | Ref Image Assignment | Notes |
 |---|---|---|
-| 1 character | [char_ref, char_ref, char_ref] | Duplicate to fill 3 slots |
-| 2 characters | [char1_ref, char2_ref, char1_ref] | Fill 3rd slot with most important char |
-| 3 characters | [char1_ref, char2_ref, char3_ref] | Perfect fit |
-| 4+ characters | [char1_ref, char2_ref, char3_ref] | Pick top 3 by visual importance |
+| 1 character | `[char_ref]` | Script auto-prunes unused slots. Do NOT duplicate. |
+| 2 characters | `[char1_ref, char2_ref]` | Standard 2-char setup |
+| 3 characters | `[char1_ref, char2_ref, char3_ref]` | Perfect fit for Qwen (3 slots) |
+| 4 characters | `[char1_ref, char2_ref, char3_ref, char4_ref]` | Max for Flux. Requires dynamic spawning for HiDream (>4). |
+| 5+ characters | Split into multiple shots | Or pick top N by visual importance, exclude background chars |
+
+> **v3 rule**: Always use the **shot-level** `characters_present` (if set) to determine ref assignment, NOT the scene-level list. If a shot focuses on one character (e.g., "Close-up of Toby"), only attach that character's ref.
+
+## Migration from v2 to v3
+
+To convert a v2 manifest:
+
+1. For each shot where the character focus differs from the scene-level `characters_present`, add `characters_present` at the shot level
+2. Particularly important for: close-up shots, "alone" shots, focus-on-one-character shots within multi-character scenes
+3. Omit `characters_present` on shots where the scene-level list is correct (all characters visible)
+
+Example — Scene 1 has 2 characters (Toby + Taro), but Shots 1 and 4 are Toby-only:
+```json
+{
+  "shot_number": 1,
+  "description": "Toby stands alone in the sunlit clearing...",
+  "characters_present": ["toby"],
+  "facial_expression": { "toby": "puzzled slight frown..." },
+  "duration_seconds": 6
+},
+{
+  "shot_number": 2,
+  "description": "Toby watches Taro practice pouncing in the background...",
+  "facial_expression": { "toby": "...", "taro": "..." },
+  "duration_seconds": 6
+},
+{
+  "shot_number": 4,
+  "description": "Close-up of Toby looking down at his plain orange fur...",
+  "characters_present": ["toby"],
+  "facial_expression": { "toby": "downcast eyes, slight frown..." },
+  "duration_seconds": 6
+}
+```
 
 ## Migration from v1 to v2
 

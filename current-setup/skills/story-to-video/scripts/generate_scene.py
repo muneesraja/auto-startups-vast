@@ -83,7 +83,54 @@ def load_prompts(prompts_path):
     print(f"   Shots: {len(data['shots'])}")
     print(f"   Resolution: {global_cfg['width']}×{global_cfg['height']}")
 
+    # Validate prompt token lengths (warn if exceeding model budget)
+    _validate_prompt_lengths(data)
+
     return data
+
+
+# ── Prompt Token Validation ──────────────────────────────────
+
+# Rough token estimation: ~4 characters per token for English text.
+# This is a conservative estimate; actual tokenizers may vary.
+_CHARS_PER_TOKEN = 4
+
+# Model-specific token budgets (ideal and max)
+_TOKEN_BUDGETS = {
+    "qwen-image-edit-2511": {"ideal": 150, "max": 200},
+    "hidream-o1-dev": {"ideal": 150, "max": 200},
+    "flux-2-klein-9b": {"ideal": 150, "max": 200},
+}
+_DEFAULT_TOKEN_BUDGET = {"ideal": 150, "max": 200}
+
+
+def _validate_prompt_lengths(data):
+    """Check prompt token lengths and warn if over budget."""
+    model = data.get("model", "")
+    budget = _TOKEN_BUDGETS.get(model, _DEFAULT_TOKEN_BUDGET)
+    ideal = budget["ideal"]
+    max_tokens = budget["max"]
+
+    over_ideal = []
+    over_max = []
+    for shot in data["shots"]:
+        prompt = shot.get("prompt", "")
+        # Rough token count estimation
+        est_tokens = len(prompt) / _CHARS_PER_TOKEN
+        shot_id = f"scene_{shot['scene']:03d}_shot{shot['shot']:03d}"
+
+        if est_tokens > max_tokens:
+            over_max.append((shot_id, int(est_tokens)))
+        elif est_tokens > ideal:
+            over_ideal.append((shot_id, int(est_tokens)))
+
+    if over_ideal or over_max:
+        print(f"\n⚠️  Prompt token validation (model: {model}, budget: {ideal}–{max_tokens} tokens):")
+        for shot_id, tokens in over_ideal:
+            print(f"   ⚠️  {shot_id}: ~{tokens} tokens (over ideal {ideal} but within max {max_tokens})")
+        for shot_id, tokens in over_max:
+            print(f"   🚫 {shot_id}: ~{tokens} tokens (EXCEEDS max {max_tokens} — risk of quality degradation)")
+        print(f"   Tip: Use abbreviated identity specs after first shot, short-form style, and omit repeated settings.")
 
 
 # ── Scene Generation ─────────────────────────────────────────

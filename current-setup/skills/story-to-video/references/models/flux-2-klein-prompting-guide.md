@@ -38,9 +38,10 @@ Structure the prompt by flowing through these six categories:
 Flux uses the `ReferenceLatent` node chain. Each reference sheet is used to anchor character identities.
 
 ### Reference Selection Rule
-- Only include reference sheets for characters **actively present** in the shot.
+- Only include reference sheets for characters **actively mentioned in the shot action**. Do NOT attach refs for characters listed at the scene level but off-screen in a particular shot.
 - The order of reference sheets must match the order characters are introduced in the prompt (and their overall visual importance).
 - If a scene has >4 characters in the story manifest, **the agent MUST split the scene into multiple shots** or **exclude background characters** to keep reference sheets $\le 4$.
+- **NEVER duplicate a reference** to pad to the 2-slot minimum. The workflow builder auto-handles this. Duplicate refs cause the model to hallucinate duplicate characters.
 
 ### Identity Description Pattern
 To ensure the model correctly maps reference images to characters, you must explicitly associate each character's prompt description with their reference sheet role.
@@ -76,3 +77,62 @@ Toby stands in the sunlit clearing, looking down at his own stripe-less belly in
 
 ### 3. Aspect Ratio Distortion
 - Flux is highly sensitive to aspect ratio. The template locks dimensions to `1344×768` (16:9). Do not try to bypass this via overrides; always prompt with composition cues (e.g., "horizontal landscape view", "wide panoramic view") that fit a 16:9 container.
+
+### 4. Characters Too Close Together
+- Without explicit spatial cues, the model places all characters side-by-side in the center of the frame.
+- **Always include positioning/spacing cues** for multi-character shots:
+  - "Toby on the far left foreground, Taro on the far right background"
+  - "Toby in the lower-left, sitting alone; Taro is distant and small in the upper-right background"
+  - "characters separated by several paces of grass between them"
+- **Use camera framing** that implies distance:
+  - "wide shot with Toby in foreground left, Taro pouncing in distant background right"
+  - "Toby sits close to camera in foreground, Taro is a small figure far behind"
+
+### 5. Deformed Characters (Extra Tails, Extra Limbs)
+- Flux, like all diffusion models, can generate extra tails, extra limbs, or fused body parts.
+- **Do NOT use negative-style language** (e.g., "no extra tail" → model sees "tail" and generates one). Describe what IS:
+  - "with exactly one clean unbroken tail swaying gently"
+  - "four well-formed paws firmly planted"
+  - "symmetrical balanced body, well-proportioned"
+- **Anchoring technique**: At the end of the character description, add one line of positive body-anchoring:
+  - `"Toby has one short stubby tail, four small paws, two round ears, and a compact well-formed body."`
+- This is especially critical for non-standard poses (tumbling, mid-leap) where the model is more likely to hallucinate extra limbs.
+
+### 6. Extra Characters / Ghost Characters
+- When a reference image is loaded but the character isn't described in the action, the model often "finds a place" for that character — creating phantom third tigers.
+- **Root cause**: Attaching a reference for a character not in the shot action.
+- **Fix**: Only attach references for characters actively doing something in the shot. See "Shot-level Character Filtering" in Phase 1.5 docs.
+- **Explicit count cue** (use sparingly): For 2-character scenes, you may add `"exactly two tigers appear in this scene"` near the start of the prompt after the reference mapping header.
+
+---
+
+## Mandatory Prompt Checklist (Pre-Flight)
+
+Before writing each shot prompt to `prompt.json`, the agent **MUST** verify all of the following. If any item is missing, compose it before finalizing the prompt.
+
+### For EVERY shot:
+
+| # | Check | What to include | Example |
+|---|---|---|---|
+| ✅ | **Reference mapping header** | Anchor phrase + per-character ref mapping | `"Characters in this scene must match the provided reference images exactly: - Toby (first reference): ..."` |
+| ✅ | **Shot-level character filter** | Only characters *actively in the shot action* get refs | If Toby is alone, only `["toby_reference_sheet.png"]` — no Taro ref |
+| ✅ | **Spatial positioning** (multi-char) | Explicit left/right/foreground/background placement | `"Toby foreground left, Taro background right"` |
+| ✅ | **Positive body-anchoring** | Describe the correct body, NOT what to avoid | `"one clean unbroken tail, four well-formed paws"` |
+| ✅ | **Token budget** | Prompt ≈ 50–150 tokens, hard cap 200 | If >200 tokens → abbreviate identity specs, drop repeated setting details |
+| ✅ | **Camera framing** | Shot type + implied distance between chars | `"wide shot"`, `"medium shot, separated by several paces"` |
+
+### For MULTI-CHARACTER shots (2+ characters), ALSO verify:
+
+| # | Check | What to include | Example |
+|---|---|---|---|
+| ✅ | **Spacing/depth cues** | Physical distance between characters in the prompt | `"several paces apart"`, `"Toby close to camera, Taro distant behind"` |
+| ✅ | **Explicit count cue** | State the exact number of characters (sparingly, for prone-to-ghost scenes) | `"exactly two tigers appear in this scene"` |
+| ✅ | **Distinct visual anchors** | Each character has at least 2 unique visual traits mentioned | Toby: "plain orange fur, blue eyes" vs Taro: "sharp black stripes, golden eyes" |
+
+### Abbreviation Guide (to stay within token budget)
+
+After the **first shot** of a scene, you can abbreviate repeated elements:
+- **Style**: Drop after first shot in a scene (model carries context). Just `"3D Pixar-style"` instead of full style string.
+- **Setting**: Shorten to key nouns. `"jungle clearing"` instead of `"brightly lit jungle clearing with tall grass, wildflowers..."`.
+- **Identity specs**: After first mention, use short key features only. `"Toby: plain orange cub, blue eyes"` instead of full `identity_spec`.
+- **Never abbreviate**: Facial expressions, body-anchoring, spatial positioning.
