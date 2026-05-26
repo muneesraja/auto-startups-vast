@@ -38,28 +38,38 @@ hf_download "black-forest-labs/FLUX.2-klein-9b-fp8" "flux-2-klein-9b-fp8.safeten
 
 # 2. Qwen 3 8B FP8 text encoder (~8.7GB)
 # HF repo stores this under split_files/text_encoders/ prefix
-# hf_download helper can't handle nested paths properly, so use direct Python
+# Use local_dir_use_symlinks=False to get a real file (not a broken symlink)
 echo "[2/3] Qwen 3 8B FP8 text encoder..."
 mkdir -p "$BASE_DIR/text_encoders"
 python3 << 'PYEOF'
 import os, time, sys, shutil
 os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
 token = os.environ.get('HF_TOKEN') or None
-dest = os.path.join(os.environ['BASE_DIR'], 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
+local_dir = os.path.join(os.environ['BASE_DIR'], 'text_encoders')
 start = time.time()
 try:
     from huggingface_hub import hf_hub_download
-    downloaded = hf_hub_download(
+    hf_hub_download(
         repo_id='Comfy-Org/flux2-klein-9B',
         filename='split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
+        local_dir=local_dir,
+        local_dir_use_symlinks=False,
         token=token,
     )
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    if os.path.exists(dest):
-        os.remove(dest)
-    shutil.move(downloaded, dest)
+    dest = os.path.join(local_dir, 'split_files', 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
+    final_dest = os.path.join(local_dir, 'qwen_3_8b_fp8mixed.safetensors')
+    if os.path.exists(dest) and dest != final_dest:
+        shutil.move(dest, final_dest)
+    # Clean up empty split_files directory tree
+    split_dir = os.path.join(local_dir, 'split_files')
+    if os.path.isdir(split_dir):
+        import pathlib; pathlib.Path(split_dir).rmdir() if not any(split_dir.iterdir()) and os.path.isdir(split_dir) else None
+        try:
+            os.removedirs(split_dir)
+        except OSError:
+            pass
     elapsed = time.time() - start
-    size = os.path.getsize(dest)
+    size = os.path.getsize(final_dest)
     speed = size / elapsed / 1024 / 1024
     print(f"✅ qwen_3_8b_fp8mixed.safetensors — {size/1024/1024:.0f}MB in {elapsed:.1f}s ({speed:.0f} MB/s)")
 except Exception as e:
