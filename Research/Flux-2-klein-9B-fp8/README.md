@@ -159,31 +159,3 @@ Scraping GitHub issue trackers (ComfyUI / InvokeAI) and Hugging Face discussion 
 * **Symptom**: High latency or CUDA Out of Memory (OOM) errors when loading the standard Qwen3 8B text encoder (~16GB in BF16) and the FLUX.2 Klein 9B model simultaneously.
 * **Fix**: Use the quantized **Qwen3-8B FP8 mixed** safetensors (available on Comfy-Org Hugging Face) and run with `--lowvram` flag. In ComfyUI, loading the text encoder in FP8 reduces its VRAM footprint to ~8GB, keeping total pipeline VRAM below 16GB.
 
----
-
-## 9. Appendix: Research Screenshots
-Below are screenshots captured during our research of GitHub issues, Hugging Face repositories, and Civitai workflows:
-
-### GitHub Issues & Discussion
-![ComfyUI Issue 12006: Rotary Embeddings Mismatch](screenshots/comfyui_issue_12006_1779786190361.png)
-*Figure 1: GitHub Issue #12006 regarding Rotary Position Embeddings mismatch.*
-
-![ComfyUI Issue 12006 Comments: Fix Walkthrough](screenshots/comfyui_issue_12006_comments_1779786198693.png)
-*Figure 2: Community developer walking through the fix for the Qwen3 text encoder embedding error.*
-
-![ComfyUI Issue 11951: CLIPTextEncode Vocab Errors](screenshots/comfyui_issue_11951_1779786257287.png)
-*Figure 3: GitHub Issue #11951 reporting tokenizer/vocabulary size exceptions.*
-
-![InvokeAI Issue 8839: VRAM Optimization Discussion](screenshots/invokeai_issue_8839_1779786293261.png)
-*Figure 4: Discussion on memory limitations and GGUF/FP8 text encoder quantizations.*
-
-### Hugging Face & Civitai Repositories
-![Hugging Face: FLUX.2-klein-9B Repository](screenshots/hf_flux2_klein_9b_1779786403355.png)
-*Figure 5: Official Black Forest Labs repository for FLUX.2 Klein 9B.*
-
-![Hugging Face: FLUX.2-klein-9b-fp8 Model Cards](screenshots/hf_flux2_klein_9b_fp8_1779786466378.png)
-*Figure 6: Hugging Face card for the FP8 quantized version of the model.*
-
-![Civitai: Flux 2 Klein Workflows](screenshots/civitai_results_1779785615428.png)
-*Figure 7: Civitai search results for FLUX 2 Klein models and user workflows.*
-
