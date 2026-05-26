@@ -127,3 +127,63 @@ Characters in this scene must match the provided reference images exactly:
 * **The 4-Character Limit**: Flux 2 Klein has a creative and memory limit of **4 references**. If a scene contains 5 or more characters, the orchestrator script MUST:
   - Exclude background/unimportant characters from the reference bank and positive prompt mapping header.
   - Or partition the scene into multiple separate close-up shots containing $\le 4$ active characters.
+
+---
+
+## 7. Civitai Model Ecosystem & Community Workflows
+
+Our research on Civitai reveals a rapidly growing ecosystem for FLUX.2 [klein]:
+* **Core Models**: The official **FLUX.2 Klein** base/distilled model (by CivitaiOfficial) and Zoom's FP8 quantizations (**FLUX.2-klein-9b-fp8**) are the most widely adopted for custom consumer pipelines.
+* **Community Workflows**:
+  - **Precise Face/Head Swap (FaboroHacks)**: Utilizes dual-reference inputs combined with face detailing and masked VAE encoding.
+  - **Flux 2 Klein Precise Multi-Camera (zardozai)**: Generates multi-camera turnaround grids of consistent characters.
+  - **FLUX.2 [klein] image edit 9B distilled 8 ref image and lora workflow (Torque)**: Implements multi-reference logic with LoRA injection for stylized scene consistency.
+
+---
+
+## 8. Hugging Face & GitHub Integration Troubleshooting
+
+Scraping GitHub issue trackers (ComfyUI / InvokeAI) and Hugging Face discussion forums highlighted key issues and official workarounds for integrating FLUX.2 Klein:
+
+### A. Rotary Position Embeddings Mismatch (ComfyUI Issue #12006)
+* **Symptom**: When loading the Qwen3 8B text encoder alongside FLUX.2 Klein, the sampler throws a `ValueError: Got [32, 32, 32, 32] but expected positional dim 64`.
+* **Cause**: Older ComfyUI releases assume the default T5-xxl rotary embedding dimensionality (64) and fail when the Qwen-based text embedder returns 32-dimensional rotary embeddings.
+* **Fix**: Upgrade ComfyUI to v0.9.2+ or stable v0.9.x. The code has been patched to dynamically determine rotary embeddings from the loaded UNET model configuration.
+
+### B. Text Encoder Vocab Size Mismatch (ComfyUI Issue #11951)
+* **Symptom**: When attempting to run the CLIPTextEncode node with Qwen3-8B-fp8mixed, it errors out with a vocabulary size index error (e.g., token IDs exceeding vocabulary size limits).
+* **Cause**: The Qwen3 text encoder uses a vocabulary size of `151,936` tokens (matching Qwen2.5-VL), whereas standard FLUX text encoders expect `128,256` tokens.
+* **Fix**: Ensure ComfyUI is upgraded. Use the latest native `CLIPLoader` node with Type set explicitly to `flux2` which supports the Qwen3 tokenizer mapping natively.
+
+### C. VRAM/Memory Management Optimization (InvokeAI Issue #8839)
+* **Symptom**: High latency or CUDA Out of Memory (OOM) errors when loading the standard Qwen3 8B text encoder (~16GB in BF16) and the FLUX.2 Klein 9B model simultaneously.
+* **Fix**: Use the quantized **Qwen3-8B FP8 mixed** safetensors (available on Comfy-Org Hugging Face) and run with `--lowvram` flag. In ComfyUI, loading the text encoder in FP8 reduces its VRAM footprint to ~8GB, keeping total pipeline VRAM below 16GB.
+
+---
+
+## 9. Appendix: Research Screenshots
+Below are screenshots captured during our research of GitHub issues, Hugging Face repositories, and Civitai workflows:
+
+### GitHub Issues & Discussion
+![ComfyUI Issue 12006: Rotary Embeddings Mismatch](screenshots/comfyui_issue_12006_1779786190361.png)
+*Figure 1: GitHub Issue #12006 regarding Rotary Position Embeddings mismatch.*
+
+![ComfyUI Issue 12006 Comments: Fix Walkthrough](screenshots/comfyui_issue_12006_comments_1779786198693.png)
+*Figure 2: Community developer walking through the fix for the Qwen3 text encoder embedding error.*
+
+![ComfyUI Issue 11951: CLIPTextEncode Vocab Errors](screenshots/comfyui_issue_11951_1779786257287.png)
+*Figure 3: GitHub Issue #11951 reporting tokenizer/vocabulary size exceptions.*
+
+![InvokeAI Issue 8839: VRAM Optimization Discussion](screenshots/invokeai_issue_8839_1779786293261.png)
+*Figure 4: Discussion on memory limitations and GGUF/FP8 text encoder quantizations.*
+
+### Hugging Face & Civitai Repositories
+![Hugging Face: FLUX.2-klein-9B Repository](screenshots/hf_flux2_klein_9b_1779786403355.png)
+*Figure 5: Official Black Forest Labs repository for FLUX.2 Klein 9B.*
+
+![Hugging Face: FLUX.2-klein-9b-fp8 Model Cards](screenshots/hf_flux2_klein_9b_fp8_1779786466378.png)
+*Figure 6: Hugging Face card for the FP8 quantized version of the model.*
+
+![Civitai: Flux 2 Klein Workflows](screenshots/civitai_results_1779785615428.png)
+*Figure 7: Civitai search results for FLUX 2 Klein models and user workflows.*
+
