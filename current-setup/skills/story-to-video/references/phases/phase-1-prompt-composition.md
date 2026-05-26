@@ -13,9 +13,10 @@ After character sheet approval and reference upload, the agent composes `prompt.
    - For Qwen: [references/models/qwen-image-edit-prompting-guide.md](../models/qwen-image-edit-prompting-guide.md)
    - For HiDream: [references/models/hidream-prompting-guide.md](../models/hidream-prompting-guide.md)
    - For Flux 2 Klein: [references/models/flux-2-klein-prompting-guide.md](../models/flux-2-klein-prompting-guide.md)
+   - For Flux 2 Dev Turbo: [references/models/flux-2-dev-turbo-prompting-guide.md](../models/flux-2-dev-turbo-prompting-guide.md)
 4. **Select the workflow template** — set `workflow_template` field to match the model
 5. **Enforce reference constraints at prompt-composition stage**:
-   - For Flux 2 Klein, **scenes are strictly limited to 4 characters maximum**.
+   - For Flux (both Klein and Dev Turbo), **scenes are strictly limited to 4 characters maximum**.
    - If a scene contains more than 4 characters in the story manifest, the agent **MUST split the shot** or **exclude background characters** to keep reference sheets <= 4.
    - Flag this decision explicitly in `eval_context` (e.g. by setting `excluded_characters` or noting it in `action`) so evaluators account for intentional character exclusions.
 6. **For each shot, compose a detailed prompt** that includes:
@@ -45,6 +46,7 @@ Each model has an optimal prompt token range. The agent MUST stay within budget:
 | Qwen Image Edit | 50–150 | 200 | Concise SCALIST style |
 | HiDream O1 Dev | 50–150 | 200 | Natural language paragraphs |
 | Flux 2 Klein | 50–180 | 250 | Concise natural language + color suffix |
+| Flux 2 Dev Turbo | 50–250 | 350 | Natural flowing prose + guidance overrides + color suffix |
 
 **How to stay within budget:**
 1. **Abbreviate identity after first mention**: In the first shot of a scene, use the full `identity_spec`. For subsequent shots in the same scene, shorten to: `"Toby (small orange cub, no stripes, blue eyes)"` — just enough to anchor the reference.
@@ -104,6 +106,7 @@ The number of reference image slots depends on the model:
 | Qwen Image Edit 2511 | 3 | Legacy template with static slot counts (pads to 3 by duplicating) |
 | HiDream O1 Dev | 12 | Dynamic template (prunes unused slots when <4, spawns slots when >4 up to 12) |
 | Flux 2 Klein 9B | 4 | Dynamic ReferenceLatent chain template (prunes when <2, spawns when >2 up to 4) |
+| Flux 2 Dev Turbo | 4 | Dynamic single-chain ReferenceLatent (bypasses when 0, spawns when >1 up to 4) |
 
 **Reference selection rules (for the agent):**
 1. Use `{character_id}_reference_sheet.png` naming convention
@@ -145,5 +148,6 @@ Workflow templates live in `assets/workflow-templates/`. Each is a ComfyUI API-f
 | `hidream-o1-dev-i2i` | HiDream O1 Dev FP8 | 28 | 4 refs | ✅ Active |
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
 | `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
+| `flux-2-dev-turbo` | Flux 2 Dev Turbo FP8 | 8 | 1 ref (dynamic) | ✅ Active |
 
 To add a new model: create a workflow template JSON with `__PROMPT__`, `__REFERENCE_N__`, `__SEED__`, `__WIDTH__`, `__HEIGHT__`, `__FILENAME_PREFIX__` placeholders.

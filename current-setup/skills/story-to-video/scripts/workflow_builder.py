@@ -230,6 +230,106 @@ def _spawn_flux_refs(workflow, num_refs, template_refs, spawn_node_id_start, ref
         workflow[neg_consumer]["inputs"][neg_input] = [tail_neg, 0]
 
 
+def _prune_dev_turbo_refs(workflow, num_refs, ref_slots, chain_endpoints):
+    """Prune unused ReferenceLatent chains and their sub-pipelines for Flux Dev Turbo."""
+    last_slot_num = max(1, num_refs)
+    sorted_slots = sorted(ref_slots.items(), key=lambda x: int(x[0]))
+
+    for slot_str, info in sorted_slots:
+        slot_num = int(slot_str)
+        if slot_num > last_slot_num:
+            # Delete all 4 nodes of this slot
+            for key in ["load_image_node", "resize_node", "vae_encode_node", "ref_node"]:
+                node_id = info.get(key)
+                if node_id and node_id in workflow:
+                    del workflow[node_id]
+
+    # Connect the consumer node to the final node of the last remaining slot
+    last_slot_str = str(last_slot_num)
+    if last_slot_str in ref_slots:
+        last_slot_info = ref_slots[last_slot_str]
+        ref_final = last_slot_info["ref_node"]
+
+        # Wire conditioning chain
+        cond_endpoint = chain_endpoints["conditioning"]
+        cond_consumer = cond_endpoint["consumer_node"]
+        cond_input = cond_endpoint["consumer_input"]
+        if cond_consumer in workflow:
+            workflow[cond_consumer]["inputs"][cond_input] = [ref_final, 0]
+
+
+def _spawn_dev_turbo_refs(workflow, num_refs, template_refs, spawn_node_id_start, ref_slots, chain_endpoints):
+    """Spawn new ReferenceLatent chains and their sub-pipelines for Flux Dev Turbo."""
+    if num_refs <= template_refs:
+        return workflow
+
+    vae_node_id = chain_endpoints["vae_node"]
+    tail_ref = chain_endpoints["conditioning"]["final_node"]
+
+    for slot_num in range(template_refs + 1, num_refs + 1):
+        offset = (slot_num - template_refs - 1) * 4
+        load_id = str(spawn_node_id_start + offset + 0)
+        resize_id = str(spawn_node_id_start + offset + 1)
+        vae_id = str(spawn_node_id_start + offset + 2)
+        ref_id = str(spawn_node_id_start + offset + 3)
+
+        # 1. Spawn LoadImage
+        workflow[load_id] = {
+            "inputs": {
+                "image": f"__REFERENCE_{slot_num}__"
+            },
+            "class_type": "LoadImage",
+            "_meta": {"title": f"Load Image (ref {slot_num})"}
+        }
+
+        # 2. Spawn ImageResizeKJv2
+        workflow[resize_id] = {
+            "inputs": {
+                "width": 1000,
+                "height": 1000,
+                "upscale_method": "lanczos",
+                "keep_proportion": "total_pixels",
+                "pad_color": "0, 0, 0",
+                "crop_position": "center",
+                "divisible_by": 16,
+                "device": "cpu",
+                "image": [load_id, 0],
+                "mask": [load_id, 1]
+            },
+            "class_type": "ImageResizeKJv2",
+            "_meta": {"title": f"Resize Image v2 (ref {slot_num})"}
+        }
+
+        # 3. Spawn VAEEncode
+        workflow[vae_id] = {
+            "inputs": {
+                "pixels": [resize_id, 0],
+                "vae": [vae_node_id, 0]
+            },
+            "class_type": "VAEEncode",
+            "_meta": {"title": f"VAE Encode (ref {slot_num})"}
+        }
+
+        # 4. Spawn ReferenceLatent
+        workflow[ref_id] = {
+            "inputs": {
+                "conditioning": [tail_ref, 0],
+                "latent": [vae_id, 0]
+            },
+            "class_type": "ReferenceLatent",
+            "_meta": {"title": f"ReferenceLatent (ref {slot_num})"}
+        }
+
+        tail_ref = ref_id
+
+    # Connect the consumer node to the final tail of the chain
+    cond_endpoint = chain_endpoints["conditioning"]
+    cond_consumer = cond_endpoint["consumer_node"]
+    cond_input = cond_endpoint["consumer_input"]
+    if cond_consumer in workflow:
+        workflow[cond_consumer]["inputs"][cond_input] = [tail_ref, 0]
+
+
 def _build_workflow_legacy(template, shot_data, global_cfg):
     """Build a ComfyUI API workflow by replacing template placeholders (legacy fallback)."""
     workflow = copy.deepcopy(template)
@@ -322,6 +422,20 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         references = references[:max_refs]
         num_refs = max_refs
 
+    # For flux_dev_turbo_chain, handle 0 references by disabling references switch
+    if builder_type == "flux_dev_turbo_chain":
+        use_refs_node = template.get("_switch_nodes", {}).get("use_references")
+        if num_refs == 0:
+            print("   🔄 Zero references — disabling ReferenceLatent chain via ComfySwitchNode")
+            if use_refs_node and use_refs_node in workflow:
+                workflow[use_refs_node]["inputs"]["value"] = False
+            references = ["example.png"]
+            num_refs = 1
+        else:
+            print("   🔄 References present — enabling ReferenceLatent chain via ComfySwitchNode")
+            if use_refs_node and use_refs_node in workflow:
+                workflow[use_refs_node]["inputs"]["value"] = True
+
     template_refs = template.get("_template_references", 4)
     spawn_node_id_start = template.get("_spawn_node_id_start", 1001)
     conditioning_node = template.get("_conditioning_node", "104")
@@ -342,6 +456,24 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
             )
         elif num_refs > template_refs:
             _spawn_flux_refs(
+                workflow,
+                num_refs,
+                template_refs,
+                spawn_node_id_start,
+                ref_slots,
+                chain_endpoints
+            )
+    elif builder_type == "flux_dev_turbo_chain":
+        chain_endpoints = template.get("_chain_endpoints", {})
+        if num_refs < template_refs:
+            _prune_dev_turbo_refs(
+                workflow,
+                num_refs,
+                ref_slots,
+                chain_endpoints
+            )
+        elif num_refs > template_refs:
+            _spawn_dev_turbo_refs(
                 workflow,
                 num_refs,
                 template_refs,

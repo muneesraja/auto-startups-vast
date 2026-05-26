@@ -1,0 +1,512 @@
+{
+  "_comment": "Flux 2 Dev Turbo FP8 workflow template. Single-chain ReferenceLatent with ComfySwitchNode for I2I/T2I toggle. Placeholders: __PROMPT__, __SEED__, __REFERENCE_1-N__, __FILENAME_PREFIX__",
+  "_builder": "flux_dev_turbo_chain",
+  "_max_references": 4,
+  "_template_references": 1,
+  "_spawn_node_id_start": 2001,
+  "_model_id": "flux-2-dev-turbo-fp8",
+  "_reference_slots": {
+    "1": {
+      "load_image_node": "131",
+      "resize_node": "125",
+      "vae_encode_node": "128",
+      "ref_node": "127",
+      "required": true
+    }
+  },
+  "_chain_endpoints": {
+    "conditioning": {
+      "source_node": "126",
+      "final_node": "127",
+      "consumer_node": "172",
+      "consumer_input": "on_true"
+    },
+    "vae_node": "148"
+  },
+  "_switch_nodes": {
+    "use_references": "175",
+    "use_custom_output": "197",
+    "apply_mask": "164"
+  },
+  "_overrides_map": {
+    "guidance": { "node": "126", "key": "guidance" },
+    "steps": { "node": "112", "key": "steps" },
+    "seed": { "node": "173", "key": "value" },
+    "color_match_strength": { "node": "180", "key": "value" }
+  },
+  "105": {
+    "inputs": {
+      "model": [
+        "122",
+        0
+      ],
+      "conditioning": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "BasicGuider"
+    }
+  },
+  "107": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "109": {
+    "inputs": {
+      "noise": [
+        "114",
+        0
+      ],
+      "guider": [
+        "105",
+        0
+      ],
+      "sampler": [
+        "107",
+        0
+      ],
+      "sigmas": [
+        "112",
+        0
+      ],
+      "latent_image": [
+        "113",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "110": {
+    "inputs": {
+      "samples": [
+        "109",
+        0
+      ],
+      "vae": [
+        "148",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "112": {
+    "inputs": {
+      "steps": 8,
+      "width": [
+        "130",
+        1
+      ],
+      "height": [
+        "130",
+        2
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2Scheduler"
+    }
+  },
+  "113": {
+    "inputs": {
+      "width": [
+        "130",
+        1
+      ],
+      "height": [
+        "130",
+        2
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "114": {
+    "inputs": {
+      "noise_seed": [
+        "173",
+        0
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "115": {
+    "inputs": {
+      "text": [
+        "152",
+        0
+      ],
+      "clip": [
+        "146",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "122": {
+    "inputs": {
+      "unet_name": "flux2-dev-turbo-fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "125": {
+    "inputs": {
+      "width": 1000,
+      "height": 1000,
+      "upscale_method": "lanczos",
+      "keep_proportion": "total_pixels",
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 16,
+      "device": "cpu",
+      "image": [
+        "131",
+        0
+      ],
+      "mask": [
+        "131",
+        1
+      ]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {
+      "title": "Resize Image v2"
+    }
+  },
+  "126": {
+    "inputs": {
+      "guidance": 4,
+      "conditioning": [
+        "115",
+        0
+      ]
+    },
+    "class_type": "FluxGuidance",
+    "_meta": {
+      "title": "FluxGuidance"
+    }
+  },
+  "127": {
+    "inputs": {
+      "conditioning": [
+        "126",
+        0
+      ],
+      "latent": [
+        "128",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent"
+    }
+  },
+  "128": {
+    "inputs": {
+      "pixels": [
+        "125",
+        0
+      ],
+      "vae": [
+        "148",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "130": {
+    "inputs": {
+      "image": [
+        "209",
+        0
+      ]
+    },
+    "class_type": "GetImageSizeAndCount",
+    "_meta": {
+      "title": "Get Image Size & Count"
+    }
+  },
+  "131": {
+    "inputs": {
+      "image": "__REFERENCE_1__"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Image 1"
+    }
+  },
+  "146": {
+    "inputs": {
+      "clip_name": "mistral_3_small_flux2_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "148": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "152": {
+    "inputs": {
+      "value": "__PROMPT__"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "164": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Apply mask from Image 1"
+    }
+  },
+  "172": {
+    "inputs": {
+      "switch": [
+        "175",
+        0
+      ],
+      "on_false": [
+        "126",
+        0
+      ],
+      "on_true": [
+        "127",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch"
+    }
+  },
+  "173": {
+    "inputs": {
+      "value": "__SEED__"
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Seed"
+    }
+  },
+  "175": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Use reference images"
+    }
+  },
+  "179": {
+    "inputs": {
+      "method": "mkl",
+      "strength": [
+        "180",
+        0
+      ],
+      "multithread": true,
+      "image_target": [
+        "110",
+        0
+      ],
+      "image_ref": [
+        "125",
+        0
+      ]
+    },
+    "class_type": "ColorMatchV2",
+    "_meta": {
+      "title": "ColorMatchV2"
+    }
+  },
+  "180": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Color match strength"
+    }
+  },
+  "183": {
+    "inputs": {
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "destination": [
+        "125",
+        0
+      ],
+      "source": [
+        "179",
+        0
+      ],
+      "mask": [
+        "188",
+        0
+      ]
+    },
+    "class_type": "ImageCompositeMasked",
+    "_meta": {
+      "title": "ImageCompositeMasked"
+    }
+  },
+  "185": {
+    "inputs": {
+      "switch": [
+        "164",
+        0
+      ],
+      "on_false": [
+        "179",
+        0
+      ],
+      "on_true": [
+        "183",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch"
+    }
+  },
+  "188": {
+    "inputs": {
+      "expand": 8,
+      "incremental_expandrate": 0,
+      "tapered_corners": false,
+      "flip_input": false,
+      "blur_radius": 4,
+      "lerp_alpha": 1,
+      "decay_factor": 1,
+      "fill_holes": false,
+      "mask": [
+        "125",
+        3
+      ]
+    },
+    "class_type": "GrowMaskWithBlur",
+    "_meta": {
+      "title": "Grow Mask With Blur"
+    }
+  },
+  "196": {
+    "inputs": {
+      "width": 1344,
+      "height": 768,
+      "batch_size": 1,
+      "color": 0
+    },
+    "class_type": "EmptyImage",
+    "_meta": {
+      "title": "Custom output image"
+    }
+  },
+  "197": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Use custom output dimensions"
+    }
+  },
+  "201": {
+    "inputs": {
+      "switch": [
+        "197",
+        0
+      ],
+      "on_false": [
+        "125",
+        0
+      ],
+      "on_true": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch"
+    }
+  },
+  "209": {
+    "inputs": {
+      "switch": [
+        "175",
+        0
+      ],
+      "on_false": [
+        "196",
+        0
+      ],
+      "on_true": [
+        "201",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch"
+    }
+  },
+  "211": {
+    "inputs": {
+      "filename_prefix": "__FILENAME_PREFIX__",
+      "images": [
+        "185",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

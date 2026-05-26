@@ -104,6 +104,18 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 > [!NOTE]
 > **Width and height are not overridable for Flux 2 Klein.** Resolution is locked to **1344×768** (Flux native 16:9, ~1MP) via hardcoded `INTConstant` nodes. This prevents incompatible aspect ratio combinations and ensures optimal quality. Use HiDream if you need different resolutions.
 
+### Overrides Reference (Flux 2 Dev Turbo)
+
+| Override Key | Type | Default | Description | Notes |
+|---|---|---|---|---|
+| `guidance` | float | `4.0` | Controls prompt adherence | Default is 4.0. Range 2.5–6.0. Higher values increase prompt follow but can saturate colors. |
+| `steps` | int | `8` | Sampling steps | 8 is optimal; more steps give minimal quality gain |
+| `seed` | int | random | Noise seed | Direct write to `PrimitiveInt` seed node |
+| `color_match_strength` | float | `0.0` | Post-process color matching | Range 0.0–1.0. Applies ColorMatchV2 of target back to ref image. |
+
+> [!NOTE]
+> **Width and height are not overridable for Flux 2 Dev Turbo.** Resolution is locked to **1344×768** (Flux native 16:9, ~1MP) via EmptyImage (196). This ensures optimal quality.
+
 ### Eval Context (for Gemini Vision evaluation)
 
 | Field | Type | Required | Description |
@@ -145,6 +157,17 @@ The `prompt.json` file is the intermediate artifact between the agent (prompt co
 - **Negative prompt**: **Do not use** (leave empty `""`; model uses ConditioningZeroOut or empty CLIPTextEncode natively)
 - **Steps**: 4, SamplerCustomAdvanced, CFG 1.0
 - See `references/models/flux-2-klein-prompting-guide.md` for full best practices
+
+### Flux 2 Dev Turbo (`workflow_template: "flux-2-dev-turbo"`)
+
+- **Max references**: 4 images (dynamic single-chain ReferenceLatent; prunes when <1, spawns when >1)
+- **Min references**: 0 images (setting `references: []` auto-switches to T2I mode via ComfySwitchNode)
+- **Overrides**: Supports per-shot `overrides` object for guidance, steps, seed, and color_match_strength
+- **Resolution**: 1344×768 (native 16:9, locked in workflow)
+- **Prompt style**: Natural language prose. Keep within **350 tokens** warning budget (ideal: 250). For I2I, include Reference Mapping Header. Append color-grading suffix (`"balanced white balance, natural color grading"`).
+- **Negative prompt**: **Do not use** (leave empty `""`)
+- **Steps**: 8, BasicGuider, guidance=4.0
+- See `references/models/flux-2-dev-turbo-prompting-guide.md` for full best practices
 
 ## Example
 

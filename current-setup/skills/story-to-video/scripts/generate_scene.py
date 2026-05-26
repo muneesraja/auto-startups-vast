@@ -109,6 +109,7 @@ _TOKEN_BUDGETS = {
     "qwen-image-edit-2511": {"ideal": 150, "max": 200},
     "hidream-o1-dev": {"ideal": 150, "max": 200},
     "flux-2-klein-9b": {"ideal": 180, "max": 250},
+    "flux-2-dev-turbo": {"ideal": 250, "max": 350},
 }
 _DEFAULT_TOKEN_BUDGET = {"ideal": 150, "max": 200}
 

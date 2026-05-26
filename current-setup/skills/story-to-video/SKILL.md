@@ -123,6 +123,7 @@ The pipeline is split into distinct logical phases:
   - **[Qwen Image Edit Prompting Guide](references/models/qwen-image-edit-prompting-guide.md)**
   - **[HiDream Prompting Guide](references/models/hidream-prompting-guide.md)**
   - **[Flux 2 Klein Prompting Guide](references/models/flux-2-klein-prompting-guide.md)**
+  - **[Flux 2 Dev Turbo Prompting Guide](references/models/flux-2-dev-turbo-prompting-guide.md)**
   - **[LTX-I2V Prompting Guide](references/models/ltx-i2v-prompting-guide.md)**
 - **[ComfyUI API Pitfalls](references/comfyui/api-pitfalls.md)** - Pitfalls & solutions for API execution.
 - **[Improvements Roadmap](references/roadmap.md)** - Development checklist & tracking.
@@ -138,6 +139,7 @@ The pipeline is split into distinct logical phases:
 | Qwen Image Edit 2511 | 3 | Legacy template with static slot counts (pads to 3 by duplicating) |
 | HiDream O1 Dev | 12 | Dynamic template (prunes unused slots when <4, spawns slots when >4 up to 12) |
 | Flux 2 Klein 9B | 4 | Dynamic ReferenceLatent chain template (prunes when <2, spawns when >2 up to 4) |
+| Flux 2 Dev Turbo | 4 | Dynamic single-chain ReferenceLatent (bypasses when 0, spawns when >1 up to 4) |
 
 ### Available Workflow Templates
 
@@ -147,6 +149,7 @@ The pipeline is split into distinct logical phases:
 | `hidream-o1-dev-i2i` | HiDream O1 Dev FP8 | 28 | 4 refs | ✅ Active |
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
 | `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
+| `flux-2-dev-turbo` | Flux 2 Dev Turbo FP8 | 8 | 1 ref (dynamic) | ✅ Active |
 
 ---
 
