@@ -53,21 +53,34 @@ try:
         repo_id='Comfy-Org/flux2-klein-9B',
         filename='split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
         local_dir=local_dir,
-        local_dir_use_symlinks=False,
         token=token,
     )
     dest = os.path.join(local_dir, 'split_files', 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
     final_dest = os.path.join(local_dir, 'qwen_3_8b_fp8mixed.safetensors')
     if os.path.exists(dest) and dest != final_dest:
         shutil.move(dest, final_dest)
-    # Clean up empty split_files directory tree
-    split_dir = os.path.join(local_dir, 'split_files')
-    if os.path.isdir(split_dir):
-        import pathlib; pathlib.Path(split_dir).rmdir() if not any(split_dir.iterdir()) and os.path.isdir(split_dir) else None
-        try:
-            os.removedirs(split_dir)
-        except OSError:
-            pass
+    # Clean up empty split_files directory tree (best-effort, never fatal)
+    import pathlib
+    split_dir = pathlib.Path(local_dir) / 'split_files'
+    try:
+        if split_dir.is_dir():
+            # Walk bottom-up, remove only empty directories
+            for p in sorted(split_dir.rglob('*'), reverse=True):
+                if p.is_dir():
+                    try:
+                        p.rmdir()
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+            # Final root remove
+            if not any(split_dir.iterdir()):
+                split_dir.rmdir()
+    except Exception as cleanup_err:
+        print(f"  ⚠️  split_files cleanup skipped: {cleanup_err}")
     elapsed = time.time() - start
     size = os.path.getsize(final_dest)
     speed = size / elapsed / 1024 / 1024
