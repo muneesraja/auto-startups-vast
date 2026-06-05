@@ -26,7 +26,7 @@ from typing import Any, Optional
 DEFAULT_IMAGE = "runpod/comfyui:latest"
 DEFAULT_TEMPLATE_ID = "cw3nka7d08"  # ComfyUI template
 DEFAULT_PORTS = "8188/http,22/tcp,8080/http"
-DEFAULT_CONTAINER_DISK_GB = 100
+DEFAULT_CONTAINER_DISK_GB = 150
 DEFAULT_VOLUME_GB = 0
 HF_TOKEN_PATH = "/root/config/token.json"
 SSH_KEY_PATH = "/root/.runpod/ssh/RunPod-Key-Go"
@@ -66,7 +66,7 @@ GPU_PROFILES = {
         "display_name": "RTX 3090",
         "gpu_id": "NVIDIA GeForce RTX 3090",
         "memory_gb": 24,
-        "estimated_price_hr": 0.22,
+        "estimated_price_hr": 0.30,
         "max_price_hr": 0.30,
         "notes": "Community Cloud 24GB VRAM budget profile.",
     },

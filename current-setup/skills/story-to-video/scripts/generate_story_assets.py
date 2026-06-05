@@ -227,11 +227,11 @@ Layout:
 - Top row: four full-body standing views (front, left 3/4 view, right side profile, back view)
 - Bottom row: three face close-up portraits (front, left 3/4 angle, right side profile)
 
-CRITICAL REQUIREMENTS:
+CRITICAL REQUIREMENTS - READ CAREFULLY:
 - CONSISTENT identity across ALL seven views — same face, same body, same outfit
-- NEUTRAL facial expression in ALL views — no smiling, no frowning, no strong emotion. The character must have a calm, resting face. This is essential because these reference sheets will be used to generate different emotional expressions later.
+- STRICTLY NEUTRAL facial expression in ALL views — this is the most important requirement. The character must have a BLANK, CALM, RESTING face. ABSOLUTELY NO SMILING. NO FROWN. NO RAISED EYEBROWS. NO EMOTION WHATSOEVER. Just a completely neutral, relaxed, resting face with mouth closed and eyes looking forward. Think of a passport photo expression. If any view shows even a hint of a smile, it will be rejected.
 - Clean white/neutral background
-- Even studio lighting
+- Even studio lighting with no dramatic shadows
 - Style: {style}
 - Each view clearly separated with space between them
 - Character should be the same scale/proportion in each view"""

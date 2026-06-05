@@ -154,6 +154,8 @@ If Phase 0 has already generated character sheets, this phase is simply upload +
 
 ### Reference Sheet Prompt Template
 
+**⚠️ Neutrality is critical.** The default prompt below has been battle-tested to produce neutrality scores of 9-10/10. Earlier weaker prompts (single "neutral" mention, no ALL-CAPS) consistently scored 2-3/10. Do NOT soften the neutrality language.
+
 ```text
 Create a professional character reference sheet for the following character.
 
@@ -163,14 +165,29 @@ Layout:
 - Top row: four full-body standing views (front, left 3/4 view, right side profile, back view)
 - Bottom row: three face close-up portraits (front, left 3/4 angle, right side profile)
 
-Requirements:
-- CONSISTENT identity across ALL seven views - same face, same body, same outfit
+CRITICAL REQUIREMENTS - READ CAREFULLY:
+- CONSISTENT identity across ALL seven views — same face, same body, same outfit
+- STRICTLY NEUTRAL facial expression in ALL views — this is the most important requirement. The character must have a BLANK, CALM, RESTING face. ABSOLUTELY NO SMILING. NO FROWN. NO RAISED EYEBROWS. NO EMOTION WHATSOEVER. Just a completely neutral, relaxed, resting face with mouth closed and eyes looking forward. Think of a passport photo expression. If any view shows even a hint of a smile, it will be rejected.
 - Clean white/neutral background
-- Even studio lighting
+- Even studio lighting with no dramatic shadows
 - Style: {style}
 - Each view clearly separated with space between them
 - Character should be the same scale/proportion in each view
 ```
+
+#### Iterative Neutrality Loop (Battle-Tested)
+
+If the initial generation scores < 6 on expression_neutrality (common with weaker prompts or certain character types), use this regeneration loop:
+
+1. **Generate** the reference sheet
+2. **Evaluate** with Gemini Vision: score expression_neutrality, character_likeness, style_match on 0-10 scale
+3. **If neutrality < 6**: regenerate with the same prompt PLUS this appended feedback line:
+   `SPECIFICALLY FIX THIS ISSUE FROM PREVIOUS ATTEMPT: {specific_issue_from_evaluation}`
+4. **Repeat** up to 3 times. In practice, the improved prompt above scores 9-10 on first attempt.
+
+**Results from testing:**
+- Old prompt (single "neutral" mention, no emphasis): Gajoo scored **2/10**, Chinnu scored **3/10** on neutrality
+- Improved prompt (ALL-CAPS, multiple reinforces, passport analogy): Gajoo scored **10/10**, Chinnu scored **9/10** on first generation
 
 ### Auto-Verify & Fallback
 

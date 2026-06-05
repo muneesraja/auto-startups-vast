@@ -159,6 +159,18 @@ See [references/evaluation/evaluate-loop-design.md](../evaluation/evaluate-loop-
 - **Seed increment:** Iteration N uses `seed + N` to avoid same-output loops.
 - **Disk space:** Log available disk before starting; `--cleanup-iterations` flag to delete non-best iter files after scene passes.
 
+### Gemini Rate Limiting
+
+When evaluating many shots in sequence, you **will** hit Gemini API rate limits (especially on free tier or high-volume runs). Symptoms: `N/A` scores for all categories, or parse failures on valid responses.
+
+**Mitigation:**
+- GEMINI_FREE_TIER rate limit: **~2 requests/min**. When evaluating more than 5 shots, you **must** use 30+ second delays between calls.
+- The paid-tier Gemini Flash API allows ~15 requests/minute.
+- **Recommended approach for bulk eval:** Use a bash loop with `sleep 30` between individual `--shot` evaluations. For free tier, use `sleep 60`.
+- If you see consecutive `N/A` scores, pause for **120 seconds** before retrying — the rate limit window needs to fully reset.
+- Script-level: `generate_scene.py` does not currently have built-in rate limiting between eval calls. When running bulk evals, call individual shots via `--shot` with delays between calls.
+- **Best practice:** Evaluate scenes in small batches (3-4 shots) with 60s pauses between batches, rather than all 27 shots at once.
+
 ### Pipeline Summary
 
 After a full run, generate `pipeline_summary.json` at the story root:

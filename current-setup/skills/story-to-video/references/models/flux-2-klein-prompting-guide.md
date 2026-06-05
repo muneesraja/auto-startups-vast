@@ -83,6 +83,11 @@ Wide panoramic establishing shot of a lush tropical jungle — tall bamboo stalk
 
 ## Performance & Quality Pitfalls
 
+### 0. The "Literal Metaphor" Pitfall
+- **Bad**: `"large floppy ears shaped like banana leaves"` → model renders **actual banana leaves** attached to or growing out of the ears.
+- **Good**: `"large broad floppy ears, rounded at the edges"` → describes the ear shape without metaphor.
+- **Rule**: Never use food/object metaphors ("banana-leaf ears", "pillar-like legs", "button nose") in identity_specs or prompts. The model takes them literally and renders the referenced object. Use purely anatomical/shape descriptors instead.
+
 ### 1. The "Keyword Salad" Pitfall
 - **Bad**: `1tiger, stripes, forest, sunlight, pixar style, 8k, detailed, photorealistic`
 - **Good**: `A confident, striped tiger stands in a dense, sun-dappled jungle. 3D Pixar-style animation with soft lighting.`
