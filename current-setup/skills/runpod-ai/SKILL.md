@@ -92,6 +92,13 @@ All workflow scripts come from `https://raw.githubusercontent.com/muneesraja/aut
 | `qwen-2511`, `qwen-image-edit-2511-4steps` | `qwen-image-edit-2511-4steps.sh` | ~31.4GB | 24GB |
 | `hidream-o1`, `hidream-o1-dev-i2i`, `hidream` | `hidream-o1-dev-i2i.sh` | ~18.5GB | 24GB |
 | `flux-2-klein`, `flux-klein`, `flux2-klein` | `flux-2-klein-image-edit.sh` | ~18.4GB | 24GB |
+| `flux-2-dev-turbo`, `flux2-dev-turbo`, `flux-dev-turbo`, `flux2-turbo` | `flux-2-dev-turbo.sh` | ~51GB | 24GB |
+
+**Note:** `flux-2-dev-turbo.sh` has enhanced automation:
+- **Phase 0:** Auto-updates ComfyUI to latest version (git checkout + pip install)
+- **Phase 3:** Auto-restarts ComfyUI after installing new custom nodes
+- Smart Python detection from running process
+- Health check wait loop after restart
 
 You can also pass the exact filename (with or without `.sh`).
 
