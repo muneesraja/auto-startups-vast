@@ -74,7 +74,15 @@ def get_scene_info(manifest, scene_number, shot_number=None):
 
     for scene in manifest.get("scenes", []):
         if scene["scene_number"] == scene_number:
+            # Use shot-level characters_present if available, fall back to scene-level
             characters = scene.get("characters_present", [])
+            if shot_number is not None:
+                for shot in scene.get("shots", []):
+                    if shot.get("shot_number") == shot_number:
+                        shot_chars = shot.get("characters_present", [])
+                        if shot_chars:
+                            characters = shot_chars
+                        break
             char_descriptions = []
             char_expressions = {}
 
@@ -198,12 +206,25 @@ def parse_eval_response(raw_text, scene_number, iteration, version="v2"):
     if "category_scores" in result:
         result["score"] = compute_weighted_score(result["category_scores"], version, legacy_math=True)
 
-    # Check for critical issues
-    critical_keywords = ["missing", "absent", "not present", "wrong setting", "incorrect setting"]
-    has_critical = any(
-        kw in " ".join(result.get("issues", [])).lower()
-        for kw in critical_keywords
-    )
+    # Check for critical issues — only flag character/setting problems, not expression nuances
+    critical_keywords = ["missing character", "character is missing", "character is absent", 
+                         "wrong setting", "incorrect setting", "not present in the scene",
+                         "character not visible", "character missing"]
+    issues_text = " ".join(result.get("issues", [])).lower()
+    # Also check for standalone "missing" or "absent" but exclude expression-related contexts
+    expression_words = ["expression", "aspect", "detail", "shame", "fear", "panic", "mouth", "eyes", "brow"]
+    has_critical = any(kw in issues_text for kw in critical_keywords)
+    if not has_critical:
+        # Check standalone "missing"/"absent" but only if NOT about expressions
+        for kw in ["missing", "absent"]:
+            if kw in issues_text:
+                # Find the sentence containing the keyword
+                for issue in result.get("issues", []):
+                    if kw in issue.lower():
+                        # Only critical if no expression words in the same sentence
+                        if not any(ew in issue.lower() for ew in expression_words):
+                            has_critical = True
+                            break
 
     # Override passed based on score AND critical issues
     score = result.get("score", 0)
