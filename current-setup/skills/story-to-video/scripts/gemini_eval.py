@@ -14,6 +14,10 @@ import urllib.error
 # Constants
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+OPENROUTER_MODEL = "google/gemini-3.1-flash-lite"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+REASONING_EFFORT = "medium"  # ~2K-4K thinking tokens — optimal for image eval
+REASONING_MAX_CHARS = 10000  # Cap reasoning output in JSON
 PASS_THRESHOLD = 7.0
 
 # Evaluation weights
@@ -36,25 +40,70 @@ CATEGORY_WEIGHTS_V1 = {
 CATEGORY_WEIGHTS = CATEGORY_WEIGHTS_V2
 
 
+MAX_REFERENCE_IMAGES = 3  # Max reference images per eval (generated + refs = 4 total)
+
+
 def encode_image(image_path):
     """Read and base64-encode an image file."""
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-def call_gemini_vision(prompt_text, image_path, api_key, model=GEMINI_MODEL, max_retries=2, retry_delay=3):
-    """Call Gemini API with image + text, return raw response string."""
-    img_b64 = encode_image(image_path)
+def _build_image_parts(image_path, reference_images=None):
+    """Build a list of image parts for API calls.
 
+    Args:
+        image_path: Path to the generated image (always included)
+        reference_images: Optional list of reference image paths (max 3)
+
+    Returns:
+        List of dicts with mime_type and base64 data
+    """
+    parts = []
+
+    # Always include the generated image first
+    img_b64 = encode_image(image_path)
     ext = os.path.splitext(image_path)[1].lower()
     mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
     mime_type = mime_map.get(ext, "image/png")
+    parts.append({"mime_type": mime_type, "data": img_b64})
+
+    # Add reference images (up to MAX_REFERENCE_IMAGES)
+    if reference_images:
+        for ref_path in reference_images[:MAX_REFERENCE_IMAGES]:
+            if os.path.exists(ref_path):
+                ref_b64 = encode_image(ref_path)
+                ref_ext = os.path.splitext(ref_path)[1].lower()
+                ref_mime = mime_map.get(ref_ext, "image/png")
+                parts.append({"mime_type": ref_mime, "data": ref_b64})
+            else:
+                print(f"   ⚠️ Reference image not found: {ref_path}")
+
+    return parts
+
+
+def call_gemini_vision(prompt_text, image_path, api_key, model=GEMINI_MODEL,
+                       reference_images=None, max_retries=2, retry_delay=3):
+    """Call Gemini API with image + text, return raw response string.
+
+    Args:
+        prompt_text: The evaluation prompt
+        image_path: Path to the generated image
+        api_key: API key
+        model: Gemini model name
+        reference_images: Optional list of reference image paths (max 3)
+        max_retries: Max retry attempts
+        retry_delay: Delay between retries
+    """
+    image_parts = _build_image_parts(image_path, reference_images)
+
+    # Build Gemini content parts (text + images)
+    parts = [{"text": prompt_text}]
+    for img in image_parts:
+        parts.append({"inline_data": {"mime_type": img["mime_type"], "data": img["data"]}})
 
     payload = {
-        "contents": [{"parts": [
-            {"text": prompt_text},
-            {"inline_data": {"mime_type": mime_type, "data": img_b64}},
-        ]}],
+        "contents": [{"parts": parts}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "temperature": 0.2,
@@ -96,6 +145,128 @@ def call_gemini_vision(prompt_text, image_path, api_key, model=GEMINI_MODEL, max
     return json.dumps({"error": "Max retries exceeded"})
 
 
+def call_openrouter_vision(prompt_text, image_path, api_key, model=OPENROUTER_MODEL,
+                           reference_images=None, reasoning_effort=REASONING_EFFORT,
+                           max_retries=2, retry_delay=3):
+    """Call OpenRouter API with image + text using OpenAI-compatible format.
+
+    Args:
+        prompt_text: The evaluation prompt
+        image_path: Path to the generated image
+        api_key: API key
+        model: OpenRouter model name
+        reference_images: Optional list of reference image paths (max 3)
+        reasoning_effort: Thinking token budget ("low", "medium", "high")
+        max_retries: Max retry attempts
+        retry_delay: Delay between retries
+
+    Returns dict with:
+        - response: str (the evaluation JSON text)
+        - reasoning: str (thinking chain, capped at REASONING_MAX_CHARS)
+        - thinking_tokens: int (token count from usage)
+    """
+    image_parts = _build_image_parts(image_path, reference_images)
+
+    # Build OpenAI-compatible content array (text + images)
+    content = [{"type": "text", "text": prompt_text}]
+    for img in image_parts:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"}
+        })
+
+    payload = {
+        "model": model,
+        "max_tokens": 10000,
+        "reasoning": {"effort": reasoning_effort},
+        "messages": [{"role": "user", "content": content}]
+    }
+
+    req_data = json.dumps(payload).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    req = urllib.request.Request(OPENROUTER_API_URL, data=req_data, headers=headers)
+
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode())
+
+            # Extract response text and reasoning
+            choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            response_text = message.get("content", "")
+            reasoning_text = message.get("reasoning", "")
+
+            # Also check reasoning_details array (alternative format)
+            if not reasoning_text:
+                for rd in message.get("reasoning_details", []):
+                    if isinstance(rd, dict) and "text" in rd:
+                        reasoning_text += rd["text"] + "\n"
+
+            # Cap reasoning output
+            if len(reasoning_text) > REASONING_MAX_CHARS:
+                reasoning_text = reasoning_text[:REASONING_MAX_CHARS] + "\n[truncated]"
+
+            thinking_tokens = data.get("usage", {}).get("reasoning_tokens", 0)
+
+            if not response_text:
+                return {"response": json.dumps({"error": "No text in OpenRouter response", "raw": data}),
+                        "reasoning": reasoning_text, "thinking_tokens": thinking_tokens}
+
+            return {"response": response_text, "reasoning": reasoning_text.strip(),
+                    "thinking_tokens": thinking_tokens}
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()[:500]
+            if e.code == 429 and attempt < max_retries:
+                wait = retry_delay * (attempt + 1)
+                print(f"   ⏳ Rate limited, retrying in {wait}s...")
+                time.sleep(wait)
+                req = urllib.request.Request(OPENROUTER_API_URL, data=req_data, headers=headers)
+                continue
+            return {"response": json.dumps({"error": f"OpenRouter HTTP {e.code}", "details": error_body}),
+                    "reasoning": "", "thinking_tokens": 0}
+        except urllib.error.URLError as e:
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+                continue
+            return {"response": json.dumps({"error": f"OpenRouter connection error: {str(e)}"}),
+                    "reasoning": "", "thinking_tokens": 0}
+        except Exception as e:
+            return {"response": json.dumps({"error": f"OpenRouter error: {str(e)}"}),
+                    "reasoning": "", "thinking_tokens": 0}
+
+    return {"response": json.dumps({"error": "Max retries exceeded"}),
+            "reasoning": "", "thinking_tokens": 0}
+
+
+def resolve_provider(provider=None):
+    """Resolve which vision provider to use.
+    
+    Priority: OpenRouter > Gemini CLI/agy > Gemini API.
+    Returns (provider_name, api_key_or_none, call_function).
+    """
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+
+    if provider == "openrouter" or (provider is None and openrouter_key):
+        if not openrouter_key:
+            raise ValueError("OPENROUTER_API_KEY not set in environment")
+        return ("openrouter", openrouter_key, call_openrouter_vision)
+
+    if provider == "gemini" or (provider is None and gemini_key):
+        if not gemini_key:
+            raise ValueError("GEMINI_API_KEY not set in environment")
+        return ("gemini", gemini_key, call_gemini_vision)
+
+    raise ValueError(
+        "No vision API key found. Set OPENROUTER_API_KEY (preferred) or GEMINI_API_KEY in environment."
+    )
+
+
 def compute_weighted_score(category_scores, version="v2", legacy_math=False):
     """Compute weighted average from raw category scores."""
     weights = CATEGORY_WEIGHTS_V2 if version == "v2" else CATEGORY_WEIGHTS_V1
@@ -121,12 +292,42 @@ def compute_weighted_score(category_scores, version="v2", legacy_math=False):
         return round(total, 2)
 
 
-def build_eval_prompt(expected_description, version="v2"):
-    """Build evaluation prompt from expected description."""
+def build_eval_prompt(expected_description, version="v2", reference_names=None):
+    """Build evaluation prompt from expected description.
+
+    Args:
+        expected_description: The expected scene description text
+        version: Prompt version ("v1" or "v2")
+        reference_names: Optional list of reference image filenames being provided
+    """
+    # Build reference instruction block
+    ref_instruction = ""
+    if reference_names:
+        ref_list = ", ".join(reference_names)
+        ref_instruction = f"""
+REFERENCE IMAGES PROVIDED:
+The following reference images are attached for visual comparison:
+- Image 1: The generated scene image (evaluate this)
+{chr(10).join(f"- Image {i+2}: {name} (character/style reference)" for i, name in enumerate(reference_names))}
+
+You MUST compare the generated image against the reference images to verify:
+- Character appearance matches reference sheets (colors, features, proportions, clothing)
+- Character identity is consistent with the reference design
+- Style matches the reference aesthetic
+
+"""
+
+    # Landscape instruction (when no characters present)
+    landscape_instruction = """
+LANDSCAPE/ENVIRONMENT SHOT NOTE:
+If no characters are specified in this scene, set character_accuracy and facial_expression to null
+(do not include them in category_scores). These categories only apply when characters are present.
+The weighted score will automatically exclude null categories.
+"""
+
     if version == "v2":
         return f"""You are evaluating an AI-generated scene image against its description.
-
-{expected_description}
+{ref_instruction}{expected_description}
 
 STEP 1 - DESCRIBE WHAT YOU SEE:
 Before scoring, describe exactly what you see in the image. List every visible character and their position.
@@ -140,8 +341,8 @@ Then describe the setting, action, and overall style/mood.
 
 STEP-2 - SCORE BY CATEGORY:
 Rate each category 0-10:
-1. Character Accuracy (30% weight): Do characters match their identity specs? Correct colors, features, clothing?
-2. Facial Expression (25% weight): Does each character's facial expression match the expected expression described above? Score 10 for exact match, 7 for close approximation, 4 for partially matching, 1 for completely wrong expression. If a character's face is not visible (turned away or too small), score N/A and exclude from average.
+1. Character Accuracy (30% weight): Do characters match their identity specs AND the provided reference images? Correct colors, features, clothing, proportions? If no characters are in the scene, set to null.
+2. Facial Expression (25% weight): Does each character's facial expression match the expected expression described above? Score 10 for exact match, 7 for close approximation, 4 for partially matching, 1 for completely wrong expression. If a character's face is not visible (turned away or too small), score N/A and exclude from average. If no characters are in the scene, set to null.
 3. Scene Composition (20% weight): Are all specified characters present? Is the setting correct?
 4. Action Depicted (15% weight): Does the scene show the described action?
 5. Style Consistency (10% weight): Does the style match the described style?
@@ -167,8 +368,8 @@ Respond in this exact JSON format only:
 {{
   "description": "what I see in the image",
   "category_scores": {{
-    "character_accuracy": 0,
-    "facial_expression": 0,
+    "character_accuracy": 0 or null if no characters,
+    "facial_expression": 0 or null if no characters,
     "scene_composition": 0,
     "action_depicted": 0,
     "style_consistency": 0
@@ -187,7 +388,7 @@ Respond in this exact JSON format only:
 }}"""
     else:
         return f"""You are evaluating an AI-generated scene image against its expected description.
-
+{ref_instruction}
 EXPECTED SCENE DESCRIPTION:
 {expected_description}
 
@@ -196,7 +397,7 @@ Before scoring, describe exactly what you see in the image. List every visible c
 
 STEP 2 - SCORE BY CATEGORY:
 Rate each category 0-10:
-1. Character Accuracy (40% weight): Do characters match their identity specs? Correct colors, features, clothing?
+1. Character Accuracy (40% weight): Do characters match their identity specs AND the provided reference images? Correct colors, features, clothing? If no characters are in the scene, set to null.
 2. Scene Composition (25% weight): Are all specified characters present? Is the setting correct?
 3. Action Depicted (20% weight): Does the scene show the described action?
 4. Style Consistency (15% weight): Does the style match the described style?
@@ -215,7 +416,7 @@ Respond in this exact JSON format only:
 {{
   "description": "what I see in the image",
   "category_scores": {{
-    "character_accuracy": 0,
+    "character_accuracy": 0 or null if no characters,
     "scene_composition": 0,
     "action_depicted": 0,
     "style_consistency": 0

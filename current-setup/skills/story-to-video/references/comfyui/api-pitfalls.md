@@ -108,6 +108,23 @@ Inputs use any_01, any_02, any_03 (not named inputs):
 }}
 ```
 
+## 11. Trailing Slash on `base_url` Causes Silent JSON Parse Failure
+
+`comfyui_api.curl_json` builds the URL as `f"{base_url}{endpoint}"`. If the
+caller passes `--url https://host/with-slash/`, then `/object_info/LoadImage`
+becomes `https://host/with-slash//object_info/LoadImage` and Cloudflare
+returns an HTML 301 body like `<a …>Moved Permanently</a>.` — `json.loads()`
+then throws `Expecting value: line 1 column 1 (char 0)`.
+
+**Symptom**: All generation dies at `get_available_images()` with the JSON
+decode error above, even though `curl` against the same URL in a shell
+returns 200 + valid JSON (curl follows the redirect automatically; the
+Python `subprocess.run` call in the script also follows it, but the body
+is the HTML 301, not the JSON).
+
+**Fix**: `curl_json` now `rstrip("/")`s the base_url. Caught 2026-06-05
+during t_beb4767d (Hare + Tortoise character sheets).
+
 ## Bonus: Converting Workflow → API Format
 
 The easiest approach is to build the API format from scratch (as in `generate_scene.py`) rather than trying to auto-convert the workflow JSON. Key steps:

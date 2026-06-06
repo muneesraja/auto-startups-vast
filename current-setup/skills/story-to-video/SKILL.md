@@ -1,7 +1,7 @@
 ---
 name: story-to-video
-version: 4.1.0
-description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation, prompt composition, batch scene generation, and Gemini vision evaluation."
+version: 4.5.0
+description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation (Gemini or ComfyUI T2I fallback), prompt composition, batch scene generation, and vision-based evaluation (OpenRouter Gemini 3.1 Flash Lite with thinking tokens, or Gemini API fallback)."
 triggers:
   - story to video
   - generate scene images
@@ -29,7 +29,12 @@ Turn story manifests into illustrated scene images using agent-composed prompts 
 ```
 User story (high-level text)
         ↓
-Phase 0: Expand story → manifest + generate character ref sheets (Gemini 2.5 Flash Image)
+Phase 0: Expand story → manifest + generate character ref sheets
+         ├─ Gemini 2.5 Flash Image (default, best quality)
+         └─ ComfyUI T2I fallback (when Gemini credits unavailable)
+            → Flux 2 Dev Turbo in T2I mode (0 references)
+            → 1×4 layout: front, 3/4, side, back (single row)
+            → I2I anchoring: use existing sheet as reference for consistency
         ↓
 Phase 0B: User approval gate — review character sheets, approve/reject per character
         ↓
@@ -41,11 +46,12 @@ Phase 1.5: Agent composes prompt.json ← (reads manifest + prompting guide)
         ↓
 prompt.json (agent-composed, model-optimized prompts per shot)
         ↓
-Phase 2: generate_scene.py reads prompt.json → loads workflow template → ComfyUI
+Phase 2: Bulk queue all shots → poll for completion → download results
+         (generate_scene.py OR bulk queue + poll script)
         ↓
-                            Scene still images (1280×720)
+                            Scene still images (1344×768)
         ↓
-Phase 2.5: Evaluate & refine (Gemini 2.5 Flash vision, optional)
+Phase 2.5: Evaluate & refine (OpenRouter Gemini 3.1 Flash Lite + thinking, or Gemini API fallback)
         ↓
 Phase 3: Animate (LTX 2.3 I2V — FUTURE, in testing)
         ↓
@@ -54,9 +60,10 @@ Phase 3: Animate (LTX 2.3 I2V — FUTURE, in testing)
 
 ## Prerequisites
 
-- ComfyUI instance running with Qwen Image Edit 2511 workflow + Cloudflare tunnel
-- `google-genai` and `Pillow` Python packages (for Phase 0 character sheet generation): `pip install google-genai Pillow`
-- Gemini API key in `.env` file (next to skill dir) — use paid tier for image generation (free tier `gemini-2.5-flash-image` quota is extremely limited)
+- ComfyUI instance running with target model workflow + Cloudflare tunnel
+- **For Gemini character sheets** (default): `google-genai` and `Pillow` Python packages, Gemini API key in `.env` file (paid tier recommended)
+- **For ComfyUI T2I character sheets** (fallback): Only needs a running ComfyUI instance — no Gemini API required
+- **For vision evaluation** (Phase 2.5): `OPENROUTER_API_KEY` in environment (preferred, uses Gemini 3.1 Flash Lite with thinking tokens) or `GEMINI_API_KEY` (fallback)
 - `.env.example` committed to git; `.env` gitignored with actual key
 - **Character reference sheets** uploaded to the ComfyUI instance's input directory
 - **Story manifest** (JSON) defining characters and scenes
@@ -126,6 +133,146 @@ The pipeline is split into distinct logical phases:
   - **[Flux 2 Dev Turbo Prompting Guide](references/models/flux-2-dev-turbo-prompting-guide.md)**
   - **[LTX-I2V Prompting Guide](references/models/ltx-i2v-prompting-guide.md)**
 - **[ComfyUI API Pitfalls](references/comfyui/api-pitfalls.md)** - Pitfalls & solutions for API execution.
+- **[Evaluation Pitfalls](references/eval-pitfalls.md)** - agy context contamination, Gemini CLI quirks, ComfyUI instance contamination.
+
+---
+
+## Vision Evaluation Providers
+
+The evaluation pipeline supports multiple vision providers, selected via `--provider` flag or auto-detected from environment:
+
+| Priority | Provider | Model | Flag | Env Var | Thinking |
+|---|---|---|---|---|---|
+| 1 (default) | OpenRouter | Gemini 3.1 Flash Lite | `--provider openrouter` | `OPENROUTER_API_KEY` | Medium (2K-4K tokens) |
+| 2 | Gemini API | Gemini 2.5 Flash | `--provider gemini` | `GEMINI_API_KEY` | None |
+
+**Auto-detection order:** `OPENROUTER_API_KEY` > `GEMINI_API_KEY`
+
+### OpenRouter (Recommended)
+
+Uses `google/gemini-3.1-flash-lite` via OpenRouter's OpenAI-compatible API with `reasoning.effort: "medium"` (~2K-4K thinking tokens). The model reasons through the image before scoring, improving evaluation accuracy (MMMU Pro: 76.8% vs 66.7% for Gemini 2.5 Flash).
+
+**Key features:**
+- Thinking chain captured in eval JSON (`reasoning` field) for debugging
+- Thinking token count logged (`thinking_tokens` field)
+- Reasoning output capped at 10K chars to prevent JSON bloat
+- Automatic retry with exponential backoff on 429 rate limits
+
+**Cost estimate:** ~$0.12 for 50 shots (input $0.25/M, output $1.50/M including thinking tokens)
+
+### Face Structure Reference Fix
+
+When the model doesn't apply face details from the character reference sheet (e.g., missing cream-colored face plate, wrong eye style), add an explicit `CRITICAL FACE DETAIL:` block in the prompt:
+
+```
+CRITICAL FACE DETAIL: [Character] has a [specific face structure description] on the front of their body —
+this is a [color/texture] [shape] area where facial features sit.
+Within this face plate: [eyes], [nose], [eyebrows], [mouth].
+The rest of the body is [description].
+```
+
+**Why:** Flux 2 Dev Turbo's ReferenceLatent chain doesn't always extract fine face details. Explicit text forces correct rendering.
+
+**When:** Eval feedback mentions face/feature mismatches but overall character shape and color are correct.
+
+**Proven impact:** scene_005_shot002: 6.85→8.95, scene_007_shot002: 8.3→9.5
+
+### Reference Image Evaluation
+
+The evaluation pipeline now supports sending **reference images** alongside the generated image for visual comparison. This allows the model to verify character appearance against the reference sheets.
+
+**How it works:**
+- Generated image + up to 3 reference sheets = max 4 images per eval request
+- Reference images are resolved from `prompt.json`'s `references` field
+- The eval prompt instructs the model to compare against reference sheets
+- Auto-detects `characters/` directory relative to `prompt.json` path
+
+**CLI usage:**
+```bash
+# Auto-detect references from prompt.json location
+python3 generate_scene.py --prompts prompt.json --evaluate-only --provider openrouter
+
+# Explicit references directory
+python3 generate_scene.py --prompts prompt.json --evaluate-only --references-dir /path/to/characters/
+```
+
+**Reference resolution:**
+- `prompt.json` defines `references: ["puffy_reference_sheet_final.png", "jalapeno_reference_sheet_v4.png"]`
+- Script resolves these to `{prompt.json_dir}/characters/{filename}`
+- Missing references are warned but don't block evaluation
+
+### Landscape/Environment Shots
+
+For shots with no characters (landscape panoramas, environment close-ups):
+- `character_accuracy` and `facial_expression` are set to `null` in the eval response
+- `compute_weighted_score()` automatically excludes null categories from the weighted average
+- This prevents false negatives where landscape shots score 0 for character-related categories
+
+**Example:** `scene_001_shot002` (vanilla milk river close-up) has no characters — character_accuracy and facial_expression are excluded, so only scene_composition, action_depicted, and style_consistency contribute to the score.
+
+### Regeneration Workflow
+
+```bash
+# 1. Regenerate failed shots with refined prompts
+python3 regenerate_refined.py  # Uses eval JSON refined_prompt field
+
+# 2. Re-evaluate the v2 images
+python3 evaluate_scene.py --manifest story_manifest.json --scene X --shot Y --image scene_X_shotY_v2.png --provider openrouter
+```
+
+### Regeneration Best Practices (Critical)
+
+**Rule: Use character reference sheets ONLY. Never send the previous failed generation as a ComfyUI reference.**
+
+When a shot fails evaluation and needs regeneration, the temptation is to send the previous generated image back to ComfyUI so the model "improves" it. **This backfires.**
+
+**What happens when you send the previous failed shot:**
+- The model treats it as the "primary" composition to modify
+- It replicates the same errors (missing characters, wrong composition, bad action)
+- Character reference sheets get deprioritized — the scene image dominates the reference chain
+- Score drops instead of improving
+
+**Proven approach (scene_004_shot004: 6.93 → 9.60):**
+1. Send **character reference sheets only** (from `prompt.json` `references` field)
+2. Write a **stronger, more detailed prompt** that explicitly fixes the identified issues
+3. Use **body-anchoring** to describe character positions and actions
+4. Describe the **specific action/composition** the eval feedback said was missing
+
+**Example — fixing missing action character:**
+```
+❌ Wrong: Send previous shot + character refs as ComfyUI refs
+   → Score: 3.8 (previous shot's wrong composition dominates)
+
+✅ Right: Character refs only + explicit prompt fix
+   "Puffy (small round red bun, cream face plate, dot eyes) is the CENTRAL character
+    bouncing through a formation of green chili soldiers, sending them flying..."
+   → Score: 9.60
+```
+
+**When to use this approach:**
+- Character is missing from the scene (reference contamination)
+- Action/composition is wrong (model replicates the failed layout)
+- Multiple characters but only one renders (previous shot had the wrong one)
+
+**When the previous shot MIGHT work as reference:**
+- Only for minor color/lighting tweaks where composition is correct
+- Never when character presence or action is the issue
+
+### CLI Usage
+
+```bash
+# Auto-detect provider (OpenRouter preferred)
+python3 evaluate_scene.py --manifest story_manifest.json --all --scenes-dir ./scenes
+
+# Force OpenRouter
+python3 evaluate_scene.py --manifest story_manifest.json --all --provider openrouter
+
+# Force Gemini API
+python3 evaluate_scene.py --manifest story_manifest.json --all --provider gemini
+
+# Single shot evaluation
+python3 evaluate_scene.py --manifest story_manifest.json --scene 1 --shot 2 --image scene_001_shot002.png
+```
 - **[Improvements Roadmap](references/roadmap.md)** - Development checklist & tracking.
 
 ---

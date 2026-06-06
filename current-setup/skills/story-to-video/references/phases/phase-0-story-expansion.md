@@ -47,17 +47,53 @@ Then take the user's high-level story prompt and expand it into a full `story_ma
 
 ### Step B — Manifest → Character Reference Sheets
 
-Automatically generate 7-view character reference sheets using **Gemini 2.5 Flash Image** (`gemini-2.5-flash-image`):
+Generate 4-view character reference sheets. **Two approaches:**
+
+#### Approach A: Gemini 2.5 Flash Image (Default, Best Quality)
+
+Uses Gemini for 7-view sheets (4 body + 3 face close-ups) on white background:
 
 ```bash
-# Generate character sheets only
 python3 generate_story_assets.py --manifest story_manifest.json --phase characters
-
-# Force regeneration of existing sheets
 python3 generate_story_assets.py --manifest story_manifest.json --phase characters --force
 ```
 
-Each sheet shows: 4 body views (front, 3/4 left, right profile, back) + 3 face close-ups (front, 3/4 left, right profile) on a white background.
+#### Approach B: ComfyUI T2I Fallback (When Gemini Credits Unavailable)
+
+Uses Flux 2 Dev Turbo in T2I mode (0 references) to generate character sheets directly on ComfyUI. No Gemini API key needed.
+
+**Layout preference: 1×4 single row** (front, 3/4, side, back). The 2×7 layout (body + face close-ups) causes consistency issues between rows — the top and bottom can look like different characters. A single row of 4 views is cleaner and more consistent.
+
+**Workflow:**
+1. Build a T2I prompt describing the character + "four views arranged left to right: front-facing, left 3/4 angle, right side profile, back view"
+2. Use `build_dynamic_workflow()` with `references: []` — the builder auto-disables the ReferenceLatent chain via ComfySwitchNode
+3. Queue on ComfyUI and download the output
+
+**Example prompt structure:**
+```
+A professional character reference sheet showing one cartoon character from four angles
+in a single horizontal row on a clean white background.
+The character is [NAME] — [identity_spec].
+Show this SAME character in four views arranged left to right:
+front-facing, left 3/4 angle, right side profile, back view.
+All four views must show the identical character. Neutral resting expression.
+3D Pixar-style animation, rich textures, even studio lighting.
+Balanced white balance, natural color grading.
+```
+
+**I2I Reference Anchoring (for regeneration):**
+When regenerating a character sheet, upload the existing sheet to ComfyUI and use it as a reference (1 ref, I2I mode) to maintain consistency with the original design while changing the layout.
+
+```bash
+# Upload existing sheet
+curl -X POST "$COMFY_URL/upload/image" -F "image=@existing_sheet.png" -F "overwrite=true"
+# Then build workflow with references: ["existing_sheet.png"] instead of []
+```
+
+**Character Design Pitfalls (ComfyUI T2I):**
+1. **"Literal food" pitfall** — If the character is a food item (bun, chilli), the back view may render as an actual food item instead of a cartoon character. Fix: explicitly state "cartoon character, NOT a real food item" and describe the back view with visible arms/legs.
+2. **"Human body" pitfall** — The model may add human body parts to non-human characters. Fix: describe the body as "the entire body IS [object]" (e.g., "the entire body IS the chilli pepper").
+3. **"Multi-view inconsistency" pitfall** — Different views may look like different characters. Fix: use 1×4 layout instead of 2×7, use I2I reference anchoring for regenerations.
 
 **⚠️ CRITICAL — Neutral Expressions Only:** Character reference sheets MUST show characters with **neutral/resting expressions**. If a reference sheet shows a character smiling, frowning, or showing any emotion, it will bias every downstream scene toward that expression — Qwen Image Edit uses reference sheets as anchors and will reproduce the sheet's expression regardless of the prompt. The evaluation check for `expression_neutrality >= 6` enforces this.
 

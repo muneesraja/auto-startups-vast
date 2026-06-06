@@ -38,10 +38,12 @@ from comfyui_api import (
 from workflow_builder import build_dynamic_workflow, load_workflow_template
 from gemini_eval import (
     call_gemini_vision,
+    resolve_provider,
     compute_weighted_score,
     build_eval_prompt as build_eval_prompt_base,
     parse_eval_response,
     GEMINI_MODEL,
+    OPENROUTER_MODEL,
     PASS_THRESHOLD,
     CATEGORY_WEIGHTS,
 )
@@ -146,7 +148,7 @@ def _validate_prompt_lengths(data):
 # ── Scene Generation ─────────────────────────────────────────
 
 def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir,
-                  available_images, seed_override=None):
+                  available_images, seed_override=None, auth=None):
     """Generate a single shot image using prompt.json data.
 
     Args:
@@ -157,6 +159,7 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
         output_dir: Directory to save output images
         available_images: Set of available image filenames on ComfyUI
         seed_override: Override the seed (for retry iterations)
+        auth: Optional tuple of (username, password) for Basic Auth
 
     Returns:
         str: Path to generated image, or None on failure
@@ -188,7 +191,8 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
 
     # Queue the workflow
     result = curl_json("POST", "/prompt", base_url,
-                       data={"prompt": workflow, "client_id": "story-to-video"})
+                       data={"prompt": workflow, "client_id": "story-to-video"},
+                       auth=auth)
 
     if "error" in result:
         err = result["error"]
@@ -203,7 +207,7 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
     print(f"   ⏳ Queued: {prompt_id}")
 
     try:
-        outputs = wait_for_prompt(prompt_id, base_url)
+        outputs = wait_for_prompt(prompt_id, base_url, auth=auth)
     except (RuntimeError, TimeoutError) as e:
         print(f"   ❌ {e}")
         return None
@@ -213,7 +217,7 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
         for item in out.get("images", []):
             filename = item["filename"]
             out_path = os.path.join(output_dir, filename)
-            if download_output(filename, out_path, base_url, item.get("subfolder", "")):
+            if download_output(filename, out_path, base_url, item.get("subfolder", ""), auth=auth):
                 size = os.path.getsize(out_path)
                 print(f"   ✅ Saved: {out_path} ({size/1024:.0f} KB)")
                 return out_path
@@ -226,12 +230,13 @@ def generate_shot(shot_data, global_cfg, workflow_template, base_url, output_dir
 #  GEMINI VISION EVALUATION
 # ═══════════════════════════════════════════════════════════════
 
-def build_eval_prompt(eval_context, prompt_text):
+def build_eval_prompt(eval_context, prompt_text, reference_names=None):
     """Build evaluation prompt from prompt.json's eval_context.
 
     Args:
         eval_context: The eval_context object from a prompt.json shot
         prompt_text: The prompt that was used to generate the image
+        reference_names: Optional list of reference image filenames being provided
     """
     # Build expected description from eval_context
     desc_parts = ["EXPECTED SCENE DESCRIPTION:", ""]
@@ -240,6 +245,8 @@ def build_eval_prompt(eval_context, prompt_text):
 
     if eval_context.get("characters_present"):
         desc_parts.append(f"Characters expected: {', '.join(eval_context['characters_present'])}")
+    else:
+        desc_parts.append("Characters expected: None (landscape/environment shot)")
 
     if eval_context.get("setting"):
         desc_parts.append(f"Setting: {eval_context['setting']}")
@@ -258,38 +265,93 @@ def build_eval_prompt(eval_context, prompt_text):
 
     expected_description = "\n".join(desc_parts)
 
-    return build_eval_prompt_base(expected_description, version="v2")
+    return build_eval_prompt_base(expected_description, version="v2",
+                                  reference_names=reference_names)
 
 
 
-def evaluate_with_gemini(image_path, shot_data, api_key):
-    """Evaluate a generated scene image using Gemini Vision.
+def evaluate_with_gemini(image_path, shot_data, api_key=None, provider=None,
+                         references_base_dir=None):
+    """Evaluate a generated scene image using vision API.
 
     Args:
         image_path: Path to the generated image
-        shot_data: Shot object from prompt.json (contains prompt + eval_context)
-        api_key: Gemini API key
+        shot_data: Shot object from prompt.json (contains prompt + eval_context + references)
+        api_key: API key override (optional)
+        provider: 'openrouter', 'gemini', or None (auto-detect)
+        references_base_dir: Base directory for resolving reference image paths
+                            (e.g., /path/to/pluffy-bun/characters/)
 
     Returns:
         Parsed evaluation result dict or None on failure
     """
+    # Resolve provider
+    try:
+        provider_name, resolved_key, call_fn = resolve_provider(provider)
+    except ValueError as e:
+        print(f"   ❌ {e}")
+        return None
+    if api_key:
+        resolved_key = api_key
+
     eval_context = shot_data.get("eval_context", {})
     prompt_text = shot_data["prompt"]
-    eval_prompt = build_eval_prompt(eval_context, prompt_text)
 
-    print(f"   🔍 Evaluating with Gemini...")
+    # Resolve reference images from prompt.json
+    reference_filenames = shot_data.get("references", [])
+    reference_images = []
+    reference_names = []
+    if references_base_dir and reference_filenames:
+        for ref_name in reference_filenames:
+            ref_path = os.path.join(references_base_dir, ref_name)
+            if os.path.exists(ref_path):
+                reference_images.append(ref_path)
+                reference_names.append(ref_name)
+            else:
+                print(f"   ⚠️ Reference image not found: {ref_path}")
 
-    response = call_gemini_vision(eval_prompt, image_path, api_key)
+    eval_prompt = build_eval_prompt(eval_context, prompt_text,
+                                    reference_names=reference_names if reference_names else None)
+
+    model_name = OPENROUTER_MODEL if provider_name == "openrouter" else GEMINI_MODEL
+    ref_count = len(reference_images)
+    print(f"   🔍 Evaluating with {provider_name} ({model_name})...")
+    print(f"   🖼️ Generated image: {os.path.basename(image_path)}")
+    if ref_count:
+        print(f"   📎 Reference images ({ref_count}): {', '.join(reference_names)}")
+    else:
+        print(f"   📎 No reference images")
+
+    response = call_fn(eval_prompt, image_path, resolved_key,
+                       reference_images=reference_images if reference_images else None)
+
+    # Handle OpenRouter dict response vs Gemini string response
+    reasoning_text = ""
+    thinking_tokens = 0
+    if isinstance(response, dict):
+        reasoning_text = response.get("reasoning", "")
+        thinking_tokens = response.get("thinking_tokens", 0)
+        response = response["response"]
+        if reasoning_text:
+            print(f"   🧠 Thinking: {len(reasoning_text)} chars, {thinking_tokens} tokens")
 
     if not response:
-        print(f"   ❌ Empty response from Gemini")
+        print(f"   ❌ Empty response from {provider_name}")
         return None
 
     result = parse_eval_response(response)
     if result is None:
-        print(f"   ❌ Could not parse Gemini response")
+        print(f"   ❌ Could not parse response")
         print(f"   Raw: {response[:200]}...")
         return None
+
+    # Add provider metadata and reasoning
+    result["provider"] = provider_name
+    result["model"] = model_name
+    if reasoning_text:
+        result["reasoning"] = reasoning_text
+    if thinking_tokens:
+        result["thinking_tokens"] = thinking_tokens
 
     # Print results
     scores = result.get("category_scores", {})
@@ -320,8 +382,9 @@ def evaluate_with_gemini(image_path, shot_data, api_key):
 # ── Generate with Evaluation Loop ────────────────────────────
 
 def generate_with_eval_loop(shot_data, global_cfg, workflow_template, base_url,
-                            output_dir, available_images, api_key,
-                            max_iterations=3):
+                            output_dir, available_images, api_key=None,
+                            max_iterations=3, provider=None, references_base_dir=None,
+                            auth=None):
     """Generate a shot and evaluate with retry loop.
 
     Returns:
@@ -354,7 +417,8 @@ def generate_with_eval_loop(shot_data, global_cfg, workflow_template, base_url,
 
         image_path = generate_shot(
             shot_copy, global_cfg, workflow_template, base_url,
-            output_dir, available_images, seed_override=current_seed
+            output_dir, available_images, seed_override=current_seed,
+            auth=auth
         )
 
         if not image_path:
@@ -363,7 +427,9 @@ def generate_with_eval_loop(shot_data, global_cfg, workflow_template, base_url,
             continue
 
         # Evaluate the image
-        result = evaluate_with_gemini(image_path, shot_copy, api_key)
+        result = evaluate_with_gemini(image_path, shot_copy, api_key=api_key,
+                                      provider=provider,
+                                      references_base_dir=references_base_dir)
 
         if result is None:
             print(f"   ⚠️ Evaluation failed, keeping image without eval")
@@ -426,11 +492,17 @@ def main():
     parser.add_argument("--max-iterations", type=int, default=MAX_ITERATIONS_DEFAULT,
                         help=f"Max eval iterations (default: {MAX_ITERATIONS_DEFAULT})")
     parser.add_argument("--api-key", default=os.environ.get("GEMINI_API_KEY", ""),
-                        help="Gemini API key (or set GEMINI_API_KEY env var)")
+                        help="Vision API key (overrides env)")
+    parser.add_argument("--provider", choices=["openrouter", "gemini"], default=None,
+                        help="Vision provider (default: auto-detect from env, OpenRouter preferred)")
     parser.add_argument("--cleanup-iters", action="store_true",
                         help="Remove intermediate iteration images (keep only final)")
     parser.add_argument("--skip-existing", action="store_true",
                         help="Skip shots that already have a _final.png file")
+    parser.add_argument("--references-dir", type=str, default=None,
+                        help="Directory containing reference images (default: auto-detect from prompt.json path)")
+    parser.add_argument("--auth", type=str, default=None,
+                        help="ComfyUI Basic Auth in username:password format")
 
     args = parser.parse_args()
     base_url = args.url
@@ -441,12 +513,36 @@ def main():
     if not args.api_key:
         args.api_key = os.environ.get("GEMINI_API_KEY", "")
 
+    # Parse auth
+    comfyui_auth = None
+    if args.auth:
+        parts = args.auth.split(":", 1)
+        if len(parts) == 2:
+            comfyui_auth = (parts[0], parts[1])
+        else:
+            print("❌ Invalid auth format. Use username:password")
+            sys.exit(1)
+
     os.makedirs(scenes_dir, exist_ok=True)
 
     # ── Load prompt.json ──
     prompts_data = load_prompts(args.prompts)
     global_cfg = prompts_data["global"]
     shots = prompts_data["shots"]
+
+    # ── Resolve references directory ──
+    # Auto-detect from prompt.json path (characters/ is sibling of prompt.json)
+    if args.references_dir:
+        references_base_dir = args.references_dir
+    else:
+        prompts_dir = os.path.dirname(os.path.abspath(args.prompts))
+        references_base_dir = os.path.join(prompts_dir, "characters")
+    if os.path.isdir(references_base_dir):
+        ref_files = [f for f in os.listdir(references_base_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        print(f"📎 Reference images directory: {references_base_dir} ({len(ref_files)} files)")
+    else:
+        print(f"⚠️ References directory not found: {references_base_dir}")
+        references_base_dir = None
 
     # ── Load workflow template ──
     template_name = prompts_data["workflow_template"]
@@ -469,7 +565,7 @@ def main():
         return
 
     # ── Discover available images ──
-    available = get_available_images(base_url)
+    available = get_available_images(base_url, auth=comfyui_auth)
     print(f"📷 Found {len(available)} available images on ComfyUI instance")
 
     # ── Filter shots ──
@@ -506,7 +602,9 @@ def main():
                 continue
 
             print(f"\n🔍 Evaluating: {image_path}")
-            result = evaluate_with_gemini(image_path, shot, args.api_key)
+            result = evaluate_with_gemini(image_path, shot, api_key=args.api_key,
+                                          provider=args.provider,
+                                          references_base_dir=references_base_dir)
             if result:
                 print(f"📊 Final: {result.get('score', 0):.1f}/10 | "
                       f"{'✅ PASS' if result.get('passed') else '❌ FAIL'}")
@@ -520,28 +618,42 @@ def main():
     for shot in shots:
         prefix = shot["filename_prefix"]
 
-        # Skip if final already exists
+        # Skip if any image for this prefix already exists in the scenes dir.
+        # Originally checked only for "{prefix}_final.png" (the eval-loop
+        # convention), but the plain generate_shot path saves as
+        # "{prefix}_00001_.png" / "{prefix}_00002_.png" — making the script
+        # needlessly re-generate and overwrite a perfectly good image on
+        # retries. (Caught 2026-06-05, t_7d0915a2 — second batch run wasted
+        # ~10 minutes redoing shots 17+ that were already produced.)
         if args.skip_existing:
-            expected_path = os.path.join(scenes_dir, f"{prefix}_final.png")
-            if os.path.exists(expected_path):
-                print(f"\n🎬 {prefix}: ⏭️  Skipping (final exists)")
-                results[prefix] = {"path": expected_path, "iterations": 0,
+            existing = sorted(
+                f for f in os.listdir(scenes_dir)
+                if f.startswith(prefix + "_") and f.endswith(('.png', '.jpg'))
+                and os.path.getsize(os.path.join(scenes_dir, f)) > 1024
+            )
+            if existing:
+                existing_path = os.path.join(scenes_dir, existing[-1])
+                print(f"\n🎬 {prefix}: ⏭️  Skipping ({existing[-1]} exists, "
+                      f"{os.path.getsize(existing_path)/1024:.0f} KB)")
+                results[prefix] = {"path": existing_path, "iterations": 0,
                                    "passed": None, "skipped": True}
                 continue
 
         if args.evaluate:
-            if not args.api_key:
-                print("❌ GEMINI_API_KEY required for --evaluate mode")
+            if not args.api_key and not os.environ.get("OPENROUTER_API_KEY"):
+                print("❌ Vision API key required for --evaluate mode (set OPENROUTER_API_KEY or --api-key)")
                 sys.exit(1)
 
             result = generate_with_eval_loop(
                 shot, global_cfg, workflow_template, base_url,
-                scenes_dir, available, args.api_key, args.max_iterations
+                scenes_dir, available, api_key=args.api_key,
+                max_iterations=args.max_iterations, provider=args.provider,
+                references_base_dir=references_base_dir, auth=comfyui_auth
             )
         else:
             path = generate_shot(
                 shot, global_cfg, workflow_template, base_url,
-                scenes_dir, available
+                scenes_dir, available, auth=comfyui_auth
             )
             result = {"path": path, "iterations": 1, "passed": None} if path else None
 

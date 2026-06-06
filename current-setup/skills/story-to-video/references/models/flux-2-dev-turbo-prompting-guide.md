@@ -55,6 +55,25 @@ Characters in this scene must match the provided reference images exactly:
 - [Character B ID] (second reference): [Short visual description from identity_spec]
 ```
 
+#### Face Structure Detail (When Reference Not Applied)
+
+If the model renders the character shape/color correctly but misses face details from the reference sheet (e.g., missing face plate, wrong eye style), add a `CRITICAL FACE DETAIL:` block after the reference mapping header:
+
+```text
+Characters in this scene must match the provided reference images exactly:
+- Puffy (first reference): A small, perfectly round red bun character.
+CRITICAL FACE DETAIL: Puffy has a cream-colored face plate/cutout on the front of his body —
+this is a lighter beige/cream oval area where his facial features sit.
+Within this cream face plate: two small round dot eyes, a tiny nose, and thin minimal eyebrows.
+The rest of the body is smooth red with a subtle golden sheen.
+```
+
+**Why:** The ReferenceLatent chain doesn't always extract fine face details. Explicit text forces correct rendering.
+
+**When to use:** Eval feedback mentions face/feature mismatches but overall character shape and color are correct.
+
+**Proven impact:** scene_005_shot002: 6.85→8.95, scene_007_shot002: 8.3→9.5
+
 #### Example Prompt
 ```text
 Characters in this scene must match the provided reference images exactly:
@@ -79,6 +98,30 @@ For shots that establish the environment or show landscapes where no characters 
 ```text
 Wide panoramic establishing shot of a lush tropical jungle — tall bamboo stalks, broad banana leaves, colorful wildflowers, golden sunlight streaming through a thick emerald canopy, misty air. 3D Pixar-style animation, rich textures, balanced white balance, natural color grading.
 ```
+
+### Character Sheet Generation via T2I
+
+When Gemini API credits are unavailable, character reference sheets can be generated directly on ComfyUI using Flux 2 Dev Turbo in T2I mode. This produces a 1×4 layout (front, 3/4, side, back views) on a clean white background.
+
+**Prompt structure:**
+```
+A professional character reference sheet showing one cartoon character from four angles
+in a single horizontal row on a clean white background.
+The character is [NAME] — [identity_spec].
+Show this SAME character in four views arranged left to right:
+front-facing, left 3/4 angle, right side profile, back view.
+All four views must show the identical character. Neutral resting expression.
+3D Pixar-style animation, rich textures, even studio lighting.
+Balanced white balance, natural color grading.
+```
+
+**I2I Reference Anchoring:** When regenerating a character sheet, upload the existing sheet to ComfyUI and use it as a reference (1 ref, I2I mode) to maintain consistency while changing the layout.
+
+**Character Design Pitfalls:**
+1. **"Literal food" pitfall** — If the character is a food item (bun, chilli), the back view may render as an actual food item instead of a cartoon character. Fix: explicitly state "cartoon character, NOT a real food item" and describe the back view with visible arms/legs.
+2. **"Human body" pitfall** — The model may add human body parts to non-human characters. Fix: describe the body as "the entire body IS [object]" (e.g., "the entire body IS the chilli pepper").
+3. **"Multi-view inconsistency" pitfall** — Different views may look like different characters. Fix: use 1×4 layout instead of 2×7, use I2I reference anchoring for regenerations.
+4. **"2×7 layout inconsistency"** — The 2-row layout (body views + face close-ups) often produces different-looking characters between rows. Use 1×4 single row instead.
 
 ---
 

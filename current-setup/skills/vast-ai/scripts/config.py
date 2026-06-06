@@ -15,11 +15,11 @@ GPU_PROFILES = {
         "name": "RTX_3090",
         "num_gpus": 1,
         "min_ram_gb": 24,           # VRAM is bottleneck, not system RAM
-        "min_disk_gb": 100,
+        "min_disk_gb": 150,         # Bumped 2026-06-05: flux-2-dev-turbo needs ~150GB for full model set
         "min_inet_down_mbps": 400,  # 400 Mbps min — still good for 25GB+ model downloads
         "min_inet_up_mbps": 300,
         "min_cpu_cores": 2,
-        "min_reliability": 0.95,    # 95% — host must be mostly reliable
+        "min_reliability": 0.98,    # Bumped 2026-06-05: Munees wants "high reliability" for 3090 instances
         "cuda_min": 12.8,           # cuda-13.2 image requires CUDA 12.8+ hardware capability (3090/4090 both fine)
         "driver_min": "570.0.0",    # NV driver 570+ REQUIRED for CUDA 12.9 (560/565 fail with Error 804)
         "max_price_hr": 0.30,       # Relaxed from 0.25 to show more options

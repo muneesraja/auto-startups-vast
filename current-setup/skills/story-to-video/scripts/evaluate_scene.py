@@ -25,13 +25,16 @@ import sys
 from comfyui_api import DEFAULT_OUTPUT_DIR
 from gemini_eval import (
     call_gemini_vision,
+    resolve_provider,
     compute_weighted_score,
     build_eval_prompt as build_eval_prompt_base,
     parse_eval_response as parse_eval_response_base,
     GEMINI_MODEL,
+    OPENROUTER_MODEL,
     PASS_THRESHOLD,
     CATEGORY_WEIGHTS_V2,
     CATEGORY_WEIGHTS_V1,
+    REASONING_MAX_CHARS,
 )
 
 
@@ -259,17 +262,22 @@ def _parse_error_result(raw_text, scene_number, iteration, version="v2"):
 # ── Main Evaluation ──────────────────────────────────────────
 
 def evaluate_scene(image_path, manifest_path, scene_number, shot_number=None,
-                   iteration=1, output_dir=None, api_key=None):
+                   iteration=1, output_dir=None, api_key=None, provider=None):
     """Evaluate a single scene image against its manifest description.
 
     For v2 manifests, shot_number can be provided to evaluate against
     specific shot-level facial expressions.
+    provider: 'openrouter', 'gemini', or None (auto-detect from env)
     """
-    if not api_key:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        print("❌ GEMINI_API_KEY not set. Export it or pass --api-key.")
+    # Resolve provider (OpenRouter > Gemini API)
+    try:
+        provider_name, resolved_key, call_fn = resolve_provider(provider)
+    except ValueError as e:
+        print(f"❌ {e}")
         sys.exit(1)
+
+    if api_key:
+        resolved_key = api_key  # CLI override takes priority
 
     # Load manifest and get scene info
     manifest = load_manifest(manifest_path)
@@ -287,19 +295,39 @@ def evaluate_scene(image_path, manifest_path, scene_number, shot_number=None,
         print(f"⚠️ Image may be corrupted (only {os.path.getsize(image_path)} bytes): {image_path}")
 
     shot_label = f", Shot {shot_number}" if shot_number else ""
+    model_name = OPENROUTER_MODEL if provider_name == "openrouter" else GEMINI_MODEL
     print(f"🔍 Evaluating Scene {scene_number}{shot_label}: {scene_info['title']}")
     print(f"   Image: {image_path}")
+    print(f"   Provider: {provider_name} | Model: {model_name}")
     print(f"   Manifest version: {version}")
     print(f"   Characters: {len(scene_info['characters'])}, {scene_info['setting'][:50]}...")
     if scene_info.get("char_expressions"):
         print(f"   Facial expressions: {len(scene_info['char_expressions'])} characters")
 
-    # Build evaluation prompt and call Gemini
+    # Build evaluation prompt and call vision API
     eval_prompt = build_eval_prompt(scene_info)
-    raw_response = call_gemini_vision(eval_prompt, image_path, api_key)
+    raw_response = call_fn(eval_prompt, image_path, resolved_key)
+
+    # Handle OpenRouter dict response vs Gemini string response
+    reasoning_text = ""
+    thinking_tokens = 0
+    if isinstance(raw_response, dict):
+        reasoning_text = raw_response.get("reasoning", "")
+        thinking_tokens = raw_response.get("thinking_tokens", 0)
+        raw_response = raw_response["response"]
+        if reasoning_text:
+            print(f"   🧠 Thinking: {len(reasoning_text)} chars, {thinking_tokens} tokens")
 
     # Parse and validate response
     result = parse_eval_response(raw_response, scene_number, iteration, version)
+
+    # Add provider metadata and reasoning to result
+    result["provider"] = provider_name
+    result["model"] = model_name
+    if reasoning_text:
+        result["reasoning"] = reasoning_text
+    if thinking_tokens:
+        result["thinking_tokens"] = thinking_tokens
 
     # Print summary
     print(f"\n   📊 Evaluation Result (Iteration {iteration}, {version}):")
@@ -353,7 +381,9 @@ if __name__ == "__main__":
     parser.add_argument("--all", action="store_true", help="Evaluate all scenes (finds images automatically)")
     parser.add_argument("--iteration", type=int, default=1, help="Iteration number (default: 1)")
     parser.add_argument("--output-dir", default=None, help="Directory for feedback JSON files")
-    parser.add_argument("--api-key", default=None, help="Gemini API key (or set GEMINI_API_KEY)")
+    parser.add_argument("--api-key", default=None, help="Vision API key (overrides env)")
+    parser.add_argument("--provider", choices=["openrouter", "gemini"], default=None,
+                        help="Vision provider (default: auto-detect from env, OpenRouter preferred)")
     parser.add_argument("--scenes-dir", default=None, help="Directory containing scene images (for --all)")
 
     args = parser.parse_args()
@@ -392,7 +422,8 @@ if __name__ == "__main__":
                 if version == "v2" and scene.get("shots"):
                     shot_num = 1  # Default to first shot
                 evaluate_scene(best_image, args.manifest, num, shot_number=shot_num,
-                             iteration=args.iteration, output_dir=output_dir, api_key=api_key)
+                             iteration=args.iteration, output_dir=output_dir,
+                             api_key=args.api_key, provider=args.provider)
                 print()
             else:
                 print(f"⚠️ No image found for scene {num}, skipping")
@@ -404,4 +435,5 @@ if __name__ == "__main__":
             sys.exit(1)
         output_dir = args.output_dir or os.path.join(os.path.dirname(args.image), "..", "feedback")
         evaluate_scene(args.image, args.manifest, args.scene, shot_number=args.shot,
-                       iteration=args.iteration, output_dir=output_dir, api_key=api_key)
+                       iteration=args.iteration, output_dir=output_dir,
+                       api_key=args.api_key, provider=args.provider)
