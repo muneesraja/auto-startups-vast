@@ -60,29 +60,49 @@ def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=600, auth=Non
     raise TimeoutError(f"Prompt {prompt_id} timed out after {max_wait}s")
 
 
-def download_output(filename, output_path, base_url, subfolder="", auth=None):
-    """Download an output image from ComfyUI."""
+def download_output(filename, output_path, base_url, subfolder="", auth=None, is_video=False):
+    """Download an output image or video from ComfyUI."""
     url = f"{base_url}/view?filename={filename}&subfolder={subfolder}&type=output"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # Use -L to follow the Cloudflare 301 redirect to the actual /view URL.
     # Without -L, the 109-byte "Moved Permanently" HTML body gets saved as the
-    # image file (caught 2026-06-05, t_7d0915a2 — first batch run produced 15
-    # bogus scene_*.png files that were actually Cloudflare redirect pages).
+    # image file.
     cmd = ["curl", "-sSL", "-w", "%{http_code}", "-o", output_path, url]
     if auth:
         cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     saved = os.path.exists(output_path)
-    # Sanity-check: PNGs start with the 8-byte magic 89 50 4E 47 0D 0A 1A 0A.
     if saved:
         with open(output_path, "rb") as _f:
-            magic = _f.read(8)
-        if not magic.startswith(b"\x89PNG"):
+            magic = _f.read(16)
+        
+        # Check for HTML/json error page
+        is_html_or_json = (
+            magic.startswith(b"<!DOC") or
+            magic.startswith(b"<html") or
+            magic.startswith(b"<html>") or
+            magic.startswith(b"{\"")
+        )
+        if is_html_or_json:
             try:
                 os.remove(output_path)
             except OSError:
                 pass
             return False
+
+        if not is_video:
+            # For images, enforce PNG, JPEG, or GIF magic bytes
+            is_valid_image = (
+                magic.startswith(b"\x89PNG") or
+                magic.startswith(b"\xff\xd8\xff") or
+                magic.startswith(b"GIF8")
+            )
+            if not is_valid_image:
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+                return False
     return saved
 
 

@@ -40,6 +40,8 @@
 - [x] **Reference contamination pitfall discovered**: Sending previous failed generation as ComfyUI reference causes score regression (scene_004_shot004: 6.93→3.8). Fix: character refs only + stronger prompt → 9.60. Documented in SKILL.md and eval-pitfalls.md.
 - [x] **Pluffy Bun final stats**: 50/50 evaluated, 49/50 pass (98%), avg 8.5. scene_004_shot004 fixed via regeneration best practices.
 - [x] **Image cleanup**: Removed 34 duplicate/intermediate scene images (45.3MB), keeping only the best version per shot.
+- [x] **LTX 2.3 I2V integration**: Expand the `story-to-video` skill to video generation. Created the `ltx-23-i2v-dev` workflow template, implemented `generate_video.py` orchestration script, created `motion-prompt-json-schema.md` schema doc, and added a model downloader script (`ltx-23-i2v-dev.sh`).
+
 
 ## In Progress
 - [ ] **`--upload-url` flag**: Add to `generate_story_assets.py` so Step B (generate sheets) + Step C (upload to ComfyUI) happen in one command. Replaces the old "auto-upload" concept — upload belongs with generation, not consumption.
@@ -142,6 +144,5 @@
 - [ ] **Negative prompt support**: Second `TextEncodeQwenImageEditPlus` node for suppressing unwanted features (e.g., "gold jewelry", "extra fingers") — especially useful for iteration 2+ refine loops
 
 ## Future
-- [ ] **LTX 2.3 I2V integration**: Full pipeline from scenes → video clips in one command
 - [ ] **FFmpeg assembly**: Auto-stitch clips with transitions and audio
 - [ ] **Voiceover**: TTS narration per scene synced to video length

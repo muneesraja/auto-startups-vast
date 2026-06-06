@@ -53,7 +53,7 @@ Phase 2: Bulk queue all shots → poll for completion → download results
         ↓
 Phase 2.5: Evaluate & refine (OpenRouter Gemini 3.1 Flash Lite + thinking, or Gemini API fallback)
         ↓
-Phase 3: Animate (LTX 2.3 I2V — FUTURE, in testing)
+Phase 3: Animate (LTX 2.3 I2V)
         ↓
                             Scene video clips → Final video
 ```
@@ -116,8 +116,9 @@ The pipeline is split into distinct logical phases:
    - Handle edge cases, parse errors, and score logging.
 
 4. **[Phase 3: Animation](references/phases/phase-3-animation.md)**
-   - Convert scene stills to videos using I2V models (LTX 2.3) in the future.
-   - Write physical motion prompts.
+   - Convert scene stills to videos using the LTX 2.3 Image-to-Video (I2V) model.
+   - Write physical motion prompts via `motion_prompt.json`.
+   - Run `generate_video.py` to upload input images, build workflows, execute, and download animations.
 
 ---
 
@@ -297,6 +298,7 @@ python3 evaluate_scene.py --manifest story_manifest.json --scene 1 --shot 2 --im
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
 | `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
 | `flux-2-dev-turbo` | Flux 2 Dev Turbo FP8 | 8 | 1 ref (dynamic) | ✅ Active |
+| `ltx-23-i2v-dev` | LTX 2.3 I2V FP8 | 11 | 1 ref (I2V) | ✅ Active |
 
 ---
 
