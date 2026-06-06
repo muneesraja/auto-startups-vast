@@ -36,9 +36,9 @@ echo "==> Starting downloads..."
 echo "[1/4] Transformer checkpoint (FP8)... "
 hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/checkpoints"
 
-# 2. Distilled LoRA (7.6GB)
+# 2. Distilled LoRA (dynamic rank 111, ~6GB)
 echo "[2/4] Distilled LoRA..."
-hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/loras"
+hf_download "Comfy-Org/ltx-2.3" "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" "$BASE_DIR/loras"
 
 # 3. Text Encoder — Gemma 3 12B FP4 Mixed (9.4GB)
 echo "[3/4] Text encoder (Gemma FP4)..."
