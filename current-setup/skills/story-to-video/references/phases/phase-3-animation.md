@@ -1,23 +1,23 @@
-# Phase 3: Scene Animation (LTX 2.3 I2V)
+# Phase 3: Scene Animation (LTX 2.3 Director)
 
-This phase covers generating animated video clips (with optional synchronized audio) from static scene images using the primary `motion_prompt.json` descriptor file and the LTX 2.3 Image-to-Video (I2V) ComfyUI workflow template.
+This phase covers generating animated video clips from static scene images using the primary `motion_prompt.json` descriptor file and the **LTX 2.3 Director** ComfyUI workflow template. LTX 2.3 Director acts as our primary Phase 3 engine, enabling multi-keyframe interpolation, segment-level Prompt Relay temporal control, and a high-fidelity two-stage spatial upscaler. The legacy `ltx-23-i2v-dev` template remains supported as a backward-compatible fallback.
 
 ---
 
 ## 1. Using the Video Generator Script
 
-The `generate_video.py` script orchestrates Phase 3 video generation by parsing motion prompts, uploading the static stills, building the ComfyUI API nodes, queueing requests, and downloading the finished mp4 videos.
+The `generate_video.py` script orchestrates Phase 3 video generation by parsing motion prompts, uploading keyframe stills, building ComfyUI API nodes, queueing requests, and downloading the finished mp4 videos.
 
 ### Basic Commands
 
 ```bash
-# Generate all video shots from motion_prompt.json
+# Generate all video shots from motion_prompt.json (v2 or v1)
 python3 generate_video.py --prompts motion_prompt.json
 
-# Generate a specific video shot
+# Generate a specific video shot (matches filename_prefix)
 python3 generate_video.py --prompts motion_prompt.json --shot video_001_shot001
 
-# Dry-run (compile workflow nodes and check overrides without queueing)
+# Dry-run (compile workflow nodes and check overrides without queueing on ComfyUI)
 python3 generate_video.py --prompts motion_prompt.json --dry-run
 
 # Skip already-generated videos
@@ -31,91 +31,116 @@ python3 generate_video.py --prompts motion_prompt.json \
 
 ### Script Execution Workflow
 
-1. **Schema Check:** Reads and validates `motion_prompt.json`.
-2. **Template Resolution:** Loads `ltx-23-i2v-dev.json` from the template directory.
-3. **Local Still Resolving:** Finds the local static still image specified in `motion_image` (checks current path, then `scenes/` directory).
-4. **ComfyUI Upload:** Uploads the image to the ComfyUI instance's `/input` folder via the multipart upload endpoint, receiving the unique filename on the server.
-5. **Workflow Building:** Replaces parameters (`__PROMPT__`, `__MOTION_IMAGE__`, `__WIDTH__`, `__HEIGHT__`, `__DURATION__`, `__FPS__`, `__SEED__`) in the template JSON and applies overrides (`i2v_strength`, `lora_strength`, `t2v_switch`).
-6. **Execution Polling:** Submits the prompt payload to ComfyUI, polling `/history/{prompt_id}` until execution finishes.
-7. **Asset Download:** Scans output history (parsing `gifs`, `videos`, and `images` keys of the SaveVideo node) and downloads the raw `.mp4` into the `videos/` subdirectory of the vault.
+1. **Schema Check:** Reads and validates `motion_prompt.json` (auto-detects Director v2 schema vs. legacy v1).
+2. **Template Resolution:** Loads the workflow template JSON (e.g., `ltx-23-director` or `ltx-23-i2v-dev`).
+3. **Local Still Resolving:** Resolves all local static still images specified in `motion_image` or the `keyframes` array (checks current path, then `scenes/` directory).
+4. **ComfyUI Upload:** Uploads all resolved images to the ComfyUI instance's `/input` folder via the multipart upload endpoint.
+5. **Timeline payload construction:** For LTX Director, builds the `timeline_data` payload containing segments, start/end bounds, image filenames, and strengths.
+6. **Workflow Building:** Merges parameters (`__PROMPT__`, `__TIMELINE_DATA__`, `__WIDTH__`, `__HEIGHT__`, `__DURATION__`, `__FPS__`, `__SEED__`, `__DURATION_FRAMES__`) into the template JSON.
+7. **Execution Polling:** Submits the prompt payload to ComfyUI, polling `/history/{prompt_id}` until execution finishes.
+8. **Asset Download:** Scans output history (parsing `gifs`, `videos`, and `images` keys of the SaveVideo node) and downloads the raw `.mp4` into the `videos/` subdirectory of the vault.
 
 ---
 
-## 2. Motion Prompting Rules
+## 2. Keyframe Composition and Prompting Rules
 
-Motion prompts describe **temporal movement and changes over time**, not the appearance of the still image. Because the I2V model sees the input image directly, describing static details wastes prompt tokens and causes visual distortion.
+Unlike standard Image-to-Video models which strictly force the input image at frame 0, LTX Director treats images as **Guide Keyframes** (attractors) that pull the generated motion toward that visual state at specific timeline intervals.
 
-### The Golden Rules
+### Guide Keyframe Target Layouts
 
-1. **Never describe static elements** (colors, clothes, characters, environment). Focus on the verbs.
-2. **Write present-tense actions** ("walks", "turns", "lifts") instead of past tense or vague actions.
-3. **Control the camera explicitly** (e.g., `slow dolly-in`, `pan right`, `static frame`).
-4. **Translate emotions into physical cues** (e.g., "shoulders slump, head tilts down" instead of "looks sad").
-5. **Keep it under 200 words** (4–8 sentences, single flowing paragraph) to fit the text encoder budget.
+- **Single Keyframe (Classic I2V)**: Place a still at `time: 0` with `guide_strength: 1.0`. The clip begins matching the still and diffuses into movement.
+- **Dual Keyframe (Scene Transition)**: Place still A at `time: 0` and still B at `time: 5.0` (end). The model generates a smooth interpolation transition between them.
+- **Mid-Shot Keyframe**: Place a still at `time: 3.0` with a blank gap leading up to it. The model will generate the motion leading up to that exact composition.
 
-### Prompt Comparison
+### Prompt Engineering Guidelines
 
-| ❌ Poor Prompt (Descriptive) | ✅ Good Prompt (Temporal Action) |
-|---|---|
-| "A brown rabbit with a blue vest stands in the forest next to a green turtle. The rabbit is happy and the sun is shining." | "Rabbit throws his head back laughing, ears bouncing mockingly as his paw points forward. Tortoise slowly tilts his head up in resolve. Camera holds steady in a medium shot." |
-| "A mouse running fast. The mouse is grey. 4k resolution, cinematic." | "Mouse dashes forward, kicking up tiny clouds of dust. He glances back in alarm. The camera tracks rapidly alongside him at a low angle." |
+- **Global Prompt**: Describes style, lighting, and general aesthetic (applied to all segments). Do not repeat style info in segments.
+- **Segment Prompt (Local)**: Describes physical action and camera behavior during that segment.
+- **Present Tense**: Use active present-tense actions (e.g. `"runs forward"`, `"glances back"`, `"speaks slowly"`).
+- **Temporal Segment Granularity**: Maintain a minimum segment length of **0.5 seconds**. Avoid cramming complex motion into segments under 2 seconds.
 
 ---
 
-## 3. Motion Prompt Schema
+## 3. Motion Prompt Schema (v2.0)
 
-The `motion_prompt.json` file dictates the animation parameters for the story. It uses the following structure:
+The `motion_prompt.json` file controls the animation parameters. The v2 schema introduces keyframe and segment structures for LTX Director:
 
 ```json
 {
-  "version": "1.0",
-  "model": "ltx-2.3-i2v",
-  "workflow_template": "ltx-23-i2v-dev",
+  "version": "2.0",
+  "model": "ltx-2.3-director",
+  "workflow_template": "ltx-23-director",
   "global": {
-    "negative_prompt": "pc game, console game, video game, cartoon, childish, ugly",
+    "global_prompt": "Cinematic 3D Pixar style, soft volumetric lighting, warm pastel palette, 4k",
     "seed_base": 42,
     "width": 1280,
-    "height": 720,
+    "height": 704,
     "duration": 5,
-    "fps": 25
+    "fps": 24
   },
   "shots": [
     {
       "scene": 1,
       "shot": 1,
-      "motion_prompt": "Rabbit points mockingly and laughs. Tortoise blinks slowly. The camera pans gently left.",
-      "motion_image": "scene_001_shot001_final.png",
+      "motion_prompt": "Rabbit laughs and tortoise reacts.",
       "filename_prefix": "video_001_shot001",
+      "keyframes": [
+        {
+          "image": "scene_001_shot001_final.png",
+          "time": 0.0,
+          "guide_strength": 1.0,
+          "prompt": "Rabbit points mockingly at the tortoise"
+        }
+      ],
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 2.5,
+          "prompt": "Rabbit throws his head back laughing, ears bouncing"
+        },
+        {
+          "start": 2.5,
+          "end": 5.0,
+          "prompt": "Tortoise slowly rolls his eyes in annoyance, camera pulls back"
+        }
+      ],
       "overrides": {
-        "i2v_strength": 0.7,
-        "lora_strength": 0.5
+        "lora_strength": 0.5,
+        "steps_pass1": 8,
+        "denoise_pass2": 0.42
       }
     }
   ]
 }
 ```
 
+*Note: For backward compatibility, if `workflow_template` is set to `ltx-23-i2v-dev`, the script parses the legacy v1 schema (`motion_image` field and single prompt) and executes the old single-pass I2V workflow.*
+
 ---
 
 ## 4. Models and Hugging Face Setup
 
-The `ltx-23-i2v-dev` workflow requires four main model files, which can be downloaded using the `ltx-23-i2v-dev.sh` shell script:
+The `ltx-23-director` workflow requires a broader suite of models compared to standard I2V. These are managed and downloaded via the `ltx-23-director-subgraphs.sh` script:
 
 1. **Transformer Checkpoint (29.1GB):** `ltx-2.3-22b-dev-fp8.safetensors` (Downloaded from `Lightricks/LTX-2.3-fp8`)
-2. **Distilled LoRA (6GB):** `ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors` (Downloaded from `Comfy-Org/ltx-2.3`)
-3. **Gemma 3 Text Encoder (9.4GB):** `gemma_3_12B_it_fp4_mixed.safetensors` (Downloaded from `Comfy-Org/ltx-2`)
-4. **Spatial Upscale Model (1GB):** `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (Downloaded from `Lightricks/LTX-2.3`)
+2. **Distilled LoRA (2.6GB):** `ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
+3. **Tiny VAE (23MB):** `taeltx2_3.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
+4. **Audio VAE (365MB):** `LTX23_audio_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
+5. **Video VAE (1.5GB):** `LTX23_video_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
+6. **CLIP Model 1 (9.4GB):** `gemma_3_12B_it_fp4_mixed.safetensors` (Downloaded from `Comfy-Org/ltx-2`)
+7. **CLIP Model 2 (2.3GB):** `ltx-2.3_text_projection_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
+8. **Spatial Upscaler Model (1GB):** `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (Downloaded from `Lightricks/LTX-2.3`)
 
-Run the script on your worker instance to download the required models:
+Run the script on your worker instance to provision the environment:
 ```bash
-./scripts/workflows/ltx-23-i2v-dev.sh
+./scripts/workflows/ltx-23-director-subgraphs.sh
 ```
 
 ---
 
 ## 5. File Structure of Phase 3 Outputs
 
-After generation completes, the workspace is structured as follows:
+After generation completes, the output files are structured under the vault as follows:
 
 ```
 story-to-video/{story-slug}/
@@ -124,9 +149,9 @@ story-to-video/{story-slug}/
 │   ├── scene_001_shot001_final.png
 │   └── ...
 ├── videos/                 # Phase 3 Generated Videos
-│   ├── video_001_shot001_00001.mp4
+│   ├── video_001_shot001.mp4
 │   └── ...
-├── motion_prompt.json      # Composed motion prompts
+├── motion_prompt.json      # Composed motion prompts (v2.0 or v1.0)
 ├── prompt.json             # Composed scene prompts
 └── story_manifest.json     # Story master manifest
 ```

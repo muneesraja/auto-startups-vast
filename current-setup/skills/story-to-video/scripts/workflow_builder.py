@@ -409,7 +409,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         return build_dynamic_workflow(t2i_template, shot_data, global_cfg)
 
     ref_slots = template.get("_reference_slots")
-    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v"]:
+    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v", "ltx_director"]:
         return _build_workflow_legacy(template, shot_data, global_cfg)
 
     # Deep copy raw template
@@ -442,7 +442,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     conditioning_input_pattern = template.get("_conditioning_input_pattern", "images.image_{N}")
 
     # Apply reference modifications
-    if builder_type in ["flux_t2i", "ltx_i2v"]:
+    if builder_type in ["flux_t2i", "ltx_i2v", "ltx_director"]:
         # Zero-reference T2I or simple video workflows have no references to prune or spawn
         pass
     elif builder_type == "flux_reference_chain":
@@ -543,6 +543,24 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         workflow_str = workflow_str.replace('__DURATION__', str(duration))
         workflow_str = workflow_str.replace('"__FPS__"', str(fps))
         workflow_str = workflow_str.replace('__FPS__', str(fps))
+    elif builder_type == "ltx_director":
+        duration = shot_data.get("duration", global_cfg.get("duration", 5))
+        fps = shot_data.get("fps", global_cfg.get("fps", 24))
+        duration_frames = int(duration * fps)
+
+        timeline_data = shot_data.get("timeline_data", {"segments": [], "audioSegments": []})
+        if isinstance(timeline_data, (dict, list)):
+            timeline_data_str = json.dumps(timeline_data)
+        else:
+            timeline_data_str = str(timeline_data)
+
+        workflow_str = workflow_str.replace('"__DURATION__"', str(duration))
+        workflow_str = workflow_str.replace('__DURATION__', str(duration))
+        workflow_str = workflow_str.replace('"__FPS__"', str(fps))
+        workflow_str = workflow_str.replace('__FPS__', str(fps))
+        workflow_str = workflow_str.replace('"__DURATION_FRAMES__"', str(duration_frames))
+        workflow_str = workflow_str.replace('__DURATION_FRAMES__', str(duration_frames))
+        workflow_str = workflow_str.replace("__TIMELINE_DATA__", _json_escape(timeline_data_str))
 
     # Numeric replacements
     workflow_str = workflow_str.replace('"__SEED__"', str(seed))

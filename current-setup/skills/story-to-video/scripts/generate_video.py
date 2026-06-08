@@ -54,8 +54,12 @@ def load_motion_prompts(prompts_path):
         if field not in global_cfg:
             raise ValueError(f"motion_prompt.json global section missing required field: '{field}'")
 
+    is_director = data.get("workflow_template", "").startswith("ltx-23-director")
     for i, shot in enumerate(data["shots"]):
-        for field in ["scene", "shot", "motion_prompt", "motion_image", "filename_prefix"]:
+        required_fields = ["scene", "shot", "motion_prompt", "filename_prefix"]
+        if not is_director:
+            required_fields.append("motion_image")
+        for field in required_fields:
             if field not in shot:
                 raise ValueError(f"motion_prompt.json shot[{i}] missing required field: '{field}'")
 
@@ -70,6 +74,142 @@ def load_motion_prompts(prompts_path):
 
 
 # ── Video Generation ─────────────────────────────────────────
+
+def resolve_image_path(image_name, scenes_dir):
+    """Resolve local filesystem path of an image name."""
+    if not image_name:
+        return None
+    if os.path.isabs(image_name):
+        return image_name if os.path.exists(image_name) else None
+    
+    # Check current working directory, then scenes directory
+    cwd_candidate = os.path.abspath(image_name)
+    scenes_candidate = os.path.join(scenes_dir, image_name)
+    if os.path.exists(cwd_candidate):
+        return cwd_candidate
+    elif os.path.exists(scenes_candidate):
+        return scenes_candidate
+    
+    # Try searching without directories
+    filename_only = os.path.basename(image_name)
+    scenes_file = os.path.join(scenes_dir, filename_only)
+    if os.path.exists(scenes_file):
+        return scenes_file
+    
+    return None
+
+
+def upload_image_if_needed(local_path, base_url, available_images, auth=None):
+    """Uploads local image to ComfyUI if it's not already uploaded.
+    
+    Returns:
+        str: Server filename
+    """
+    if not local_path or not os.path.exists(local_path):
+        return None
+    server_filename = os.path.basename(local_path)
+    if server_filename not in available_images:
+        print(f"   📤 Uploading to ComfyUI: {server_filename}")
+        upload_result = upload_image(local_path, base_url, auth=auth)
+        if not upload_result or "name" not in upload_result:
+            print(f"   ❌ Failed to upload image: {local_path}")
+            return None
+        server_name = upload_result["name"]
+        print(f"   ✅ Uploaded successfully as '{server_name}'")
+        available_images.add(server_name)
+        return server_name
+    else:
+        print(f"   📷 Image already exists on server: {server_filename}")
+        return server_filename
+
+
+def build_director_timeline(shot_data, global_cfg, scenes_dir, base_url, available_images, auth=None):
+    """Build the timeline_data JSON for the LTX Director node."""
+    duration = shot_data.get("duration", global_cfg.get("duration", 5))
+    
+    segments = []
+    
+    # 1. Process keyframes if present
+    keyframes = shot_data.get("keyframes", [])
+    if keyframes:
+        for kf in keyframes:
+            img_name = kf.get("image")
+            local_path = resolve_image_path(img_name, scenes_dir)
+            server_name = ""
+            if local_path:
+                server_name = upload_image_if_needed(local_path, base_url, available_images, auth)
+            
+            start_time = float(kf.get("time", 0.0))
+            end_time = float(kf.get("end_time", start_time + 0.5))
+            if end_time > duration:
+                end_time = duration
+                
+            seg = {
+                "start": start_time,
+                "end": end_time,
+                "text": kf.get("prompt", kf.get("text", "")),
+                "imageFile": server_name,
+                "guideStrength": float(kf.get("guide_strength", kf.get("guideStrength", 1.0)))
+            }
+            segments.append(seg)
+    
+    # 2. Process text segments if present
+    text_segments = shot_data.get("segments", [])
+    if text_segments:
+        for ts in text_segments:
+            start_time = float(ts["start"])
+            end_time = float(ts["end"])
+            if end_time > duration:
+                end_time = duration
+                
+            seg = {
+                "start": start_time,
+                "end": end_time,
+                "text": ts.get("prompt", ts.get("text", ""))
+            }
+            if "image" in ts:
+                local_path = resolve_image_path(ts["image"], scenes_dir)
+                if local_path:
+                    seg["imageFile"] = upload_image_if_needed(local_path, base_url, available_images, auth)
+                    seg["guideStrength"] = float(ts.get("guide_strength", ts.get("guideStrength", 1.0)))
+            segments.append(seg)
+            
+    # 3. Fallback: if no keyframes and no segments, check motion_image
+    if not keyframes and not text_segments:
+        motion_image = shot_data.get("motion_image")
+        if motion_image:
+            local_path = resolve_image_path(motion_image, scenes_dir)
+            server_name = ""
+            if local_path:
+                server_name = upload_image_if_needed(local_path, base_url, available_images, auth)
+            
+            # Keyframe at 0s guiding start
+            segments.append({
+                "start": 0.0,
+                "end": 0.5,
+                "text": shot_data.get("motion_prompt", ""),
+                "imageFile": server_name,
+                "guideStrength": 1.0
+            })
+            # Text segment covering full duration
+            segments.append({
+                "start": 0.0,
+                "end": float(duration),
+                "text": shot_data.get("motion_prompt", "")
+            })
+        else:
+            # Pure text-to-video
+            segments.append({
+                "start": 0.0,
+                "end": float(duration),
+                "text": shot_data.get("motion_prompt", "")
+            })
+            
+    # Sort segments by start time
+    segments.sort(key=lambda s: s["start"])
+    
+    return {"segments": segments, "audioSegments": []}
+
 
 def generate_video_shot(shot_data, global_cfg, workflow_template, base_url, videos_dir,
                         scenes_dir, available_images, auth=None):
@@ -91,69 +231,48 @@ def generate_video_shot(shot_data, global_cfg, workflow_template, base_url, vide
     scene_num = shot_data["scene"]
     shot_num = shot_data["shot"]
     prefix = shot_data["filename_prefix"]
-    motion_image = shot_data["motion_image"]
     motion_prompt = shot_data["motion_prompt"]
     seed = shot_data.get("seed", global_cfg.get("seed_base", 42))
 
+    builder_type = workflow_template.get("_builder")
+    is_director = (builder_type == "ltx_director")
+
     print(f"🎬 Scene {scene_num}, Shot {shot_num} (Video)")
-    print(f"   Input Image: {motion_image}")
     print(f"   Seed: {seed}")
     print(f"   Motion Prompt: {motion_prompt[:120]}...")
 
-    # 1. Resolve local path of motion_image and upload it
-    local_img_path = None
-    if os.path.isabs(motion_image):
-        local_img_path = motion_image
+    if is_director:
+        print("   🤖 Mode: LTX Director Timeline Guided")
+        timeline_data = build_director_timeline(
+            shot_data, global_cfg, scenes_dir, base_url, available_images, auth
+        )
+        shot_for_builder = {
+            **shot_data,
+            "prompt": shot_data.get("motion_prompt", ""),
+            "filename_prefix": f"video/{prefix}",
+            "references": [],
+            "timeline_data": timeline_data
+        }
     else:
-        # Check current working directory, then scenes directory
-        cwd_candidate = os.path.abspath(motion_image)
-        scenes_candidate = os.path.join(scenes_dir, motion_image)
-        if os.path.exists(cwd_candidate):
-            local_img_path = cwd_candidate
-        elif os.path.exists(scenes_candidate):
-            local_img_path = scenes_candidate
-        else:
-            # Try searching without directories
-            filename_only = os.path.basename(motion_image)
-            scenes_file = os.path.join(scenes_dir, filename_only)
-            if os.path.exists(scenes_file):
-                local_img_path = scenes_file
-
-    if not local_img_path or not os.path.exists(local_img_path):
-        print(f"   ❌ Input motion image not found locally: {motion_image}")
-        print(f"      (Looked in current path and scenes dir: {scenes_dir})")
-        return None
-
-    # Check if the filename is already on the ComfyUI instance
-    server_filename = os.path.basename(local_img_path)
-    if server_filename not in available_images:
-        print(f"   📤 Uploading input image to ComfyUI: {server_filename}")
-        upload_result = upload_image(local_img_path, base_url, auth=auth)
-        if not upload_result or "name" not in upload_result:
-            print(f"   ❌ Failed to upload input image to ComfyUI: {local_img_path}")
+        motion_image = shot_data["motion_image"]
+        print(f"   Input Image: {motion_image}")
+        local_img_path = resolve_image_path(motion_image, scenes_dir)
+        if not local_img_path or not os.path.exists(local_img_path):
+            print(f"   ❌ Input motion image not found locally: {motion_image}")
+            print(f"      (Looked in current path and scenes dir: {scenes_dir})")
             return None
-        server_filename = upload_result["name"]
-        print(f"   ✅ Uploaded successfully as '{server_filename}'")
-        # Add to available images to avoid re-uploading
-        available_images.add(server_filename)
-    else:
-        print(f"   📷 Input image already exists on server: {server_filename}")
 
-    # Build shot data copy with updated prompt, filename_prefix, references, overrides
-    # Wait, the template expects:
-    # __PROMPT__ -> shot_data["prompt"]
-    # __MOTION_IMAGE__ -> shot_data["motion_image"] or references[0]
-    # __FILENAME_PREFIX__ -> shot_data["filename_prefix"]
-    # __SEED__ -> shot_data["seed"]
-    # __WIDTH__, __HEIGHT__ -> global_cfg or shot_overrides
-    # __DURATION__, __FPS__ -> shot_data or global_cfg
-    shot_for_builder = {
-        **shot_data,
-        "prompt": motion_prompt,
-        "motion_image": server_filename,
-        "references": [server_filename],
-        "filename_prefix": f"video/{prefix}"
-    }
+        server_filename = upload_image_if_needed(local_img_path, base_url, available_images, auth)
+        if not server_filename:
+            return None
+
+        shot_for_builder = {
+            **shot_data,
+            "prompt": motion_prompt,
+            "motion_image": server_filename,
+            "references": [server_filename],
+            "filename_prefix": f"video/{prefix}"
+        }
 
     # Build the workflow from template
     workflow = build_dynamic_workflow(workflow_template, shot_for_builder, global_cfg)
@@ -272,17 +391,33 @@ def main():
     # ── Dry-run mode ──
     if args.dry_run:
         print(f"\n🔍 Dry-run: compiling workflows for {len(shots)} video shots...")
+        builder_type = workflow_template.get("_builder")
+        is_director = (builder_type == "ltx_director")
         for shot in shots:
             prefix = shot["filename_prefix"]
-            # Mock build shot
-            shot_for_builder = {
-                **shot,
-                "prompt": shot["motion_prompt"],
-                "references": [shot["motion_image"]],
-                "filename_prefix": f"video/{prefix}"
-            }
+            if is_director:
+                timeline_data = build_director_timeline(
+                    shot, global_cfg, scenes_dir, base_url, set(), auth=comfyui_auth
+                )
+                shot_for_builder = {
+                    **shot,
+                    "prompt": shot.get("motion_prompt", ""),
+                    "filename_prefix": f"video/{prefix}",
+                    "references": [],
+                    "timeline_data": timeline_data
+                }
+                input_desc = f"{len(timeline_data.get('segments', []))} segments"
+            else:
+                motion_image = shot["motion_image"]
+                shot_for_builder = {
+                    **shot,
+                    "prompt": shot["motion_prompt"],
+                    "references": [motion_image],
+                    "filename_prefix": f"video/{prefix}"
+                }
+                input_desc = f"Input='{motion_image}'"
             workflow = build_dynamic_workflow(workflow_template, shot_for_builder, global_cfg)
-            print(f"   ✅ {prefix}: compiled {len(workflow)} nodes. Input='{shot['motion_image']}'")
+            print(f"   ✅ {prefix}: compiled {len(workflow)} nodes. {input_desc}")
         print(f"\n✅ Dry-run complete. All {len(shots)} workflow specs compiled successfully.")
         return
 

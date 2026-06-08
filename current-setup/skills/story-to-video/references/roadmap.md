@@ -41,6 +41,8 @@
 - [x] **Pluffy Bun final stats**: 50/50 evaluated, 49/50 pass (98%), avg 8.5. scene_004_shot004 fixed via regeneration best practices.
 - [x] **Image cleanup**: Removed 34 duplicate/intermediate scene images (45.3MB), keeping only the best version per shot.
 - [x] **LTX 2.3 I2V integration**: Expand the `story-to-video` skill to video generation. Created the `ltx-23-i2v-dev` workflow template, implemented `generate_video.py` orchestration script, created `motion-prompt-json-schema.md` schema doc, and added a model downloader script (`ltx-23-i2v-dev.sh`).
+- [x] **LTX Director Keyframe I2V integration**: Primary animation engine upgrade utilizing LTX Director. Created the `ltx-23-director` template, updated `workflow_builder.py` and `generate_video.py` to construct `timeline_data` and upload multiple keyframe/segment assets, and wrote `ltx-director-prompting-guide.md` reference documentation.
+
 
 
 ## In Progress

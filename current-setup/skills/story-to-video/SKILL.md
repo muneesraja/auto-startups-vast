@@ -1,6 +1,6 @@
 ---
 name: story-to-video
-version: 4.5.0
+version: 5.0.0
 description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation (Gemini or ComfyUI T2I fallback), prompt composition, batch scene generation, and vision-based evaluation (OpenRouter Gemini 3.1 Flash Lite with thinking tokens, or Gemini API fallback)."
 triggers:
   - story to video
@@ -53,7 +53,7 @@ Phase 2: Bulk queue all shots → poll for completion → download results
         ↓
 Phase 2.5: Evaluate & refine (OpenRouter Gemini 3.1 Flash Lite + thinking, or Gemini API fallback)
         ↓
-Phase 3: Animate (LTX 2.3 I2V)
+Phase 3: Animate (LTX 2.3 Director - Keyframe I2V)
         ↓
                             Scene video clips → Final video
 ```
@@ -133,6 +133,7 @@ The pipeline is split into distinct logical phases:
   - **[Flux 2 Klein Prompting Guide](references/models/flux-2-klein-prompting-guide.md)**
   - **[Flux 2 Dev Turbo Prompting Guide](references/models/flux-2-dev-turbo-prompting-guide.md)**
   - **[LTX-I2V Prompting Guide](references/models/ltx-i2v-prompting-guide.md)**
+  - **[LTX-Director Prompting Guide](references/models/ltx-director-prompting-guide.md)**
 - **[ComfyUI API Pitfalls](references/comfyui/api-pitfalls.md)** - Pitfalls & solutions for API execution.
 - **[Evaluation Pitfalls](references/eval-pitfalls.md)** - agy context contamination, Gemini CLI quirks, ComfyUI instance contamination.
 
@@ -298,7 +299,8 @@ python3 evaluate_scene.py --manifest story_manifest.json --scene 1 --shot 2 --im
 | `flux-2-klein-image-edit` | Flux 2 Klein 9B FP8 | 4 | 2 refs | ✅ Active |
 | `flux-2-klein-t2i` | Flux 2 Klein 9B FP8 | 4 | 0 refs | ✅ Active |
 | `flux-2-dev-turbo` | Flux 2 Dev Turbo FP8 | 8 | 1 ref (dynamic) | ✅ Active |
-| `ltx-23-i2v-dev` | LTX 2.3 I2V FP8 | 11 | 1 ref (I2V) | ✅ Active |
+| `ltx-23-director` | LTX 2.3 Director | 8+4 (2-stage) | Keyframe I2V | ✅ Active (Primary) |
+| `ltx-23-i2v-dev` | LTX 2.3 I2V FP8 | 11 | 1 ref (I2V) | ✅ Active (Legacy) |
 
 ---
 
