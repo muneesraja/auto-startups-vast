@@ -1,6 +1,6 @@
 ---
 name: story-to-video
-version: 5.0.0
+version: 5.1.0
 description: "Turn story manifests into scene images using agent-composed prompts (prompt.json) and config-driven workflow templates. Supports model swapping (Qwen, HiDream, etc.) without code changes. Covers character sheet generation (Gemini or ComfyUI T2I fallback), prompt composition, batch scene generation, and vision-based evaluation (OpenRouter Gemini 3.1 Flash Lite with thinking tokens, or Gemini API fallback)."
 triggers:
   - story to video
@@ -135,7 +135,7 @@ The pipeline is split into distinct logical phases:
   - **[LTX-I2V Prompting Guide](references/models/ltx-i2v-prompting-guide.md)**
   - **[LTX-Director Prompting Guide](references/models/ltx-director-prompting-guide.md)**
 - **[ComfyUI API Pitfalls](references/comfyui/api-pitfalls.md)** - Pitfalls & solutions for API execution.
-- **[Evaluation Pitfalls](references/eval-pitfalls.md)** - agy context contamination, Gemini CLI quirks, ComfyUI instance contamination.
+- **[ComfyUI / Phase 3 Pitfalls](references/comfyui-phase3-pitfalls.md)** — LTXDirector API runtime issues (model paths, local_prompts format, output path defaults).
 
 ---
 

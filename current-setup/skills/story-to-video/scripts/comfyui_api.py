@@ -37,8 +37,14 @@ def curl_json(method, endpoint, base_url, data=None, timeout=30, auth=None):
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
-def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=600, auth=None):
-    """Poll /history/{prompt_id} until completion or error."""
+def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=2400, auth=None):
+    """Poll /history/{prompt_id} until completion or error.
+
+    Default max_wait=2400s (40 min). Long Director multi-keyframe chains
+    (e.g. 7-keyframe 30s at 1024×576) routinely take 12-15 min on hosted
+    ComfyUI. The 600s default from earlier 5s-single-keyframe tests is
+    too short for those.
+    """
     start = time.time()
     while time.time() - start < max_wait:
         data = curl_json("GET", f"/history/{prompt_id}", base_url, auth=auth)

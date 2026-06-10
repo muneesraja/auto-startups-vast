@@ -548,11 +548,134 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         fps = shot_data.get("fps", global_cfg.get("fps", 24))
         duration_frames = int(duration * fps)
 
+        # 16:9 resolution guard. The LTXVLatentUpsampler + spatial-upscaler-x2
+        # models are hardcoded to expect a 16:9 base latent (multiples of
+        # 32×18). Non-16:9 pairs blow up the upscaler's tile geometry:
+        # "RuntimeError: The size of tensor a (2560) must match the size of
+        # tensor b (128) at non-singleton dimension 2". Force the user to
+        # either pick a 16:9 valid resolution or set 0/0 to auto-derive from
+        # the first keyframe's native dims.
+        width = global_cfg.get("width")
+        height = global_cfg.get("height")
+        div = global_cfg.get("divisible_by", 32)
+        if width and height:
+            if width % div or height % div:
+                raise ValueError(
+                    f"Width ({width}) and height ({height}) must both be "
+                    f"divisible by {div}. Suggested 16:9 pairs: "
+                    f"768x432, 1024x576, 1536x864, 2048x1152."
+                )
+            # 16:9 check with float tolerance
+            ratio = width / height
+            if abs(ratio - 16/9) > 0.005:
+                # Suggest nearest valid 16:9 at the same width
+                suggested_h = round(width * 9 / 16 / div) * div
+                raise ValueError(
+                    f"Aspect ratio {width}x{height} ({ratio:.3f}:1) is not 16:9. "
+                    f"The LTX 2.3 spatial upscaler requires 16:9 (1.778:1). "
+                    f"Suggested fix: {width}x{suggested_h} (or 1024x576, "
+                    f"1536x864). Set custom_width=0, custom_height=0 in the "
+                    f"LTXDirector node to auto-derive from the first keyframe."
+                )
+
         timeline_data = shot_data.get("timeline_data", {"segments": [], "audioSegments": []})
         if isinstance(timeline_data, (dict, list)):
             timeline_data_str = json.dumps(timeline_data)
         else:
             timeline_data_str = str(timeline_data)
+
+        # Derive local_prompts / segment_lengths / guide_strength from the
+        # timeline segments so the LTXDirector node has them populated when
+        # the API call is made (the timeline editor auto-sync is normally a
+        # frontend-only path).
+        #
+        # The LTXDirector node expects:
+        #   - local_prompts: NEWLINE-separated string of segment prompts
+        #   - segment_lengths: COMMA-separated string of frame counts
+        #   - guide_strength: COMMA-separated string of guide strengths (one per
+        #     image-anchored segment; can be left empty for pure text)
+        #
+        # The script's build_director_timeline() may emit overlapping segments
+        # (e.g. a 0.5s keyframe + 0-2.5s text + 2.5-5.0s text). The node
+        # schedules them sequentially with non-overlapping frame budgets, so
+        # we collapse the timeline to a single ordered, non-overlapping walk
+        # that sums exactly to duration_frames. Each text segment keeps its
+        # prompt; keyframe-only segments get a placeholder prompt; guide
+        # strength from the original keyframe is preserved on the corresponding
+        # frames.
+        raw_segments = timeline_data.get("segments", []) if isinstance(timeline_data, dict) else []
+
+        # Build (start, end, prompt, guide_strength) tuples, clipped to duration
+        duration_s = float(duration)
+        clipped = []
+        for seg in raw_segments:
+            try:
+                start = max(0.0, float(seg.get("start", 0.0)))
+                end = min(duration_s, float(seg.get("end", start + 0.5)))
+            except (TypeError, ValueError):
+                continue
+            if end <= start:
+                continue
+            text = (seg.get("text", "") or seg.get("prompt", "") or "").strip()
+            guide = float(seg.get("guideStrength", seg.get("guide_strength", 1.0)))
+            has_image = bool(seg.get("imageFile"))
+            clipped.append((start, end, text, guide, has_image))
+
+        # Assign frame budgets to cover [0, duration_frames] contiguously.
+        # Each timeline segment that has a non-empty prompt contributes its
+        # frame range; image-only keyframes are merged into the surrounding
+        # text segment so we don't get an empty prompt on a non-zero frame
+        # range.
+        n_frames_total = duration_frames
+        local_prompts_list = []
+        segment_lengths_list = []
+        guide_strength_list = []
+
+        if not clipped:
+            # Fall back to a single text segment covering the whole duration
+            local_prompts_list = [prompt_text]
+            segment_lengths_list = [n_frames_total]
+            guide_strength_list = [1.0]
+        else:
+            # Walk timeline, splitting frame ranges at segment boundaries
+            boundaries = sorted({0.0, duration_s, *[s for s, *_ in clipped], *[e for _, e, *_ in clipped]})
+            for b_start, b_end in zip(boundaries[:-1], boundaries[1:]):
+                if b_end <= b_start:
+                    continue
+                # Find any clipped segment that overlaps this boundary
+                seg_text = ""
+                seg_guide = 1.0
+                for s, e, t, g, _ in clipped:
+                    if s <= b_start < e or s < b_end <= e or (b_start >= s and b_end <= e):
+                        if t:
+                            seg_text = seg_text or t
+                        seg_guide = max(seg_guide, g)
+                # If this slice still has no text, borrow from the top-level
+                # prompt so the node never sees an empty-prompt segment.
+                if not seg_text:
+                    seg_text = prompt_text
+                seg_frames = max(1, int(round((b_end - b_start) * fps)))
+                local_prompts_list.append(seg_text)
+                segment_lengths_list.append(seg_frames)
+                guide_strength_list.append(seg_guide)
+
+            # Normalize so the frame counts sum exactly to duration_frames
+            drift = n_frames_total - sum(segment_lengths_list)
+            if segment_lengths_list and drift != 0:
+                segment_lengths_list[-1] = max(1, segment_lengths_list[-1] + drift)
+
+        # Format as pipe-separated / CSV strings.
+        # Per the PromptRelay source code (ComfyUI-PromptRelay/nodes.py):
+        #   - local_prompts: "Ordered prompts for each temporal segment,
+        #     separated by |"
+        #   - segment_lengths: "Comma-separated pixel space frame counts per
+        #     segment. Leave empty to auto-distribute evenly."
+        #   - guide_strength: comma-separated, one per image-anchored segment
+        # JSON-lists or newline-separated strings are rejected as a single
+        # entry, so pipe/CSV is the only format the API path can rely on.
+        local_prompts_str = "|".join(local_prompts_list)
+        segment_lengths_str = ",".join(str(x) for x in segment_lengths_list)
+        guide_strength_str = ",".join(f"{g:.3f}" for g in guide_strength_list)
 
         workflow_str = workflow_str.replace('"__DURATION__"', str(duration))
         workflow_str = workflow_str.replace('__DURATION__', str(duration))
@@ -561,6 +684,9 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         workflow_str = workflow_str.replace('"__DURATION_FRAMES__"', str(duration_frames))
         workflow_str = workflow_str.replace('__DURATION_FRAMES__', str(duration_frames))
         workflow_str = workflow_str.replace("__TIMELINE_DATA__", _json_escape(timeline_data_str))
+        workflow_str = workflow_str.replace("__LOCAL_PROMPTS__", _json_escape(local_prompts_str))
+        workflow_str = workflow_str.replace("__SEGMENT_LENGTHS__", _json_escape(segment_lengths_str))
+        workflow_str = workflow_str.replace("__GUIDE_STRENGTH__", _json_escape(guide_strength_str))
 
     # Numeric replacements
     workflow_str = workflow_str.replace('"__SEED__"', str(seed))
