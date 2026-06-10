@@ -14,6 +14,163 @@ All workflow scripts live in the **`muneesraja/auto-startups-vast`** GitHub repo
 
 The `~/.hermes/skills/runpod-ai` directory is a symlink to the repo at `~/repos/auto-startups-vast/current-setup/skills/runpod-ai`. Changes made via the Hermes skill path are reflected in the repo and vice versa.
 
+## Storage Layout - Container vs Pod Volume
+
+RunPod gives the pod **two separate storage tiers**. They are NOT the same and you must put the right thing on the right one:
+
+| Tier | Mount | Default size | Survives pod restart? | Use for |
+|------|-------|--------------|------------------------|---------|
+| **Container volume** (overlay) | `/` | 150 GB | ❌ wiped on restart/stop | Scripts, downloads, anything large you want to keep across short jobs |
+| **Pod volume** (network disk) | `/workspace` | 50 GB | ✅ persists | ComfyUI, model cache, anything that must survive |
+
+**Reality check on disk sizes** — the 50 GB `/workspace` fills up fast once you start downloading 20–60 GB model bundles. The 150 GB root overlay is much roomier, so default to it for downloaded scripts and model blobs that don't need to persist.
+
+**Rule of thumb for any workflow asset:**
+
+1. Download to the container volume (`/root/scripts/`, `/root/models/`, etc.) — cheaper, bigger.
+2. Symlink into the ComfyUI tree on the pod volume so ComfyUI sees them at the expected path.
+3. Reserve `/workspace` for ComfyUI itself and any small config / outputs that need to survive a restart.
+
+**Canonical pattern — script on container volume, symlinked into ComfyUI:**
+
+```bash
+# Variables
+SSH_KEY="/root/.runpod/ssh/RunPod-Key-Go"
+IP="<pod-ip>"
+PORT="<pod-port>"
+SCRIPT_URL="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<file>.sh"
+
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -p "$PORT" "root@$IP" "
+  set -e
+  # 1. Real file on container volume (150GB)
+  mkdir -p /root/scripts
+  curl -sSL '$SCRIPT_URL' -o /root/scripts/<file>.sh
+  chmod +x /root/scripts/<file>.sh
+
+  # 2. Symlink into ComfyUI on the pod volume (50GB)
+  ln -sf /root/scripts/<file>.sh /workspace/runpod-slim/ComfyUI/<file>.sh
+
+  # 3. Verify
+  ls -la /root/scripts/<file>.sh
+  readlink -f /workspace/runpod-slim/ComfyUI/<file>.sh
+"
+```
+
+**Verify storage layout on a fresh pod (always do this once after SSH is up):**
+
+```bash
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "df -h / /workspace && echo && ls -la /workspace"
+```
+
+Expected output:
+
+```
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         150G   ...   ...   ...   /
+/dev/nvme0n1p3   50G  ...   ...   ...   /workspace
+
+/workspace:
+drwxr-xr-x  runpod-slim     # ComfyUI lives here
+```
+
+If you see different sizes (e.g. the user paid for a 200 GB pod volume), re-read the `df` output before deciding where to put things.
+
+**Never do this:**
+
+- ❌ `curl` directly to `/workspace` — that wastes the small volume.
+- ❌ Move the ComfyUI directory off `/workspace` — the template expects it there, and HF custom-node installs assume it.
+- ❌ Assume the pod volume survives a **stop+start** if the user paid for it. It usually does, but treat it as ephemeral unless the user confirms persistence matters.
+
+## Upgrading ComfyUI In-Place (git checkout method)
+
+When the user asks to "update ComfyUI", "upgrade to latest", or "git pull ComfyUI", use this procedure. The `flux-2-dev-turbo.sh` workflow already has Phase 0 doing this; use the same logic for any other workflow.
+
+**Two methods — pick based on what the user wants:**
+
+1. **`comfy-cli`** (`comfy-cli upgrade`) — preferred per user memory. Cleanest, but takes a while and rewrites node folders.
+2. **`git checkout <tag>`** — faster, gives you precise version control, but **destroys symlinks** (see warning below). Use this when the user names a specific version (e.g. "v0.24.1").
+
+**`git checkout` upgrade procedure:**
+
+```bash
+SSH_KEY="/root/.runpod/ssh/RunPod-Key-Go"
+IP="<pod-ip>"
+PORT="<pod-port>"
+PY="/workspace/runpod-slim/ComfyUI/.venv-cu128/bin/python3"
+
+# 1. Stop ComfyUI FIRST (pkill + verify gone)
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "pkill -9 -f 'python main.py' || true; sleep 2; ps -ef | grep 'python main' | grep -v grep || true"
+
+# 2. Backup current state + clean untracked noise
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "cd /workspace/runpod-slim/ComfyUI && git stash -u && git log -1 --oneline"
+
+# 3. Fetch + checkout target version
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "cd /workspace/runpod-slim/ComfyUI && git fetch --tags --unshallow origin 2>&1 | tail -3 && git checkout v0.24.1 && git log -1 --oneline"
+
+# 4. Install new core requirements
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "cd /workspace/runpod-slim/ComfyUI && $PY -m pip install -r requirements.txt 2>&1 | tail -20"
+
+# 5. Refresh custom-node deps (WhatDreamsCost has no requirements.txt)
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "cd /workspace/runpod-slim/ComfyUI && for d in custom_nodes/ComfyUI-LTXVideo custom_nodes/WhatDreamsCost-ComfyUI custom_nodes/ComfyUI-KJNodes; do [ -f \"\$d/requirements.txt\" ] && $PY -m pip install -r \"\$d/requirements.txt\" 2>&1 | tail -3; done"
+
+# 6. >>> CRITICAL: REBUILD MODEL SYMLINKS <<< (see next section)
+#    Do NOT skip this — without it, the UI model dropdowns will be empty.
+
+# 7. Restart ComfyUI
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "tmux kill-session -t comfyui 2>/dev/null; rm -f /workspace/runpod-slim/ComfyUI/user/comfyui.db.lock; tmux new-session -d -s comfyui 'cd /workspace/runpod-slim/ComfyUI && $PY main.py --listen 0.0.0.0 --port 8188 > /workspace/comfyui.log 2>&1'"
+```
+
+**Verifying the upgrade worked:**
+
+```bash
+# 1. Version + custom node imports from log
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "tail -20 /workspace/comfyui.log | grep -E '(comfyui_version|Import times|LTX)'"
+
+# 2. Models are reachable from the loader API (e.g. count LTX node classes)
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "curl -sS http://127.0.0.1:8188/object_info | python3 -c \"import sys,json; d=json.load(sys.stdin); print(len([k for k in d if 'LTX' in k or 'ltx' in k]))\""
+# Expect: 99 (or close) for ComfyUI-LTXVideo + WhatDreamsCost loaded
+```
+
+## ⚠️ PITFALL: git checkout destroys the model-dir symlinks
+
+**Symptom:** After upgrading ComfyUI, every model loader dropdown in the UI is **empty**. No LTX, no Gemma, no LoRAs, nothing — even though the model files still exist on disk.
+
+**Root cause:** The custom node install pattern moves large model dirs off `/workspace` (50 GB) onto the container volume `/root/models/` (150 GB) and replaces them with **symlinks** in `ComfyUI/models/`. A `git checkout <new-tag>` overwrites the `models/` directory with the new version's default empty template dirs (e.g. `put_checkpoints_here`) and **silently kills every symlink you created**. The model files themselves are fine — they were never touched — but ComfyUI now sees empty dirs and shows nothing.
+
+**How to diagnose fast:**
+
+```bash
+# Are symlinks still there?
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "find /workspace/runpod-slim/ComfyUI/models -maxdepth 1 -type l"
+# If empty output → this is your problem
+
+# Are model files still on the container volume?
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "du -sh /root/models/*"
+# Should still show 28G checkpoints, 11G text_encoders, 2.5G loras, etc.
+```
+
+**Fix — rebuild the symlinks (always required after any `git checkout` that touches the `models/` tree):**
+
+```bash
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" 'cd /workspace/runpod-slim/ComfyUI && for sub in checkpoints text_encoders loras vae latent_upscale_models; do rm -rf models/$sub; ln -sfn /root/models/$sub models/$sub; done && find models -maxdepth 1 -type l -printf "%p -> %l\n"'
+```
+
+Then **restart ComfyUI** so it rescans the model dirs. Verify with:
+
+```bash
+ssh -i "$SSH_KEY" -p "$PORT" "root@$IP" "find -L /workspace/runpod-slim/ComfyUI/models -name '*.safetensors' | head"
+# Should list the 28 GB FP8, the gemma split_files tree, etc.
+```
+
+**Preventive rules:**
+
+- **Always rebuild symlinks after `git checkout`** — even if you think the upgrade didn't touch `models/`. The safer assumption is that it did.
+- **If you skip this step**, the user will see empty dropdowns and assume the upgrade broke their models. Don't make them re-download 44 GB of assets.
+- **Add the rebuild as Step 6 of every upgrade procedure** so it never gets forgotten.
+- **Alternative**: keep models on the pod volume (skip the move) and accept the 50 GB ceiling. Simpler, but you can only run smaller model bundles. Don't do this on RunPod unless the user explicitly wants it.
+
+**Lesson learned (2026-06-08):** A `git checkout v0.24.1` upgrade left the v0.18.2 → v0.24.1 working tree in place but wiped the `models/` symlinks. The ComfyUI process restarted fine and even loaded all custom nodes, but the UI showed zero models in the loader. Fix was a 30-second symlink rebuild — no model re-download needed. Always rebuild, never assume.
+
 ## Provisioning - USE THE SCRIPT
 
 When a user asks to "prepare a RunPod server", "rent a RunPod 3090", "set up a Community Cloud pod", or similar, run the script first. Use manual commands only if the script fails.
