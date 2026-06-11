@@ -4,7 +4,7 @@
 # workflow: ltx23_FFLFSeedHunter_v10
 # aliases: [ltx fflf, ltx 2.3 fflf, ltx23 fflf, ltx fflf seed hunter, ltx 2.3 fflf seed hunter, ltx23-fflf-seed-hunter, ltx-23-fflf-seed-hunter]
 # description: Downloads all models for the LTX 2.3 FFLF (First/Last Frame) Seed Hunter workflow — 3-stage with spatial upscaler v1.1, audio + video VAEs, distilled FP8 transformer, and OmniNFT-RL LoRA. Includes KJNodes-dependent custom nodes and restarts ComfyUI.
-# size: ~44.5GB
+# size: ~44.9GB
 # min_vram: 24GB
 # nodes: [ComfyUI-KJNodes, ComfyUI-LTXVideo, rgthree-comfy, ComfyUI-VideoHelperSuite, ComfyUI-Impact-Pack, cg-use-everywhere, ComfyUI-Easy-Use, ComfyUI-mxToolkit, ComfyUI-Manager]
 # node_patches: [ComfyUI-LTXVideo/kornia-pad (kornia 0.8.x compat, idempotent)]
@@ -137,27 +137,31 @@ unset _HF_HELPER
 echo "==> Starting downloads..."
 
 # 1. Transformer (Distilled 1.1 FP8 Scaled — 25.2GB)
-echo "[1/6] Transformer (Distilled 1.1 FP8 Scaled)..."
+echo "[1/7] Transformer (Distilled 1.1 FP8 Scaled)..."
 hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
 
 # 2. Video VAE (~1.5GB)
-echo "[2/6] Video VAE (LTX23_video_vae_bf16)..."
+echo "[2/7] Video VAE (LTX23_video_vae_bf16)..."
 hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
 
-# 3. Tiny VAE for sampling previews (taeltx2_3 — 23.5MB)
-echo "[3/6] Tiny VAE for sampling previews (taeltx2_3)..."
+# 3. Audio VAE (~365MB) — used by LTXVAudioVAEDecode for audio generation
+echo "[3/7] Audio VAE (LTX23_audio_vae_bf16)..."
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
+
+# 4. Tiny VAE for sampling previews (taeltx2_3 — 23.5MB)
+echo "[4/7] Tiny VAE for sampling previews (taeltx2_3)..."
 hf_download "Kijai/LTX2.3_comfy" "vae/taeltx2_3.safetensors" "$BASE_DIR/vae"
 
-# 4. Text encoder: Gemma 3 12B FP8 e4m3fn (~13.2GB) — used as clip_name1 in DualCLIPLoader
-echo "[4/6] Text Encoder (Gemma 3 12B FP8 e4m3fn)..."
+# 5. Text encoder: Gemma 3 12B FP8 e4m3fn (~13.2GB) — used as clip_name1 in DualCLIPLoader
+echo "[5/7] Text Encoder (Gemma 3 12B FP8 e4m3fn)..."
 hf_download "GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn" "gemma_3_12B_it_fp8_e4m3fn.safetensors" "$BASE_DIR/text_encoders"
 
-# 5. LTX text projection (~2.3GB) — used as clip_name2 in DualCLIPLoader
-echo "[5/6] LTX text projection (clip_name2)..."
+# 6. LTX text projection (~2.3GB) — used as clip_name2 in DualCLIPLoader
+echo "[6/7] LTX text projection (clip_name2)..."
 hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/text_encoders"
 
-# 6. Spatial upscaler v1.1 (~996MB)
-echo "[6/6] Spatial upscaler (v1.1)..."
+# 7. Spatial upscaler v1.1 (~996MB)
+echo "[7/7] Spatial upscaler (v1.1)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/latent_upscale_models"
 
 echo "==> All downloads completed!"
