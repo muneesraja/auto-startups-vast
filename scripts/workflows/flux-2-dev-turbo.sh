@@ -43,12 +43,16 @@ detect_comfyui_args() {
 detect_comfyui_python() {
   local python_bin
   
-  # Method 1: Check the running ComfyUI process
+  # Method 1: Check the running ComfyUI process (skip unbuffer/tclsh wrappers)
   local comfyui_pid
-  comfyui_pid=$(pgrep -f 'python.*main.py' | head -1)
+  comfyui_pid=$(pgrep -af 'main.py' | grep -v 'unbuffer\|tclsh' | awk '{print $1}' | head -1)
+  if [ -z "$comfyui_pid" ]; then
+    # Fallback: find python3 process whose cmdline contains main.py
+    comfyui_pid=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ {print $1; exit}')
+  fi
   if [ -n "$comfyui_pid" ] && [ -f "/proc/$comfyui_pid/exe" ]; then
     python_bin=$(readlink -f "/proc/$comfyui_pid/exe" 2>/dev/null)
-    if [ -n "$python_bin" ] && [ -x "$python_bin" ]; then
+    if [ -n "$python_bin" ] && [ -x "$python_bin" ] && [[ "$python_bin" == *python* ]]; then
       echo "$python_bin"
       return
     fi
@@ -171,41 +175,13 @@ hf_download "silveroxides/FLUX.2-dev-fp8_scaled" "mistral_3_small_flux2_fp8mixed
 
 # 3. Flux2 VAE (~336.2MB)
 echo "[3/3] Flux2 VAE..."
-$COMFYUI_PYTHON << 'PYEOF'
-import os, time, sys, shutil
-os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
-token = os.environ.get('HF_TOKEN') or None
-local_dir = os.path.join(os.environ['BASE_DIR'], 'vae')
-start = time.time()
-try:
-    from huggingface_hub import hf_hub_download
-    hf_hub_download(
-        repo_id='Comfy-Org/flux2-dev',
-        filename='split_files/vae/flux2-vae.safetensors',
-        local_dir=local_dir,
-        local_dir_use_symlinks=False,
-        token=token,
-    )
-    # Move from split_files/vae/ to vae/ directly
-    dest = os.path.join(local_dir, 'split_files', 'vae', 'flux2-vae.safetensors')
-    final_dest = os.path.join(local_dir, 'flux2-vae.safetensors')
-    if os.path.exists(dest) and dest != final_dest:
-        shutil.move(dest, final_dest)
-    # Clean up empty split_files directory tree
-    split_dir = os.path.join(local_dir, 'split_files')
-    if os.path.isdir(split_dir):
-        try:
-            os.removedirs(split_dir)
-        except OSError:
-            pass
-    elapsed = time.time() - start
-    size = os.path.getsize(final_dest)
-    speed = size / elapsed / 1024 / 1024
-    print(f"✅ flux2-vae.safetensors — {size/1024/1024:.0f}MB in {elapsed:.1f}s ({speed:.0f} MB/s)")
-except Exception as e:
-    print(f"❌ Failed: Flux2 VAE — {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
+hf_download "Comfy-Org/flux2-dev" "split_files/vae/flux2-vae.safetensors" "$BASE_DIR/vae"
+# Move from split_files/vae/ to vae/ directly (Comfy-Org pattern)
+if [ -f "$BASE_DIR/vae/split_files/vae/flux2-vae.safetensors" ]; then
+  mv "$BASE_DIR/vae/split_files/vae/flux2-vae.safetensors" "$BASE_DIR/vae/flux2-vae.safetensors"
+  rmdir "$BASE_DIR/vae/split_files/vae" 2>/dev/null || true
+  rmdir "$BASE_DIR/vae/split_files" 2>/dev/null || true
+fi
 
 # ─── PHASE 3: Restart ComfyUI if nodes were installed ───
 echo ""
