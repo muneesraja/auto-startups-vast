@@ -23,11 +23,25 @@ fi
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"/{checkpoints,vae,loras,latent_upscale_models,text_encoders}
 
-# Load shared HF download helper
+# Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh"; do
-  [ -f "$f" ] && source "$f" && break
+_HF_HELPER=""
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh" "/tmp/_hf_download.sh"; do
+  [ -f "$f" ] && _HF_HELPER="$f" && break
 done
+if [ -z "$_HF_HELPER" ]; then
+  echo "  Fetching _hf_download.sh from GitHub..."
+  GITHUB_BASE="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows"
+  _HF_HELPER="/tmp/_hf_download.sh"
+  if ! curl -sSL --fail "$GITHUB_BASE/_hf_download.sh" -o "$_HF_HELPER" 2>/dev/null; then
+    # raw.githubusercontent.com fallback
+    curl -sSL --fail "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/_hf_download.sh" -o "$_HF_HELPER" \
+      || { echo "❌ FATAL: could not download _hf_download.sh"; exit 1; }
+  fi
+  chmod +x "$_HF_HELPER"
+fi
+source "$_HF_HELPER"
+unset _HF_HELPER
 
 echo "==> Starting downloads..."
 

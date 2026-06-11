@@ -145,6 +145,12 @@ Better: the script filters `driver_version>=570.0.0` to prevent this. Driver 580
 - Verify HF_TOKEN is set (anonymous downloads capped at ~10MB/s)
 - See reference: `references/china-host-download-speed.md`
 
+### Workflow scripts fail with `hf_download: command not found` (EXIT=127)
+Workflow scripts in `auto-startups-vast/scripts/workflows/*.sh` source a shared helper `_hf_download.sh` (provides the `hf_download` function). The Vast.ai ComfyUI image does **not** bundle this helper — it lives next to the workflow scripts in the repo.
+- All 14 workflow scripts auto-fetch the helper from `raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/_hf_download.sh` on first run. No manual fix needed.
+- If the fetch fails (no internet to GitHub raw), the script exits with `❌ FATAL: could not download _hf_download.sh`. Manually download via `curl -sSL '<url>' -o /tmp/_hf_download.sh` and re-run.
+- Quick check: `ls /tmp/_hf_download.sh /workspace/_hf_download.sh` — at least one should exist.
+
 ### Cloudflare tunnel SSL failure (lxc.muneesraja.com)
 `lxc.muneesraja.com` subdomain does NOT have Cloudflare Universal SSL provisioned. Always use `muneesraja.com` subdomains (e.g., `comfy-mandi.muneesraja.com`). The script defaults to `CF_DOMAIN=muneesraja.com` in `.env`.
 
