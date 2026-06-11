@@ -1,0 +1,216 @@
+{
+  "_comment": "Flux 2 Klein 9B FP8 text-to-image workflow template (Zero-reference). Fixed 1344x768 via PrimitiveInt nodes. Placeholders: __PROMPT__, __SEED__, __FILENAME_PREFIX__",
+  "_max_references": 0,
+  "_builder": "flux_t2i",
+  "_overrides_map": {
+    "cfg": { "node": "75:63", "key": "cfg" },
+    "steps": { "node": "75:62", "key": "steps" },
+    "seed": { "node": "75:73", "key": "noise_seed" }
+  },
+  "_model_id": "flux-2-klein-9b-fp8",
+  "_notes": "Default resolution is 1344x768 (Flux native 16:9). Max 0 references. Pure T2I pipeline.",
+  "9": {
+    "inputs": {
+      "filename_prefix": "__FILENAME_PREFIX__",
+      "images": [
+        "75:65",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "75:65": {
+    "inputs": {
+      "samples": [
+        "75:64",
+        0
+      ],
+      "vae": [
+        "75:72",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "75:66": {
+    "inputs": {
+      "width": [
+        "75:68",
+        0
+      ],
+      "height": [
+        "75:69",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "75:67": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "75:71",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "75:68": {
+    "inputs": {
+      "value": 1344
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "75:69": {
+    "inputs": {
+      "value": 768
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "75:73": {
+    "inputs": {
+      "noise_seed": "__SEED__"
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "75:72": {
+    "inputs": {
+      "vae_name": "full_encoder_small_decoder.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "75:74": {
+    "inputs": {
+      "text": "__PROMPT__",
+      "clip": [
+        "75:71",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "75:63": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "75:70",
+        0
+      ],
+      "positive": [
+        "75:74",
+        0
+      ],
+      "negative": [
+        "75:67",
+        0
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFGGuider"
+    }
+  },
+  "75:61": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "75:70": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "75:71": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "75:62": {
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "75:68",
+        0
+      ],
+      "height": [
+        "75:69",
+        0
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2Scheduler"
+    }
+  },
+  "75:64": {
+    "inputs": {
+      "noise": [
+        "75:73",
+        0
+      ],
+      "guider": [
+        "75:63",
+        0
+      ],
+      "sampler": [
+        "75:61",
+        0
+      ],
+      "sigmas": [
+        "75:62",
+        0
+      ],
+      "latent_image": [
+        "75:66",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  }
+}

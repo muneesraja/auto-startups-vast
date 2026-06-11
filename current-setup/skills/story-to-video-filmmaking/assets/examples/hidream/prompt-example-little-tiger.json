@@ -1,0 +1,80 @@
+{
+  "version": "1.0",
+  "model": "hidream-o1-dev-2604",
+  "workflow_template": "hidream-o1-dev-i2i",
+  "created_at": "2026-05-21T22:00:00+05:30",
+  "global": {
+    "style": "high-quality 3D rendered animation model, Pixar-style characters, soft ambient lighting, lush jungle environment with depth of field, vibrant but naturalistic colors, smooth fur rendering with visible texture",
+    "negative_prompt": "deformed, extra limbs, blurry, photorealistic, low quality, bad anatomy, extra fingers, poorly drawn face",
+    "seed_base": 42,
+    "width": 1280,
+    "height": 720
+  },
+  "shots": [
+    {
+      "scene": 1,
+      "shot": 1,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Toby: A young round tiger cub with bright orange fur, no stripes at all — completely plain orange like a fuzzy peach. Big curious blue eyes, small rounded ears, a stubby tail, and a button nose. Slightly chubby and soft-looking. Expression: puzzled slight frown, eyes downcast looking at his own fur, brow lightly creased with confusion.\n\nScene setting: A brightly lit jungle clearing with tall grass, wildflowers in blue and yellow, and sparkling river in the background. Warm golden morning light filters through the canopy. Dappled shadows on the soft green ground. Butterflies flutter in the air.\nAction: Toby stands alone in the sunlit clearing, looking down at his own stripe-less chest with a slight puzzled frown. Blue and yellow butterflies flutter around his plain orange fur.\nMood: bittersweet, gentle longing.\nCamera: medium shot, warm golden light.\nStyle: high-quality 3D rendered animation model, Pixar-style characters, soft ambient lighting, lush jungle environment with depth of field, vibrant but naturalistic colors, smooth fur rendering with visible texture.",
+      "references": ["toby_reference_sheet.png"],
+      "seed": 42,
+      "filename_prefix": "scene_001_shot001",
+      "overrides": {
+        "switch_to_image_edit": true,
+        "prompt_refine": false
+      },
+      "eval_context": {
+        "characters_present": ["toby"],
+        "setting": "brightly lit jungle clearing with tall grass, wildflowers, and sparkling river in the background",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "toby": "puzzled slight frown, eyes downcast looking at his own fur, brow lightly creased with confusion"
+        },
+        "action": "Toby stands alone in the sunlit clearing, looking down at his own stripe-less chest"
+      }
+    },
+    {
+      "scene": 1,
+      "shot": 2,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Toby: A young round tiger cub with bright orange fur, no stripes at all — completely plain orange. Big curious blue eyes, small rounded ears, a stubby tail, and a button nose. Expression: wistful distant gaze, mouth slightly downturned, eyes soft with longing.\n- Taro: An older juvenile tiger with magnificent sharp black stripes across bright orange fur. Athletic lean build, tall pointed ears, confident golden-amber eyes, and a long swishing tail. Expression: confident grin, eyes bright and focused, brows raised in concentration.\n\nScene setting: Wide shot of the riverbank — sparkling river with lush green jungle in the background. Warm golden morning light. Dappled shadows.\nAction: Toby sits by the sparkling river, watching Taro practice pouncing in the background. Toby is small and still, Taro is dynamic and striped.\nMood: bittersweet, gentle longing.\nCamera: wide shot, warm golden light.\nStyle: high-quality 3D rendered animation model, Pixar-style characters, soft ambient lighting, lush jungle environment with depth of field, vibrant but naturalistic colors, smooth fur rendering with visible texture.",
+      "references": ["toby_reference_sheet.png", "taro_reference_sheet.png"],
+      "seed": 43,
+      "filename_prefix": "scene_001_shot002",
+      "overrides": {
+        "switch_to_image_edit": true,
+        "prompt_refine": false
+      },
+      "eval_context": {
+        "characters_present": ["toby", "taro"],
+        "setting": "riverbank with sparkling river and lush jungle background",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "toby": "wistful distant gaze, mouth slightly downturned, eyes soft with longing",
+          "taro": "confident grin, eyes bright and focused, brows raised in concentration"
+        },
+        "action": "Toby sits by the river watching Taro practice pouncing in the background"
+      }
+    },
+    {
+      "scene": 1,
+      "shot": 3,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Taro: An older juvenile tiger with magnificent sharp black stripes across bright orange fur. Athletic lean build, tall pointed ears, confident golden-amber eyes, and a long swishing tail. Expression: warm encouraging smile, eyes bright and open, brows raised enthusiastically.\n- Toby: A young round tiger cub with bright orange fur, no stripes at all — completely plain orange. Big curious blue eyes, small rounded ears, a stubby tail, and a button nose. Expression: hesitant half-smile, eyes wide and uncertain, one brow slightly raised.\n\nScene setting: A brightly lit jungle clearing with tall grass, wildflowers in blue and yellow, and sparkling river in the background. Warm golden morning light.\nAction: Taro bounds over to Toby, calling out with an encouraging expression, one paw raised mid-stride. Toby looks up from the ground, still sitting.\nMood: bittersweet, gentle longing.\nCamera: medium shot, warm golden light.\nStyle: high-quality 3D rendered animation model, Pixar-style characters, soft ambient lighting, lush jungle environment with depth of field, vibrant but naturalistic colors, smooth fur rendering with visible texture.",
+      "references": ["taro_reference_sheet.png", "toby_reference_sheet.png"],
+      "seed": 44,
+      "filename_prefix": "scene_001_shot003",
+      "overrides": {
+        "switch_to_image_edit": true,
+        "prompt_refine": false
+      },
+      "eval_context": {
+        "characters_present": ["taro", "toby"],
+        "setting": "brightly lit jungle clearing with tall grass and wildflowers",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "taro": "warm encouraging smile, eyes bright and open, brows raised enthusiastically",
+          "toby": "hesitant half-smile, eyes wide and uncertain, one brow slightly raised"
+        },
+        "action": "Taro bounds over to Toby with an encouraging expression, one paw raised mid-stride. Toby looks up from the ground."
+      }
+    }
+  ]
+}

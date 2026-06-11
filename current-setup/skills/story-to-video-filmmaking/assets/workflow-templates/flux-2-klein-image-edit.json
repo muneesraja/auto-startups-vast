@@ -1,0 +1,422 @@
+{
+  "_comment": "Flux 2 Klein 9B FP8 image-edit workflow template. Dynamic ReferenceLatent chain (script builds LoadImage+Scale+VAEEncode+ReferenceLatent pipelines). Fixed 1344x768 via INTConstant nodes. Placeholders: __PROMPT__, __SEED__, __REFERENCE_1-4__, __FILENAME_PREFIX__",
+  "_max_references": 4,
+  "_template_references": 2,
+  "_builder": "flux_reference_chain",
+  "_reference_slots": {
+    "1": {
+      "load_image_node": "76",
+      "scale_node": "92:111",
+      "vae_encode_node": "92:127",
+      "positive_ref_node": "92:128",
+      "negative_ref_node": "92:126",
+      "required": true
+    },
+    "2": {
+      "load_image_node": "121",
+      "scale_node": "92:85",
+      "vae_encode_node": "92:130",
+      "positive_ref_node": "92:131",
+      "negative_ref_node": "92:129"
+    }
+  },
+  "_chain_endpoints": {
+    "positive": {
+      "final_node": "92:131",
+      "consumer_node": "92:103",
+      "consumer_input": "positive"
+    },
+    "negative": {
+      "final_node": "92:129",
+      "consumer_node": "92:103",
+      "consumer_input": "negative"
+    },
+    "positive_source": {
+      "node": "92:109",
+      "output": 0
+    },
+    "negative_source": {
+      "node": "92:86",
+      "output": 0
+    },
+    "vae_node": "92:110"
+  },
+  "_spawn_node_id_start": 2001,
+  "_overrides_map": {
+    "cfg": { "node": "92:103", "key": "cfg" },
+    "steps": { "node": "92:102", "key": "steps" },
+    "seed": { "node": "92:106", "key": "noise_seed" },
+    "megapixels_scale": { "node": "92:111", "key": "megapixels" }
+  },
+  "_model_id": "flux-2-klein-9b-fp8",
+  "_notes": "Default resolution is 1344x768 (Flux native 16:9, ~1MP). Width/height are not overridable via overrides_map — they are hardcoded in the INTConstant nodes (92:153=1344, 92:154=768) to avoid incompatible aspect ratios. Max 4 references: a hard creative limit enforced at SKILL.md prompt-composition stage (no scene should contain more than 4 characters).",
+  "76": {
+    "inputs": {
+      "image": "__REFERENCE_1__"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "121": {
+    "inputs": {
+      "image": "__REFERENCE_2__"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "122": {
+    "inputs": {
+      "filename_prefix": "__FILENAME_PREFIX__",
+      "images": [
+        "92:105",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "92:101": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "92:103": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "92:107",
+        0
+      ],
+      "positive": [
+        "92:131",
+        0
+      ],
+      "negative": [
+        "92:129",
+        0
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFGGuider"
+    }
+  },
+  "92:104": {
+    "inputs": {
+      "noise": [
+        "92:106",
+        0
+      ],
+      "guider": [
+        "92:103",
+        0
+      ],
+      "sampler": [
+        "92:101",
+        0
+      ],
+      "sigmas": [
+        "92:102",
+        0
+      ],
+      "latent_image": [
+        "92:113",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "92:105": {
+    "inputs": {
+      "samples": [
+        "92:104",
+        0
+      ],
+      "vae": [
+        "92:110",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "92:106": {
+    "inputs": {
+      "noise_seed": "__SEED__"
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "92:107": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "92:108": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "92:109": {
+    "inputs": {
+      "text": "__PROMPT__",
+      "clip": [
+        "92:108",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "92:86": {
+    "inputs": {
+      "conditioning": [
+        "92:109",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "92:127": {
+    "inputs": {
+      "pixels": [
+        "92:111",
+        0
+      ],
+      "vae": [
+        "92:110",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "92:129": {
+    "inputs": {
+      "conditioning": [
+        "92:126",
+        0
+      ],
+      "latent": [
+        "92:130",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent"
+    }
+  },
+  "92:131": {
+    "inputs": {
+      "conditioning": [
+        "92:128",
+        0
+      ],
+      "latent": [
+        "92:130",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent"
+    }
+  },
+  "92:130": {
+    "inputs": {
+      "pixels": [
+        "92:85",
+        0
+      ],
+      "vae": [
+        "92:110",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "92:110": {
+    "inputs": {
+      "vae_name": "full_encoder_small_decoder.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "92:128": {
+    "inputs": {
+      "conditioning": [
+        "92:109",
+        0
+      ],
+      "latent": [
+        "92:127",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent"
+    }
+  },
+  "92:126": {
+    "inputs": {
+      "conditioning": [
+        "92:86",
+        0
+      ],
+      "latent": [
+        "92:127",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent"
+    }
+  },
+  "92:111": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "76",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "92:85": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "92:113": {
+    "inputs": {
+      "width": [
+        "92:153",
+        0
+      ],
+      "height": [
+        "92:154",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "92:151": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 1
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "92:153": {
+    "inputs": {
+      "value": 1344
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "INT Constant"
+    }
+  },
+  "92:154": {
+    "inputs": {
+      "value": 768
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "INT Constant"
+    }
+  },
+  "92:114": {
+    "inputs": {
+      "image": [
+        "92:111",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size"
+    }
+  },
+  "92:102": {
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "92:153",
+        0
+      ],
+      "height": [
+        "92:154",
+        0
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2Scheduler"
+    }
+  }
+}

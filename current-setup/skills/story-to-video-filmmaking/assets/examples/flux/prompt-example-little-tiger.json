@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "model": "flux-2-klein-9b",
+  "workflow_template": "flux-2-klein-image-edit",
+  "created_at": "2026-05-26T15:35:00+05:30",
+  "global": {
+    "style": "high-quality 3D rendered animation model, Pixar-style characters, soft ambient lighting, lush jungle environment with depth of field, vibrant but naturalistic colors, smooth fur rendering with visible texture",
+    "negative_prompt": "",
+    "seed_base": 42,
+    "width": 1344,
+    "height": 768
+  },
+  "shots": [
+    {
+      "scene": 1,
+      "shot": 1,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Toby (first reference): A small round orange tiger cub, no stripes, plain peach-orange fur, blue eyes. Toby has one short stubby tail, four small paws, two round ears, and a well-formed body.\n\nToby stands alone looking down at his stripe-less belly with a puzzled slight frown. Dappled morning light filters through the jungle canopy onto tall grass and wildflowers. 3D Pixar-style animation, warm golden lighting, depth of field, balanced white balance, natural color grading. Medium close-up shot.",
+      "references": ["toby_reference_sheet.png"],
+      "seed": 42,
+      "filename_prefix": "scene_001_shot001",
+      "eval_context": {
+        "characters_present": ["toby"],
+        "setting": "brightly lit jungle clearing with tall grass, wildflowers, and sparkling river in the background",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "toby": "puzzled slight frown, eyes downcast looking at his own fur, brow lightly creased with confusion"
+        },
+        "action": "Toby stands alone in the sunlit clearing, looking down at his own stripe-less chest"
+      }
+    },
+    {
+      "scene": 1,
+      "shot": 2,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Toby (first reference): A small round orange tiger cub, no stripes, plain peach-orange fur, blue eyes.\n- Taro (second reference): An older lean tiger, sharp black stripes on orange fur, golden eyes.\n\nToby sits in the lower-left foreground by the sparkling river, watching Taro practice pouncing in the distant upper-right background. Wide shot, warm golden light, dappled forest shadows. 3D Pixar-style animation, balanced white balance, natural color grading.",
+      "references": ["toby_reference_sheet.png", "taro_reference_sheet.png"],
+      "seed": 43,
+      "filename_prefix": "scene_001_shot002",
+      "eval_context": {
+        "characters_present": ["toby", "taro"],
+        "setting": "riverbank with sparkling river and jungle background",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "toby": "wistful distant gaze, mouth slightly downturned, eyes soft with longing",
+          "taro": "confident grin, eyes bright and focused, brows raised in concentration"
+        },
+        "action": "Toby sits by the river watching Taro practice pouncing in the background"
+      }
+    },
+    {
+      "scene": 1,
+      "shot": 3,
+      "prompt": "Characters in this scene must match the provided reference images exactly:\n- Taro (first reference): An older lean tiger, sharp black stripes on orange fur, golden eyes.\n- Toby (second reference): A small round orange tiger cub, no stripes, plain peach-orange fur, blue eyes.\n\nTaro bounds from the right toward Toby who sits on the left of the sunlit clearing. Taro has a warm encouraging smile, while Toby looks up with a hesitant half-smile. Medium shot, warm golden morning light. 3D Pixar-style animation, balanced white balance, natural color grading.",
+      "references": ["taro_reference_sheet.png", "toby_reference_sheet.png"],
+      "seed": 44,
+      "filename_prefix": "scene_001_shot003",
+      "eval_context": {
+        "characters_present": ["taro", "toby"],
+        "setting": "brightly lit jungle clearing with tall grass and wildflowers",
+        "mood": "bittersweet, gentle longing",
+        "expected_expressions": {
+          "taro": "warm encouraging smile, eyes bright and open, brows raised enthusiastically",
+          "toby": "hesitant half-smile, eyes wide and uncertain, one brow slightly raised"
+        },
+        "action": "Taro bounds over to Toby with an encouraging expression, one paw raised mid-stride. Toby looks up from the ground."
+      }
+    },
+    {
+      "scene": 2,
+      "shot": 1,
+      "prompt": "Wide panoramic establishing shot of a lush tropical jungle — tall bamboo stalks, broad banana leaves, colorful wildflowers, golden sunlight streaming through a thick emerald canopy, misty air. 3D Pixar-style animation, rich textures, balanced white balance, natural color grading.",
+      "references": [],
+      "seed": 45,
+      "filename_prefix": "scene_002_shot001",
+      "eval_context": {
+        "characters_present": [],
+        "setting": "lush tropical jungle with bamboo, banana leaves, wildflowers, and misty golden light",
+        "mood": "serene, inviting",
+        "action": "Establishing wide shot of the jungle environment"
+      }
+    }
+  ]
+}
