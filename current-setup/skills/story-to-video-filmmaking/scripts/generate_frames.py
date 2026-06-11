@@ -9,13 +9,19 @@ Smart Optimization:
 - chain_start / independent: generates both FF + LF (2 images)
 - continuation / bridge: generates only LF (1 image; FF comes from prev video tail)
 
+Reference-Chained LF Generation:
+- When generating LF, the pipeline prepends a structural anchor image as reference[0]:
+    chain_start / independent  → anchor = this shot's generated FF image
+    continuation / bridge      → anchor = previous shot's tail frame (passed in)
+- lf_references from the shot dict provides additional character sheets (new characters only)
+- This ensures the LF is visually grounded in the FF before any motion begins
+
 Coherence Check:
 - Calls Gemini Vision to evaluate visual continuity and trajectory between FF and LF.
 """
 import argparse
 import json
 import os
-import shutil
 import sys
 import copy
 
@@ -61,7 +67,7 @@ Reply ONLY JSON:
 {{
   "spatial_continuity": N,
   "character_continuity": N,
-  "logical_trajectory": N, 
+  "logical_trajectory": N,
   "overall": N,
   "difficulty": "easy|medium|hard|impossible",
   "issues": ["..."],
@@ -81,11 +87,6 @@ def generate_single_frame(prompt_text, references, filename, workflow_template,
     print(f"      References: {references}")
     print(f"      Prompt: {prompt_text[:120]}...")
 
-    # Upload references to ComfyUI input folder if needed
-    for ref in references:
-        # Resolve path
-        pass # The caller resolves path
-        
     shot_for_builder = {
         "prompt": prompt_text,
         "references": references,
@@ -116,7 +117,6 @@ def generate_single_frame(prompt_text, references, filename, workflow_template,
     for nid, out in outputs.items():
         for item in out.get("images", []):
             srv_filename = item["filename"]
-            # Save directly with target filename in output scenes dir
             return srv_filename
 
     return None
@@ -129,14 +129,14 @@ def evaluate_frame_quality(image_path, expected_prompt, character_names, referen
     provider_name, resolved_key, call_fn = resolve_provider(provider)
     if api_key:
         resolved_key = api_key
-        
+
     # Build details
     expected_desc = f"EXPECTED SCENE DESCRIPTION:\nGeneration prompt: {expected_prompt}\n"
     if character_names:
         expected_desc += f"Characters expected: {', '.join(character_names)}"
     else:
         expected_desc += "Characters expected: None (landscape/environment)"
-        
+
     # Resolve reference image paths
     reference_images = []
     if references_base_dir and reference_filenames:
@@ -146,14 +146,14 @@ def evaluate_frame_quality(image_path, expected_prompt, character_names, referen
                 reference_images.append(ref_path)
 
     eval_prompt = build_eval_prompt_base(expected_desc, version="v2", reference_names=reference_filenames if reference_filenames else None)
-    
+
     response = call_fn(eval_prompt, image_path, resolved_key, reference_images=reference_images if reference_images else None)
-    
+
     reasoning = ""
     if isinstance(response, dict):
         reasoning = response.get("reasoning", "")
         response = response["response"]
-        
+
     result = parse_eval_response(response)
     if result and reasoning:
         result["reasoning"] = reasoning
@@ -167,17 +167,17 @@ def evaluate_ff_lf_coherence(ff_path, lf_path, motion_prompt, api_key, provider)
     provider_name, resolved_key, call_fn = resolve_provider(provider)
     if api_key:
         resolved_key = api_key
-        
+
     eval_prompt = COHERENCE_EVAL_PROMPT.format(motion_prompt=motion_prompt)
-    
+
     # We pass ff_path as the primary image and lf_path as reference_images
     response = call_fn(eval_prompt, ff_path, resolved_key, reference_images=[lf_path])
-    
+
     reasoning = ""
     if isinstance(response, dict):
         reasoning = response.get("reasoning", "")
         response = response["response"]
-        
+
     # Parse coherence JSON
     try:
         text = response.strip()
@@ -200,22 +200,86 @@ def evaluate_ff_lf_coherence(ff_path, lf_path, motion_prompt, api_key, provider)
         }
 
 
+# ── Reference Chain Builder ────────────────────────────────────
+
+def build_lf_reference_chain(shot_data, scenes_dir, references_base_dir,
+                              base_url, available_images, auth,
+                              structural_anchor_local_path=None):
+    """Build the final reference list for LF generation.
+
+    The structural anchor (FF image or previous tail frame) is ALWAYS
+    uploaded and prepended as reference[0], consuming the first slot.
+    lf_references from the shot dict are appended after (new characters only).
+
+    Returns: list of ComfyUI server-side image names (strings)
+    """
+    final_refs = []
+
+    # 1. Prepend structural anchor (FF or tail frame)
+    if structural_anchor_local_path and os.path.exists(structural_anchor_local_path):
+        anchor_srv = upload_image_if_needed(
+            structural_anchor_local_path, base_url, available_images, auth
+        )
+        if anchor_srv:
+            final_refs.append(anchor_srv)
+            print(f"   🔗 Structural anchor prepended: {os.path.basename(structural_anchor_local_path)}")
+        else:
+            print(f"   ⚠️  Could not upload structural anchor: {structural_anchor_local_path}")
+    else:
+        print(f"   ⚠️  No structural anchor available for LF generation (shot will use character refs only)")
+
+    # 2. Append lf_references (new characters or explicit overrides)
+    lf_reference_filenames = shot_data.get("lf_references", [])
+    if lf_reference_filenames:
+        print(f"   📎 LF additional refs: {lf_reference_filenames}")
+    for ref_name in lf_reference_filenames:
+        if not references_base_dir:
+            break
+        ref_local_path = os.path.join(references_base_dir, ref_name)
+        if os.path.exists(ref_local_path):
+            srv_name = upload_image_if_needed(ref_local_path, base_url, available_images, auth)
+            if srv_name and srv_name not in final_refs:
+                final_refs.append(srv_name)
+        else:
+            print(f"   ⚠️  LF reference not found locally: {ref_local_path}")
+
+    return final_refs
+
+
 # ── Smart Frame Generation Coordinator ────────────────────────
 
 def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
                               scenes_dir, references_base_dir, available_images,
-                              api_key=None, provider=None, evaluate=False, auth=None):
-    """Determine frame generation needs and execute still generations."""
+                              api_key=None, provider=None, evaluate=False, auth=None,
+                              structural_anchor_path=None):
+    """Determine frame generation needs and execute still generations.
+
+    Args:
+        shot_data: Shot dict from filmmaking_prompt.json
+        global_cfg: Global configuration dict
+        workflow_template: Loaded image generation workflow template
+        base_url: ComfyUI base URL
+        scenes_dir: Local directory to save generated frame images
+        references_base_dir: Directory containing character reference sheets
+        available_images: Set of images already on ComfyUI input server
+        api_key: Optional Vision API key for evaluation
+        provider: Vision provider ('gemini' or 'openrouter')
+        evaluate: Whether to run per-frame quality and coherence evaluations
+        auth: Optional ComfyUI Basic Auth tuple
+        structural_anchor_path: For continuation/bridge shots, the caller passes
+            the path to the preceding shot's actual tail frame (extracted from video).
+            For chain_start/independent, this is None (the FF image is used internally).
+    """
     shot_type = shot_data["shot_type"]
     prefix = shot_data["filename_prefix"]
     character_names = shot_data.get("characters_present", [])
     reference_filenames = shot_data.get("references", [])
-    
+
     print(f"\n🎬 Smart Frame Gen: [Shot {prefix}] type={shot_type}")
-    
+
     ff_image_name = shot_data.get("first_frame_image")
     lf_image_name = shot_data.get("last_frame_image")
-    
+
     result = {
         "first_frame_path": None,
         "last_frame_path": None,
@@ -223,35 +287,35 @@ def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
         "last_frame_source": "skipped",
         "evaluations": {}
     }
-    
+
     # Resolve local target paths
     ff_path = os.path.join(scenes_dir, ff_image_name) if ff_image_name else None
     lf_path = os.path.join(scenes_dir, lf_image_name)
-    
-    # Upload reference sheets to ComfyUI if they exist in references_base_dir
-    ref_srv_names = []
+
+    # Upload FF character reference sheets to ComfyUI (used for FF generation only)
+    ff_ref_srv_names = []
     if references_base_dir and reference_filenames:
         for ref_name in reference_filenames:
             ref_local_path = os.path.join(references_base_dir, ref_name)
             if os.path.exists(ref_local_path):
                 srv_name = upload_image_if_needed(ref_local_path, base_url, available_images, auth)
                 if srv_name:
-                    ref_srv_names.append(srv_name)
+                    ff_ref_srv_names.append(srv_name)
             else:
-                print(f"   ⚠️ Reference sheet not found locally: {ref_local_path}")
-                
+                print(f"   ⚠️ FF reference sheet not found locally: {ref_local_path}")
+
     # --- Generate First Frame (FF) ---
     if shot_type in ("chain_start", "independent"):
         print(f"   👉 Generating First Frame...")
         # Check if already exists and skip
         if ff_path and os.path.exists(ff_path) and os.path.getsize(ff_path) > 1024:
-            print(f"      📷 First Frame image exists: {ff_image_name}")
+            print(f"      📷 First Frame exists: {ff_image_name}")
             result["first_frame_path"] = ff_path
             result["first_frame_source"] = "existing"
         else:
             srv_ff = generate_single_frame(
                 prompt_text=shot_data["first_frame_prompt"],
-                references=ref_srv_names,
+                references=ff_ref_srv_names,
                 filename=ff_image_name,
                 workflow_template=workflow_template,
                 global_cfg=global_cfg,
@@ -260,13 +324,12 @@ def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
                 auth=auth
             )
             if srv_ff:
-                # Download to scenes directory
                 local_dest = os.path.join(scenes_dir, ff_image_name)
                 print(f"      📥 Downloading FF still to: {local_dest}")
                 if download_output(srv_ff, local_dest, base_url, auth=auth):
                     result["first_frame_path"] = local_dest
                     result["first_frame_source"] = "generated"
-                    
+
         # Single image evaluation for FF
         if evaluate and result["first_frame_path"]:
             ff_eval = evaluate_frame_quality(
@@ -279,21 +342,48 @@ def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
                 provider=provider
             )
             result["evaluations"]["ff"] = ff_eval
-            
+
     elif shot_type in ("continuation", "bridge"):
-        print(f"   ⏭️  Skipping First Frame (extracted dynamically from previous video during execution)")
+        print(f"   ⏭️  Skipping First Frame (provided externally from preceding video tail)")
         result["first_frame_source"] = "continuation_extracted"
-        
+
+    # --- Determine structural anchor for LF generation ---
+    # For chain_start/independent: anchor = the FF we just generated/found
+    # For continuation/bridge: anchor = structural_anchor_path (tail frame from previous video)
+    if shot_type in ("chain_start", "independent"):
+        anchor_for_lf = result["first_frame_path"]
+        if not anchor_for_lf:
+            print(f"   ⚠️  FF generation failed — LF will be generated without structural anchor")
+    else:
+        # continuation/bridge: caller provides tail frame path
+        anchor_for_lf = structural_anchor_path
+        if anchor_for_lf and os.path.exists(anchor_for_lf):
+            print(f"   🔗 Using tail frame as structural anchor: {os.path.basename(anchor_for_lf)}")
+        else:
+            print(f"   ⚠️  No tail frame available — LF will be generated without structural anchor")
+            anchor_for_lf = None
+
     # --- Generate Last Frame (LF) ---
-    print(f"   👉 Generating Last Frame...")
+    print(f"   👉 Generating Last Frame (reference-chained)...")
     if os.path.exists(lf_path) and os.path.getsize(lf_path) > 1024:
-        print(f"      📷 Last Frame image exists: {lf_image_name}")
+        print(f"      📷 Last Frame exists: {lf_image_name}")
         result["last_frame_path"] = lf_path
         result["last_frame_source"] = "existing"
     else:
+        # Build reference-chained LF refs: anchor first, then lf_references
+        lf_refs = build_lf_reference_chain(
+            shot_data=shot_data,
+            scenes_dir=scenes_dir,
+            references_base_dir=references_base_dir,
+            base_url=base_url,
+            available_images=available_images,
+            auth=auth,
+            structural_anchor_local_path=anchor_for_lf
+        )
+
         srv_lf = generate_single_frame(
             prompt_text=shot_data["last_frame_prompt"],
-            references=ref_srv_names,
+            references=lf_refs,
             filename=lf_image_name,
             workflow_template=workflow_template,
             global_cfg=global_cfg,
@@ -302,32 +392,34 @@ def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
             auth=auth
         )
         if srv_lf:
-            # Download to scenes directory
             local_dest = os.path.join(scenes_dir, lf_image_name)
             print(f"      📥 Downloading LF still to: {local_dest}")
             if download_output(srv_lf, local_dest, base_url, auth=auth):
                 result["last_frame_path"] = local_dest
                 result["last_frame_source"] = "generated"
-                
+
     # Single image evaluation for LF
+    lf_ref_filenames = shot_data.get("lf_references", [])
     if evaluate and result["last_frame_path"]:
         lf_eval = evaluate_frame_quality(
             image_path=result["last_frame_path"],
             expected_prompt=shot_data["last_frame_prompt"],
             character_names=character_names,
             references_base_dir=references_base_dir,
-            reference_filenames=reference_filenames,
+            reference_filenames=lf_ref_filenames,
             api_key=api_key,
             provider=provider
         )
         result["evaluations"]["lf"] = lf_eval
-        
+
     # --- Coherence Check between FF and LF ---
-    # Can only run if we generated/have BOTH images locally (i.e. chain_start or independent)
-    if evaluate and result["first_frame_path"] and result["last_frame_path"]:
+    # Coherence check: run if we have a local FF (chain_start/independent)
+    # For continuation, we compare anchor (tail frame) with LF
+    ff_for_coherence = result["first_frame_path"] or anchor_for_lf
+    if evaluate and ff_for_coherence and result["last_frame_path"]:
         print(f"   📊 Running FF ↔ LF Coherence Check...")
         coherence = evaluate_ff_lf_coherence(
-            ff_path=result["first_frame_path"],
+            ff_path=ff_for_coherence,
             lf_path=result["last_frame_path"],
             motion_prompt=shot_data["motion_prompt"],
             api_key=api_key,
@@ -337,7 +429,7 @@ def generate_frames_for_shot(shot_data, global_cfg, workflow_template, base_url,
         print(f"      Coherence Score: {coherence.get('overall', 0)}/10 (Difficulty: {coherence.get('difficulty')})")
         if coherence.get("issues"):
             print(f"      ⚠️ Coherence Issues: {'; '.join(coherence['issues'])}")
-            
+
     return result
 
 
@@ -370,12 +462,14 @@ def main():
                         help="Character reference sheets folder (defaults to sibling 'characters/')")
     parser.add_argument("--auth", type=str, default=None,
                         help="ComfyUI Basic Auth in username:password format")
+    parser.add_argument("--anchor", type=str, default=None,
+                        help="Path to structural anchor image for LF generation (for standalone continuation shot runs)")
 
     args = parser.parse_args()
     base_url = args.url
     output_dir = args.output_dir
     scenes_dir = os.path.join(output_dir, "scenes")
-    
+
     # Establish subdirectories
     os.makedirs(scenes_dir, exist_ok=True)
 
@@ -412,7 +506,7 @@ def main():
     else:
         prompts_dir = os.path.dirname(os.path.abspath(args.prompts))
         references_base_dir = os.path.join(prompts_dir, "characters")
-        
+
     print(f"📂 Reference Sheets Dir: {references_base_dir}")
 
     # Load workflow template (image generation model, e.g. flux-2-dev-turbo)
@@ -430,10 +524,18 @@ def main():
         for shot in shots:
             prefix = shot["filename_prefix"]
             shot_type = shot["shot_type"]
+            lf_refs = shot.get("lf_references", [])
+            anchor_note = shot.get("lf_reference_note", "")
             if shot_type in ("chain_start", "independent"):
-                print(f"   ✅ {prefix} (type={shot_type}): will generate FF ({shot.get('first_frame_image')}) and LF ({shot.get('last_frame_image')})")
+                print(f"   ✅ {prefix} (type={shot_type}):")
+                print(f"      FF: {shot.get('first_frame_image')} — refs: {shot.get('references', [])}")
+                print(f"      LF: {shot.get('last_frame_image')} — anchor: FF image + lf_refs: {lf_refs}")
             else:
-                print(f"   ✅ {prefix} (type={shot_type}): will generate LF ({shot.get('last_frame_image')}) only")
+                print(f"   ✅ {prefix} (type={shot_type}):")
+                print(f"      FF: (extracted from prev video tail at runtime)")
+                print(f"      LF: {shot.get('last_frame_image')} — anchor: tail frame + lf_refs: {lf_refs}")
+            if anchor_note:
+                print(f"      📝 Note: {anchor_note}")
         print("\n✅ Dry-run complete.")
         return
 
@@ -447,6 +549,9 @@ def main():
     # Generate
     print(f"\n📖 Generating stills for {len(shots)} filmmaking shots...")
     for shot in shots:
+        # For standalone CLI use of continuation shots, allow passing --anchor
+        anchor = args.anchor if args.anchor else None
+
         result = generate_frames_for_shot(
             shot_data=shot,
             global_cfg=global_cfg,
@@ -458,9 +563,10 @@ def main():
             api_key=args.api_key,
             provider=args.provider,
             evaluate=args.evaluate,
-            auth=comfyui_auth
+            auth=comfyui_auth,
+            structural_anchor_path=anchor
         )
-        
+
         # Save frame generation feedback JSON
         if args.evaluate and (result["first_frame_path"] or result["last_frame_path"]):
             feedback_dir = os.path.join(output_dir, "feedback")

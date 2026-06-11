@@ -33,34 +33,22 @@ story_manifest.json + approved character reference sheets
         ↓
 Phase 1: Upload refs to ComfyUI + verify
         ↓
-Phase 1.5: Agent composes filmmaking_prompt.json
+Phase 1.5: Agent composes filmmaking_prompt.json  ← HEART OF THE PIPELINE
            ├── Per-shot: first_frame_prompt + last_frame_prompt + motion_prompt
+           ├── lf_references: smart per-shot reasoning (new characters only)
+           ├── lf_reference_note: required agent reasoning note per shot
            ├── Continuation chain metadata (auto-chain within scenes)
            └── Resolution preset + per-shot duration overrides
         ↓
-Phase 2: Smart Frame Generation (Flux/Qwen via ComfyUI)
-         ├── Continuation-aware: only generate images actually needed
-         ├── Chain-start shots: generate both FF + LF (2 images)
-         ├── Continuation shots: generate only LF (1 image, FF comes from prev video)
-         ├── Independent shots: generate both FF + LF (2 images)
-         └── Evaluate & refine loop per image + FF↔LF coherence check
+filmmaking_orchestrator.py  ← PRIMARY ENTRY POINT
+   For each continuation chain (recursive loop):
+     ┌─ Phase 2 (image): Generate FF (char refs) + Generate LF (FF/tail anchor + lf_refs)
+     ├─ Phase 3 (video): FFLF Seed Hunt → Stage 2 upscale → Stage 3 1080p render
+     ├─ Phase 4 (extract): ffmpeg tail frame extraction
+     └─ Repeat with tail frame as next shot's FF anchor
         ↓
-Phase 3: FFLF Seed Hunter Video Generation (multi-stage)
-         ├── Stage 3A: Upload FF+LF images to ComfyUI
-         ├── Stage 3B: Run 3× parallel Stage 1 seed hunting (low-res previews)
-         ├── Stage 3C: Auto-select best motion quality (or --interactive)
-         ├── Stage 3D: Stage 2 spatial upscale (selected seed)
-         ├── Stage 3E: Stage 3 full-res render (1080p or 720p based on preset)
-         └── Stage 3F: Download final video
-        ↓
-Phase 4: Shot Continuation & Stitching
-         ├── Extract tail frames from completed clips (ffmpeg)
-         ├── Feed as first frames for next-in-chain shots
-         ├── Repeat Phase 3 for continuation segments
-         └── Timeline overlap alignment metadata
-        ↓
-Phase 5: Post-Production Assembly Metadata
-         └── Generate DaVinci Resolve / ffmpeg concat instructions
+Phase 5: Post-Production Assembly
+         └── Generate ffmpeg concat or DaVinci Resolve stitching instructions
 ```
 
 ## Prerequisites
@@ -94,7 +82,7 @@ story-to-video-filmmaking/
 
 ## Pipeline Phases & Instructions
 
-The pipeline is split into distinct logical phases:
+The pipeline is orchestrated by **`filmmaking_orchestrator.py`** which processes each continuation chain recursively (image gen → video gen → tail extract → repeat).
 
 1. **[Phase 0 & 1: Expansion, Reference Sheets & Upload](references/phases/phase-0-story-expansion.md)**
    - Expand story to manifest schema.
@@ -103,14 +91,18 @@ The pipeline is split into distinct logical phases:
 
 2. **[Phase 1.5: Filmmaking Prompt Composition](references/phases/phase-1-prompt-composition.md)**
    - Compose target-model optimized prompts per shot into `filmmaking_prompt.json`.
-   - Setup continuation chains and flags.
+   - Decide `lf_references` per shot (agent reasoning: new characters only).
+   - Write `lf_reference_note` per shot (required).
+   - Setup continuation chains and shot-type flags.
 
 3. **[Phase 2: Smart Frame Generation & Coherence Check](references/phases/phase-2-frame-generation.md)**
-   - Check shot types (chain start vs continuation).
-   - Generate only the required images (saving up to 31% of image gen API calls).
-   - Evaluate FF ↔ LF coherence to verify motion compatibility before video generation.
+   - Called by orchestrator per-shot within each chain.
+   - Generates FF (with character refs), then LF (with structural anchor + lf_refs).
+   - Anchor = this shot's FF for chain_start/independent; tail frame for continuation/bridge.
+   - Optional FF↔LF coherence evaluation.
 
-3. **[Phase 3: FFLF Seed Hunter Video Generation](references/phases/phase-3-fflf-generation.md)**
+4. **[Phase 3: FFLF Seed Hunter Video Generation](references/phases/phase-3-fflf-generation.md)**
+   - Called by orchestrator immediately after Phase 2 for each shot.
    - Execute the 3-stage FFLF workflow.
    - Run multi-roll Stage 1 low-res previews.
    - Perform automated or interactive seed selection.
@@ -118,11 +110,12 @@ The pipeline is split into distinct logical phases:
 
    > ⚠️ **Before running Phase 3, apply the template patches documented in [references/fflf-production-learnings.md](references/fflf-production-learnings.md).** The shipped `ltx-23-fflf-seed-hunter.json` template has 5 validation bugs (bare model paths, missing audio VAE, missing CFGGuider model, 0-indexed ImpactSwitch, wrong video output file) that will fail every queue until patched.
 
-4. **[Phase 4: Shot Continuation](references/phases/phase-4-continuation.md)**
+5. **[Phase 4: Shot Continuation](references/phases/phase-4-continuation.md)**
+   - Called by orchestrator immediately after Phase 3 for each shot.
    - Extract tail frames from preceding video clips.
-   - Feed tail frames directly as first frames to the next segment.
+   - Feed tail frames as structural anchors to the next shot's LF generation.
 
-5. **[Phase 5: Post-Production Assembly](references/phases/phase-5-assembly.md)**
+6. **[Phase 5: Post-Production Assembly](references/phases/phase-5-assembly.md)**
    - Stitch segments together using generated ffmpeg or DaVinci Resolve templates.
 
 ---

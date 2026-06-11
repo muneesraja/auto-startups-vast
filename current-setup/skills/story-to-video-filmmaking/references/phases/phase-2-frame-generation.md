@@ -1,86 +1,139 @@
 # Phase 2: Smart Frame Generation
 
-This phase covers generating the keyframe still images (First Frame and Last Frame) required for the FFLF video generation pipeline. By using a continuation-aware strategy, we optimize GPU compute by only generating images that are actually needed.
+> [!IMPORTANT]
+> **In the new recursive orchestrator flow, Phase 2 (image gen) and Phase 3 (video gen) are interleaved per-chain.** The old approach of running all image gen first, then all video gen, is replaced by `filmmaking_orchestrator.py` which processes each shot in sequence within a chain. This document describes the image generation logic only.
 
 ---
 
 ## 1. The Smart Frame Generation Matrix
 
-Instead of naively generating both first and last frames for every single shot, the pipeline dynamically adapts to shot relationships:
+The pipeline adapts to shot relationships to optimize GPU usage and storytelling continuity:
 
-| Shot Type | First Frame (FF) | Last Frame (LF) | Image Sourcing Logic |
+| Shot Type | First Frame (FF) | Last Frame (LF) | LF Structural Anchor |
 |---|---|---|---|
-| **`chain_start`** | ✅ Generated | ✅ Generated | First shot in a scene or after a break. |
-| **`continuation`** | ❌ Extracted | ✅ Generated | Inherits FF from the tail of the preceding shot's video. |
-| **`independent`** | ✅ Generated | ✅ Generated | Standalone shot. No visual continuity with neighboring shots. |
-| **`bridge`** | ❌ Extracted | ✅ Generated | Transitions between scene chains while maintaining flow. |
+| **`chain_start`** | ✅ Generated | ✅ Generated | FF image (just generated) |
+| **`continuation`** | ❌ Tail frame extracted from preceding video | ✅ Generated | Tail frame from preceding video |
+| **`independent`** | ✅ Generated | ✅ Generated | FF image (just generated) |
+| **`bridge`** | ❌ Tail frame extracted from preceding video | ✅ Generated | Tail frame from preceding video |
 
-### Optimization Benefits
-For a typical 3-scene, 8-shot story structure:
-* **Naive Approach**: Generates 8 FF and 8 LF images = **16 ComfyUI calls**.
-* **Smart Approach**: Generates 3 FF (for scene starts) and 8 LF images = **11 ComfyUI calls**.
-* **Result**: **62.5% fewer FF images generated** and **31% fewer total ComfyUI calls**.
+### Why the structural anchor matters
+
+The LF is **always generated with the FF or tail frame prepended as reference[0]** in the Flux ReferenceLatent chain. This means:
+- The Flux model sees the opening frame before generating the closing frame
+- Environment, lighting, and character appearance from the FF are carried into the LF
+- `lf_references` in the shot dict only needs to contain references for **new characters** entering the LF for the first time
 
 ---
 
-## 2. Execution via `generate_frames.py`
+## 2. The New Recursive Execution Flow
 
-The script `generate_frames.py` runs Phase 2. It parses the composed `filmmaking_prompt.json`, checks shot types, manages reference sheets, and queues image generations sequentially.
+Instead of a separate Phase 2 script, the main entry point is `filmmaking_orchestrator.py`:
 
-### CLI Usage
+```bash
+# Full pipeline (recommended)
+python3 filmmaking_orchestrator.py --prompts filmmaking_prompt.json
+
+# Dry-run to inspect the execution plan
+python3 filmmaking_orchestrator.py --prompts filmmaking_prompt.json --dry-run
+
+# Fast mode (skip seed hunt)
+python3 filmmaking_orchestrator.py --prompts filmmaking_prompt.json --fast
+
+# Interactive seed selection
+python3 filmmaking_orchestrator.py --prompts filmmaking_prompt.json --interactive
+
+# Rerun a single failed shot
+python3 filmmaking_orchestrator.py --prompts filmmaking_prompt.json --shot film_001_shot002
+```
+
+The orchestrator processes each chain as:
+```
+For each chain:
+  Shot 1 (chain_start):
+    Phase 2: Generate FF → Generate LF (anchor=FF)
+    Phase 3: FFLF video gen (seed hunt → upscale → render)
+    Phase 4: Extract tail frame from video
+  Shot 2 (continuation):
+    Phase 2: Generate LF (anchor=tail frame from Shot 1)
+    Phase 3: FFLF video gen
+    Phase 4: Extract tail frame
+  Shot 3 (continuation): ...
+```
+
+### Standalone Phase 2 (standalone image gen only)
+
+For debugging or regenerating specific stills without triggering video gen:
 
 ```bash
 # Generate keyframe stills for all shots in filmmaking_prompt.json
 python3 generate_frames.py --prompts filmmaking_prompt.json
 
-# Generate keyframe stills for a specific shot only
+# Generate for a specific shot
 python3 generate_frames.py --prompts filmmaking_prompt.json --shot film_001_shot001
 
-# Perform a dry-run (classifies shots and reports image plan without generating)
+# With a specific structural anchor (for continuation shots run standalone)
+python3 generate_frames.py --prompts filmmaking_prompt.json --shot film_001_shot002 --anchor scenes/film_001_shot001_tail_frame.png
+
+# Dry-run
 python3 generate_frames.py --prompts filmmaking_prompt.json --dry-run
 
-# Run with evaluation and coherence checks enabled
+# With evaluation and coherence checks
 python3 generate_frames.py --prompts filmmaking_prompt.json --evaluate
-
-# Skip shots that already have generated keyframes in the directory
-python3 generate_frames.py --prompts filmmaking_prompt.json --skip-existing
 ```
 
 ---
 
-## 3. Visual Coherence Checks (FF ↔ LF)
+## 3. Reference Chain Logic
 
-When a shot requires generating both FF and LF stills (or when we have an extracted FF and a generated LF), they must represent a logical start-and-end transition.
+### FF generation
+- Uses `references` from the shot dict (character sheets for characters in the FF)
+- Plain Flux I2I via `flux-2-dev-turbo` template
 
-If the visual gap between FF and LF is too large (e.g. character shifts outfits, background details warp, or a camera jump cut occurs), the video sampler will fail to interpolate smoothly and will produce visual glitching or morphing.
+### LF generation
+- The **structural anchor** (FF image or tail frame) is always prepended as reference[0]
+- `lf_references` from the shot dict is appended after (new characters only)
+- The `build_lf_reference_chain()` function in `generate_frames.py` handles this
 
-### Coherence Evaluation Prompt
-The generated images are sent to the vision evaluator (OpenRouter Gemini 3.1 Flash Lite) with the following parameters:
+```
+LF references passed to Flux:
+  [structural_anchor_image, ...lf_references]
+     ^                          ^
+     Always present             Only new characters
+     (FF or tail frame)         not visible in anchor
+```
+
+---
+
+## 4. Visual Coherence Checks (FF ↔ LF)
+
+When `--evaluate` is passed, each generated shot is evaluated for visual coherence between the FF and LF using Gemini Vision:
+
 1. **Spatial Continuity** (0-10): Is the environment/setting consistent?
 2. **Character Continuity** (0-10): Are characters identical and recognizable in both frames?
 3. **Logical Trajectory** (0-10): Can the motion prompt realistically connect frame A to frame B?
-4. **Interpolation Difficulty**: One of `easy`, `medium`, `hard`, or `impossible`.
+4. **Interpolation Difficulty**: `easy`, `medium`, `hard`, or `impossible`
+
+For continuation shots where the FF is the tail frame (not locally generated as a still), the coherence check compares the tail frame against the generated LF.
 
 ### Refinement Loop
-* **Threshold for Success**: Overall score $\ge 7$ AND difficulty $\neq$ `"impossible"`.
-* **If it fails**: The evaluator provides specific issues and fix instructions.
-* **Anchor Strategy**: The pipeline treats the First Frame (FF) as the anchor. If coherence fails, the script adjusts the `last_frame_prompt` to align with the generated FF's visuals and regenerates the Last Frame (LF) (up to 3 retries, incrementing the seed).
+- **Threshold**: Overall ≥ 7 AND difficulty ≠ `"impossible"`
+- The anchor strategy treats the FF/tail as fixed; if coherence fails, retry with adjusted `last_frame_prompt` (up to 3 retries, incrementing seed)
 
 ---
 
-## 4. File Structure of Phase 2 Outputs
-
-Keyframe outputs are stored in the story directory:
+## 5. File Structure
 
 ```
 story-to-video-filmmaking/{story-slug}/
-├── characters/                # Neutral character reference sheets
-├── scenes/                    # Keyframe Still Images
-│   ├── film_001_shot001_ff.png
-│   ├── film_001_shot001_lf.png
-│   ├── film_001_shot002_lf.png  # (Shot 2 is continuation; FF is extracted)
+├── characters/                # Character reference sheets
+├── scenes/                    # Keyframe still images
+│   ├── film_001_shot001_ff.png      # FF (chain_start)
+│   ├── film_001_shot001_lf.png      # LF (chain_start)
+│   ├── film_001_shot001_tail_frame.png  # Extracted from Shot 1 video
+│   ├── film_001_shot002_lf.png      # LF (continuation — FF=tail frame)
+│   ├── film_001_shot002_tail_frame.png  # Extracted from Shot 2 video
 │   └── ...
-└── feedback/                  # Evaluation and coherence reports
-    ├── film_001_shot001_coherence.json
-    └── ...
+├── videos/                    # Final rendered video segments
+├── motion_eval/               # Stage 1 preview clips and motion scores
+└── feedback/                  # Frame quality and coherence eval JSONs
 ```
