@@ -6,7 +6,8 @@
 # description: Downloads all models for the LTX 2.3 FFLF (First/Last Frame) Seed Hunter workflow — 3-stage with spatial upscaler v1.1, audio + video VAEs, distilled FP8 transformer, and OmniNFT-RL LoRA. Includes KJNodes-dependent custom nodes and restarts ComfyUI.
 # size: ~44.5GB
 # min_vram: 24GB
-# nodes: [ComfyUI-KJNodes, ComfyUI-LTXVideo, rgthree-comfy, ComfyUI-VideoHelperSuite, ComfyUI-easy-seed, ComfyUI-Impact-Pack, mxSlider]
+# nodes: [ComfyUI-KJNodes, ComfyUI-LTXVideo, rgthree-comfy, ComfyUI-VideoHelperSuite, ComfyUI-Impact-Pack, cg-use-everywhere, ComfyUI-Easy-Use, ComfyUI-mxToolkit, ComfyUI-Manager]
+# node_patches: [ComfyUI-LTXVideo/kornia-pad (kornia 0.8.x compat, idempotent)]
 # ---
 set -e
 
@@ -50,31 +51,59 @@ else
 fi
 echo "  Using ComfyUI Python: $COMFY_PYTHON"
 
-# Install custom nodes required by this workflow:
-#   - ComfyUI-KJNodes           (LTX2SamplingPreviewOverride, VAELoaderKJ, LatentUpscaleModelLoader, PathchSageAttentionKJ, LTXVLatentUpsampler)
+# Install custom nodes required by this workflow (derived from ltx23FFLFSeedHunter_v10.json):
+#   - ComfyUI-KJNodes           (LTX2SamplingPreviewOverride, VAELoaderKJ, LatentUpscaleModelLoader, PathchSageAttentionKJ, LTXVLatentUpsampler, ImageResizeKJv2, SimpleCalculatorKJ)
 #   - ComfyUI-LTXVideo          (core LTX nodes: LTXVAddGuide, LTXVConditioning, LTXVCropGuides, LTXVConcatAVLatent, LTXVSeparateAVLatent, etc.)
-#   - ComfyUI-VideoHelperSuite  (VHS_LoadVideo, VHS_VideoCombine, VHS_GetImageCount)
-#   - ComfyUI-Impact-Pack       (ImpactSwitch and other utilities)
+#   - ComfyUI-VideoHelperSuite  (VHS_LoadVideo, VHS_VideoCombine, VHS_GetImageCount, VHS_BatchManager, VHS_FILENAMES, VHS_VIDEOINFO)
+#   - ComfyUI-Impact-Pack       (SAMLoader, UltralyticsDetectorProvider, and other utilities)
+#   - rgthree-comfy             (Any Switch, Fast Groups Bypasser/Muter, Power Lora Loader, RandomNoise)
+#   - cg-use-everywhere         (Anything Everywhere — global reroute nodes)
+#   - ComfyUI-Easy-Use          (easy seed and ~80 other utility nodes)
+#   - ComfyUI-mxToolkit         (mxSlider — slider/reroute UI nodes)
+#   - ComfyUI-Manager           (already in base image, included for transparency)
 if command -v comfy &> /dev/null; then
     echo "  Using comfy-cli to install nodes..."
     comfy node install https://github.com/kijai/ComfyUI-KJNodes
     comfy node install https://github.com/Lightricks/ComfyUI-LTXVideo
     comfy node install https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
     comfy node install https://github.com/ltdrdata/ComfyUI-Impact-Pack
+    comfy node install https://github.com/rgthree/rgthree-comfy
+    comfy node install https://github.com/chrisgoringe/cg-use-everywhere
+    comfy node install https://github.com/yolain/ComfyUI-Easy-Use
+    comfy node install https://github.com/Smirnov75/ComfyUI-mxToolkit
 else
     echo "  comfy-cli not found, cloning node repositories manually..."
     mkdir -p "$CUSTOM_NODES_DIR"
     cd "$CUSTOM_NODES_DIR"
-    [ -d ComfyUI-KJNodes ]              || git clone https://github.com/kijai/ComfyUI-KJNodes              || true
-    [ -d ComfyUI-LTXVideo ]             || git clone https://github.com/Lightricks/ComfyUI-LTXVideo      || true
+    [ -d ComfyUI-KJNodes ]              || git clone https://github.com/kijai/ComfyUI-KJNodes                 || true
+    [ -d ComfyUI-LTXVideo ]             || git clone https://github.com/Lightricks/ComfyUI-LTXVideo         || true
     [ -d ComfyUI-VideoHelperSuite ]     || git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite || true
-    [ -d ComfyUI-Impact-Pack ]          || git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack     || true
+    [ -d ComfyUI-Impact-Pack ]          || git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack         || true
+    [ -d rgthree-comfy ]                || git clone https://github.com/rgthree/rgthree-comfy                 || true
+    [ -d cg-use-everywhere ]            || git clone https://github.com/chrisgoringe/cg-use-everywhere       || true
+    [ -d ComfyUI-Easy-Use ]             || git clone https://github.com/yolain/ComfyUI-Easy-Use              || true
+    [ -d ComfyUI-mxToolkit ]            || git clone https://github.com/Smirnov75/ComfyUI-mxToolkit         || true
     cd "$COMFYUI_DIR"
+fi
+
+# Patch known incompatible deps in the cloned nodes (Vast base image ships kornia 0.8.x,
+# which dropped the `pad` re-export that older ComfyUI-LTXVideo requires).
+# See: https://github.com/Lightricks/ComfyUI-LTXVideo/issues/505
+# This block is idempotent — re-running on an already-patched file is a no-op.
+LTXVIDEO_PYRAMID="$CUSTOM_NODES_DIR/ComfyUI-LTXVideo/pyramid_blending.py"
+if [ -f "$LTXVIDEO_PYRAMID" ] && grep -q "from kornia.geometry.transform.pyramid import" "$LTXVIDEO_PYRAMID"; then
+    if grep -q "patched: pad re-export was dropped" "$LTXVIDEO_PYRAMID"; then
+        echo "  ComfyUI-LTXVideo kornia pad patch already applied"
+    else
+        echo "  Patching ComfyUI-LTXVideo pyramid_blending.py for kornia 0.8.x compatibility..."
+        sed -i 's|    pad,|    # patched: pad re-export was dropped in kornia 0.8.x; use torch.nn.functional directly|' "$LTXVIDEO_PYRAMID"
+        sed -i 's|\bpad(|F.pad(|g' "$LTXVIDEO_PYRAMID"
+    fi
 fi
 
 # Install pip dependencies into ComfyUI's Python (not system Python)
 echo "==> Installing node dependencies..."
-for repo in ComfyUI-KJNodes ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Impact-Pack; do
+for repo in ComfyUI-KJNodes ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Impact-Pack rgthree-comfy cg-use-everywhere ComfyUI-Easy-Use ComfyUI-mxToolkit; do
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
         echo "  Installing $repo deps..."
