@@ -1,6 +1,6 @@
 ---
 name: story-to-video-filmmaking
-version: 1.0.0
+version: 1.1.0
 description: "Turn story manifests into cinematic videos using agent-composed prompts (filmmaking_prompt.json) and config-driven workflow templates. Uses the LTX 2.3 FFLF (First Frame Last Frame) Seed Hunter multi-stage workflow, supporting smart frame generation, multi-roll seed hunting, spatial upscaling, motion quality evaluation, and seamless continuation chaining."
 triggers:
   - filmmaking
@@ -110,17 +110,19 @@ The pipeline is split into distinct logical phases:
    - Generate only the required images (saving up to 31% of image gen API calls).
    - Evaluate FF ↔ LF coherence to verify motion compatibility before video generation.
 
-4. **[Phase 3: FFLF Seed Hunter Video Generation](references/phases/phase-3-fflf-generation.md)**
+3. **[Phase 3: FFLF Seed Hunter Video Generation](references/phases/phase-3-fflf-generation.md)**
    - Execute the 3-stage FFLF workflow.
    - Run multi-roll Stage 1 low-res previews.
    - Perform automated or interactive seed selection.
    - Render the selected seed at final resolution.
 
-5. **[Phase 4: Shot Continuation](references/phases/phase-4-continuation.md)**
+   > ⚠️ **Before running Phase 3, apply the template patches documented in [references/fflf-production-learnings.md](references/fflf-production-learnings.md).** The shipped `ltx-23-fflf-seed-hunter.json` template has 5 validation bugs (bare model paths, missing audio VAE, missing CFGGuider model, 0-indexed ImpactSwitch, wrong video output file) that will fail every queue until patched.
+
+4. **[Phase 4: Shot Continuation](references/phases/phase-4-continuation.md)**
    - Extract tail frames from preceding video clips.
    - Feed tail frames directly as first frames to the next segment.
 
-6. **[Phase 5: Post-Production Assembly](references/phases/phase-5-assembly.md)**
+5. **[Phase 5: Post-Production Assembly](references/phases/phase-5-assembly.md)**
    - Stitch segments together using generated ffmpeg or DaVinci Resolve templates.
 
 ---
@@ -130,6 +132,7 @@ The pipeline is split into distinct logical phases:
 - **[Filmmaking Prompt Schema](references/filmmaking-prompt-schema.md)** - Schema for `filmmaking_prompt.json`.
 - **[LTX FFLF Prompting Guide](references/models/ltx-fflf-prompting-guide.md)** - Motion-focused prompting and Goldilocks guide.
 - **[FFLF Custom Nodes Requirements](references/comfyui/fflf-custom-nodes.md)** - Custom node requirements for ComfyUI.
+- **[FFLF Production Run Learnings (2026-06-11)](references/fflf-production-learnings.md)** - ⚠️ **Required reading** — template patches for the shipped FFLF workflow, Vast.ai timing data, and download-pitfall notes.
 - **[Facial Expression Vocabulary](references/facial-expression-vocabulary.md)** - Visual region descriptors.
 - **[ComfyUI API Pitfalls](references/comfyui/api-pitfalls.md)** - API execution tips.
 - **[Story Manifest Format (v2)](references/story-manifest-format.md)** - Story JSON description.

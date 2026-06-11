@@ -132,9 +132,10 @@ def execute_fflf_shot(shot_data, global_cfg, workflow_template, base_url, videos
     if mode == "fast":
         print("   ⚡ Mode: FAST (Direct upscale, seed hunt skipped)")
         shot_for_builder["_finish_mode"] = True
-        shot_for_builder["_selected_gen_index"] = 0
+        # ImpactSwitch is 1-indexed, so add 1 to the 0-based selected_index
+        shot_for_builder["_selected_gen_index"] = 1
         shot_for_builder["filename_prefix"] = f"video/{prefix}"
-        
+
         workflow = build_dynamic_workflow(workflow_template, shot_for_builder, global_cfg)
         return queue_and_wait_video(workflow, base_url, videos_dir, auth)
         
@@ -197,7 +198,8 @@ def execute_fflf_shot(shot_data, global_cfg, workflow_template, base_url, videos
     # 6. Execute Stage 2+3 Upscale & Render
     print(f"\n   🎬 Phase 2: Upscaling selected motion path [{selected_index}] to full-resolution...")
     shot_for_builder["_finish_mode"] = True
-    shot_for_builder["_selected_gen_index"] = selected_index
+    # ImpactSwitch is 1-indexed, so add 1 to the 0-based selected_index
+    shot_for_builder["_selected_gen_index"] = selected_index + 1
     shot_for_builder["filename_prefix"] = f"video/{prefix}"
     
     workflow_final = build_dynamic_workflow(workflow_template, shot_for_builder, global_cfg)

@@ -1,5 +1,5 @@
 {
-  "_comment": "LTX 2.3 FFLF Seed Hunter workflow template with 3 parallel Stage 1 samplers, Stage 2 spatial upscale, and Stage 3 final canvas render.",
+  "_comment": "LTX 2.3 FFLF Seed Hunter workflow template with 3 parallel Stage 1 samplers, Stage 2 spatial upscale, and Stage 3 final canvas render. ⚠️ THIS TEMPLATE SHIPS WITH 5 VALIDATION BUGS — see references/fflf-production-learnings.md for the required patches (bare model paths, missing audio VAE, missing CFGGuider model, 0-indexed ImpactSwitch, wrong video output file).",
   "_builder": "ltx_fflf_seed_hunter",
   "_template_references": 0,
   "_max_references": 0,
@@ -55,7 +55,11 @@
         "5157",
         1
       ],
-      "batch_size": 1
+      "batch_size": 1,
+      "audio_vae": [
+        "9999:audio_vae_loader",
+        0
+      ]
     },
     "class_type": "LTXVEmptyLatentAudio",
     "_meta": {
@@ -121,7 +125,7 @@
   },
   "5149": {
     "inputs": {
-      "vae_name": "taeltx2_3.safetensors"
+      "vae_name": "vae/taeltx2_3.safetensors"
     },
     "class_type": "VAELoader",
     "_meta": {
@@ -378,11 +382,20 @@
   },
   "5025:5029": {
     "inputs": {
-      "vae_name": "LTX23_video_vae_bf16.safetensors"
+      "vae_name": "vae/LTX23_video_vae_bf16.safetensors"
     },
     "class_type": "VAELoader",
     "_meta": {
       "title": "Load VAE (video VAE)"
+    }
+  },
+  "9999:audio_vae_loader": {
+    "inputs": {
+      "vae_name": "vae/LTX23_audio_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE (audio VAE for FFLF)"
     }
   },
   "5025:5021": {
@@ -410,7 +423,7 @@
   },
   "5025:5028": {
     "inputs": {
-      "unet_name": "ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors",
+      "unet_name": "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
@@ -421,7 +434,7 @@
   "5025:5032": {
     "inputs": {
       "clip_name1": "gemma_3_12B_it_fp8_e4m3fn.safetensors",
-      "clip_name2": "ltx-2.3_text_projection_bf16.safetensors",
+      "clip_name2": "text_encoders/ltx-2.3_text_projection_bf16.safetensors",
       "type": "ltxv",
       "device": "default"
     },
@@ -769,6 +782,10 @@
   "5002:4828": {
     "inputs": {
       "cfg": 1,
+      "model": [
+        "5025:5153",
+        0
+      ],
       "positive": [
         "5013:5074",
         0
