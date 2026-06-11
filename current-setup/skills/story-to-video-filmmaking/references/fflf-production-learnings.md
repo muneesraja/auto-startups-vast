@@ -254,3 +254,65 @@ shot compositions around the 3-ref budget.
 LF to the ref sheet — if the character has *any* new feature not in the
 sheet (a hat, different stripes, different eyes, changed proportions), the
 anchor is not strong enough. Add the sheet to `lf_references` and re-run.
+
+---
+
+## Resolution Mismatch Causes FFLF Camera Drift (2026-06-11, tiny-bee)
+
+**Symptom:** Shot 1 FF and LF are near-identical compositions (same camera,
+same character position, only expression changes). Yet the FFLF video pans
+dramatically upward, losing the character by mid-clip.
+
+**Root cause — 3 compounding factors:**
+
+1. **Resolution mismatch → crop destroys alignment.**
+   Flux generates stills at 1344×768 (1.75:1). The FFLF template runs at
+   720p = 1280×640 (2.00:1). The template's `ImageResizeKJv2` uses
+   `keep_proportion: "crop"` + `crop_position: "center"`, cutting ~64px
+   from top and bottom. Because FF and LF have slightly different vertical
+   element distributions (character shifts down by a few px in LF), the
+   center-crop produces different vertical slices. LTX interprets this as
+   camera motion and amplifies it.
+
+2. **Motion prompt conflicts with keyframes.**
+   The prompt said "camera tilts down slightly" + "golden light shifts" — the
+   model couldn't reconcile downward motion with near-static keyframes AND
+   an upward light-shift cue, so it defaulted to panning toward the brightest
+   element.
+
+3. **Keyframes too similar for 6 seconds.**
+   Expression-only change (eyes open → eyes closed) gives LTX no spatial
+   displacement signal for 150 frames. The model invented dramatic motion.
+
+**Resolution matching rule:** Generate stills at the **same resolution** as
+the video pipeline target. For `720p` → 1280×704. For `1080p` → 1920×1088.
+
+---
+
+## Duration-to-Displacement Heuristic (2026-06-11, tiny-bee)
+
+Match `segment_duration` to the amount of spatial change between FF and LF.
+Too much duration for too little spatial change = the model invents camera
+motion to fill the temporal gap.
+
+| FF → LF Delta | segment_duration | Notes |
+|---|---|---|
+| Expression only (same pose/camera) | 2–3s | Use micro-motion in prompt ("slight head tilt") |
+| Subtle spatial shift (slight push, head turn) | 4–5s | |
+| Clear trajectory (character moves, camera tracks) | 5–7s | Author's standard range |
+| Full traversal (wide → close-up, crosses frame) | 7–8s | Author's max demonstrated |
+
+---
+
+## Adaptive Tail Frame Extraction (2026-06-11, implemented)
+
+The old `extract_continuation_frame()` extracted a single frame at
+`N - overlap_seconds × fps` from the end. This was arbitrary and often
+caught the video mid-drift (e.g., camera already panned to the ceiling).
+
+**New behavior:** Extract 3 candidates (last frame, last-0.5s, last-1.0s),
+compute SSIM against the target LF, and pick the best match. If the best
+SSIM is below `quality_threshold` (0.3), emit a quality gate warning —
+the video likely drifted far from the intended composition, and the next
+shot's FF should be regenerated from scratch rather than using the
+degraded tail.

@@ -21,7 +21,7 @@ The pipeline adapts to shot relationships to optimize GPU usage and storytelling
 The LF is **always generated with the FF or tail frame prepended as reference[0]** in the Flux ReferenceLatent chain. This means:
 - The Flux model sees the opening frame before generating the closing frame
 - Environment, lighting, and character appearance from the FF are carried into the LF
-- `lf_references` in the shot dict only needs to contain references for **new characters** entering the LF for the first time
+- `lf_references` in the shot dict should contain reference sheets for the **emotional focus character(s)** of the LF (to prevent identity drift) and any **new characters** entering the LF for the first time
 
 ---
 
@@ -98,9 +98,14 @@ python3 generate_frames.py --prompts filmmaking_prompt.json --evaluate
 LF references passed to Flux:
   [structural_anchor_image, ...lf_references]
      ^                          ^
-     Always present             Only new characters
-     (FF or tail frame)         not visible in anchor
+     Always present             Focus characters +
+     (FF or tail frame)         new characters not
+                                visible in anchor
 ```
+
+> ⚠️ **Production Learning:** The structural anchor alone does NOT preserve character identity. Always include character sheets for the emotional focus character(s) in `lf_references`, even if they're already visible in the anchor. See [fflf-production-learnings.md](../fflf-production-learnings.md#character-drift-across-iterations).
+
+> ⚠️ **Resolution Matching:** Generate stills at the **same resolution** as the video pipeline target. For `720p` preset: 1280×704. For `1080p` preset: 1920×1088. Mismatched resolutions cause the FFLF template to center-crop images, creating spurious motion signals that cause camera drift. See [fflf-production-learnings.md](../fflf-production-learnings.md#resolution-mismatch-causes-fflf-camera-drift).
 
 ---
 

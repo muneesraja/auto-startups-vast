@@ -125,49 +125,58 @@ This is the most important field for storytelling quality. The agent **must reas
 ### Core Principle
 The LF image is generated using the FF image (or the previous shot's tail frame) **already prepended as the primary structural anchor** by the pipeline at runtime. The `lf_references` field controls what additional references are included.
 
-### Decision Logic
+> ⚠️ **Production Learning (2026-06-11):** The structural anchor alone is **NOT sufficient** to preserve character identity. Flux's ReferenceLatent chain drifts character features across iterations — chibi proportions get diluted, new features get invented (leaf hats, changed stripes). Always include character sheets for the emotional focus character(s) of the LF.
+
+### Decision Logic (Updated)
 
 ```
 WHEN generating lf_references for a shot:
 
 1. START with empty lf_references = []
 
-2. CHECK: Does the LF introduce a character NOT visible in the FF / preceding tail frame?
+2. CHECK: Is a character the emotional FOCUS of the LF?
    YES → ADD that character's reference sheet to lf_references
-   NO  → Leave it empty (the structural anchor already carries the character)
+         (even if they're already visible in the structural anchor —
+          the anchor alone is NOT enough to lock character appearance)
+   NO  → Leave it empty
 
-3. CHECK: Is this a scene transition (bridge/independent with new location)?
+3. CHECK: Does the LF introduce a character NOT visible in the FF / preceding tail frame?
+   YES → ADD that character's reference sheet to lf_references
+
+4. CHECK: Is this a scene transition (bridge/independent with new location)?
    YES and the new environment needs a style anchor →
      consider adding an environment/style reference if available
    TYPICALLY → the text prompt alone handles environment; only add if truly novel
 
-4. REASON about storytelling continuity:
-   - If the same characters appear in the same environment, lf_references = []
-   - If a new character enters the frame for the first time in the LF, add their sheet
-   - If the shot is an emotional close-up and character consistency is critical, add the sheet
-   - Append your reasoning to lf_reference_note so the pipeline is auditable
-
 5. HARD LIMIT: lf_references must contain at most 3 items
    (the structural anchor image is prepended by the pipeline, consuming the 1st slot of 4)
+
+6. ALWAYS write lf_reference_note explaining the reasoning for auditability
+   The note MUST reference the story moment, not just the technical choice.
 ```
 
 ### Examples
 
 ```json
-// Shot 1 — chain_start, same characters throughout
+// Shot 1 — chain_start, hero is the emotional focus
 "references": ["hero_sheet.png"],
-"lf_references": [],
-"lf_reference_note": "Hero is already anchored in FF; no new characters enter frame. FF will be prepended as structural anchor at runtime."
+"lf_references": ["hero_sheet.png"],
+"lf_reference_note": "Hero is the sole emotional focus. Sheet included to prevent identity drift across Flux iteration — the structural anchor alone is not enough to lock character proportions."
 
-// Shot 2 — continuation, same chain
+// Shot 2 — continuation, same characters, hero still focus
+"references": [],
+"lf_references": ["hero_sheet.png"],
+"lf_reference_note": "Continuation shot. Hero is still the emotional focus (reacting to environment). Sheet included to prevent identity drift from tail frame anchor."
+
+// Shot 3 — villain enters the LF for the first time, hero also present
+"references": ["hero_sheet.png"],
+"lf_references": ["hero_sheet.png", "villain_sheet.png"],
+"lf_reference_note": "Villain enters frame in the LF for the first time. Hero is still the emotional focus (reacting to villain). Both sheets needed: villain for new-character conditioning, hero to prevent identity dilution by the new ref."
+
+// Shot 4 — continuation, both characters established, action scene
 "references": [],
 "lf_references": [],
-"lf_reference_note": "Continuation shot. LF is anchored to Shot 1's tail frame (extracted at runtime). Same characters, same environment — no additional refs needed."
-
-// Shot 3 — villain enters the LF for the first time
-"references": ["hero_sheet.png"],
-"lf_references": ["villain_sheet.png"],
-"lf_reference_note": "Villain enters frame in the LF. Hero is carried by the structural anchor; villain needs explicit conditioning since they appear for the first time here."
+"lf_reference_note": "Continuation shot. Both characters already established in the structural anchor (Shot 3 tail frame). Fast action scene — no identity-critical close-ups. lf_references stays empty."
 
 // Bridge shot — transitioning from forest to palace
 "references": [],
@@ -183,12 +192,17 @@ The agent must maintain storytelling coherence when composing `filmmaking_prompt
 
 1. **Every shot must advance the story** — the FF→LF motion prompt should describe a narrative beat, not just camera movement for its own sake.
 
-2. **Character continuity across shots** — characters must look the same from shot to shot. The recursive pipeline (tail frame → next FF) handles visual continuity for continuation shots automatically. For `chain_start` and `independent` shots that follow a scene gap, use the same character reference sheets to maintain appearance.
+2. **Character continuity across shots** — characters must look the same from shot to shot. The recursive pipeline (tail frame → next FF) handles visual continuity for continuation shots automatically. For `chain_start` and `independent` shots that follow a scene gap, use the same character reference sheets to maintain appearance. Always include focus character sheets in `lf_references` to prevent identity drift.
 
 3. **Environment continuity within a chain** — shots in the same scene chain should share environment details. Let the structural anchor (FF/tail) carry the environment; don't re-describe it in the motion prompt.
 
-4. **Emotional arc** — the sequence of `motion_prompt` values across shots should mirror the emotional beats of the story: slow pushes for tension, faster cuts for action, pull-backs for revelation. Consider this when choosing `segment_duration` overrides per shot.
+4. **Emotional arc** — the sequence of `motion_prompt` values across shots should mirror the emotional beats of the story. Match `segment_duration` to spatial displacement: 2-3s for expression-only changes, 4-5s for subtle shifts, 5-7s for clear trajectories, 7-8s for full traversals. Do NOT default to 5-6s for every shot.
 
-5. **Scene transition planning** — when moving between scenes (via `independent` or `bridge` shots), the LF of the last shot of Scene A and the FF of the first shot of Scene B should not attempt an impossible visual jump. Plan the `last_frame_prompt` of the bridge/final shot to "open the door" visually to Scene B (e.g., character walks through a doorway, camera pans to reveal the new setting).
+5. **Scene transition planning** — when moving between scenes (via `independent` or `bridge` shots), the LF of the last shot of Scene A and the FF of the first shot of Scene B should not attempt an impossible visual jump. Plan the `last_frame_prompt` of the bridge/final shot to "open the door" visually to Scene B (e.g., character walks through a doorway, camera pans to reveal the new setting). For radical visual jumps, use `break_continuity: true` + `independent`.
 
 6. **`lf_reference_note` is mandatory reasoning** — it must contain a sentence explaining why the references were chosen, referencing the story moment. This keeps the pipeline auditable and prevents future hallucination drift.
+
+7. **Manifest coverage** — `filmmaking_prompt.json` must contain entries for ALL scenes and shots in `story_manifest.json`. If partial composition is unavoidable, add a `coverage` field documenting what's missing and why.
+
+8. **Continuation shot `first_frame_image` must be `null`** — for `continuation` and `bridge` shots, do not set `first_frame_image` to a fabricated filename. The pipeline uses the tail frame from the preceding shot automatically.
+

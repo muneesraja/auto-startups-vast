@@ -448,12 +448,24 @@ def main():
                 fps = shot.get("overrides", {}).get("fps") or global_cfg.get("fps", 25)
                 
                 print(f"   🎞️  Continuation: Extracting first frame from preceding video {prev_video_path}")
+                
+                # Resolve the preceding shot's LF image for SSIM comparison
+                prev_shot_prefix = continues_from
+                prev_shot_lf = None
+                for s in shots:
+                    if s["filename_prefix"] == prev_shot_prefix:
+                        lf_name = s.get("last_frame_image")
+                        if lf_name:
+                            prev_shot_lf = resolve_image_path(lf_name, scenes_dir)
+                        break
+                
                 try:
                     extracted_path = extract_continuation_frame(
                         video_path=prev_video_path,
                         overlap_seconds=overlap_seconds,
                         fps=fps,
-                        output_path=target_image_path
+                        output_path=target_image_path,
+                        target_lf_path=prev_shot_lf
                     )
                     if extracted_path and os.path.exists(extracted_path):
                         shot["first_frame_image"] = target_image_name
