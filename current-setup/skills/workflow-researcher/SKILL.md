@@ -1,39 +1,157 @@
 ---
 name: workflow-researcher
-description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CLIP, VAE, LoRA, checkpoints), research download URLs via HuggingFace CLI (never download!), and generate provisioning-ready bash scripts for $REPO_ROOT/scripts/workflows/.
+description: Parse ComfyUI workflow JSONs, extract all required models (UNET, CLIP, VAE, LoRA, checkpoints) and custom node packs, research download URLs via HuggingFace CLI (never download!), and generate self-contained provisioning-ready bash scripts for $REPO_ROOT/scripts/workflows/. Scripts must be platform-aware (Vast.ai + RunPod) and end with a ComfyUI restart.
 ---
 
-# Workflow Researcher — ComfyUI Model Discovery & Script Generator
+# Workflow Researcher — ComfyUI Model & Node Discovery → Script Generator
 
-> Given a ComfyUI `workflow.json`, extract every model it needs, find the exact HuggingFace download URLs, and generate a `$REPO_ROOT/scripts/workflows/*.sh` download script — **without ever downloading any model files.**
+> Given a ComfyUI `workflow.json`, extract every model + every custom node pack it needs, find the exact HuggingFace download URLs, and generate a `$REPO_ROOT/scripts/workflows/*.sh` script — **without ever downloading any model files.**
 >
 > ⚠️ **CRITICAL SAFETY RULE:** Models are multi-GB files (8-40GB each). **NEVER run `hf download` without `--dry-run`.** NEVER download model files to the local system. This skill is purely for research and URL extraction.
+>
+> ⚠️ **Output is a self-contained "make this workflow work" script.** It must install all required custom node packs, install their pip deps into ComfyUI's own Python, download every model, and **restart ComfyUI at the end** so the new nodes register. Provisioning pipelines (Vast.ai, RunPod) call this script and expect a fully-ready ComfyUI on exit. See §3.5 for the policy.
 
 ## Prerequisites
 
 - **`hf` CLI** (HuggingFace Hub CLI) must be installed: `pip install huggingface-hub[cli]`
   - Verify: `hf version` (tested with v1.4.1+)
 - **`jq`** for JSON parsing (optional but recommended)
-- Read the **vast-ai SKILL.md** before generating any script — scripts must be compatible with the provisioning pipeline
+- Read the **vast-ai SKILL.md** before generating any script — the output runs on Vast.ai by default
+
+## Quick Map
+
+| Section | What it does |
+|---|---|
+| **§0 Naming conventions** | Filename + `workflow:` ID rules. Resolve contradictions upfront. |
+| **§1 Model + node extraction** | Walk JSON (flat AND subgraphs), identify loaders + custom node packs. |
+| **§2 HuggingFace URL research** | Find the right repo, verify URLs, handle the LTX / gemma gotchas. |
+| **§3 Script generation** | The canonical template. Platform-aware, restart at end, idempotent helpers. |
+| **§4 Validation** | Completeness, URL, filename, pattern checks. |
+| **§5 Commit & push** | Get the script onto `main` so the provisioning pipeline can fetch it. |
+| **§6 Reference walkthroughs** | `references/ltx-23-director.md` and `references/ltx-23-fflf-seed-hunter.md` — full worked examples. |
 
 ---
 
-## Phase 1: Extract Models from Workflow JSON
+## §0. Workflow File Naming & Storage Conventions
 
-> ⚠️ **ComfyUI workflows have TWO parallel node representations.** The `nodes[]` array uses `type` as the class field and stores widget values in `widgets_values`. The `extra.prompt` object uses `class_type` and `inputs`. **Always check BOTH** — `extra.prompt` may contain models not visible in the interactive nodes (e.g., vocoder checkpoints). The two representations can also describe completely different rendering paths.
+Resolve these **before** writing any code — they determine file paths and frontmatter IDs.
+
+### 0.1 Three identifiers per workflow
+
+| Field | Source | Example |
+|---|---|---|
+| **Workflow JSON filename** | User's original file name — preserve exactly | `ltx23FFLFSeedHunter_v10.json` |
+| **Script filename** | Canonical kebab-case derived from model family + version + variant | `ltx-23-fflf-seed-hunter.sh` |
+| **Internal `workflow:` ID** | Stable machine-readable tag in the script's YAML frontmatter | `ltx23_FFLFSeedHunter_v10` |
+
+### 0.2 Canonical naming convention
+
+```
+<model-family>-<version>-<variant>.json   ← ComfyUI workflow
+<model-family>-<version>-<variant>.sh     ← download script
+```
+
+| Rule | Detail | Example |
+|------|--------|---------|
+| All lowercase, hyphen-separated | No underscores, no dots, no spaces | `ltx-23-i2v-keyframe` |
+| Model family first | Short canonical name | `ltx`, `wan`, `qwen`, `flux` |
+| Version next | No dots, no `v` prefix | `23` for 2.3, `22` for 2.2 |
+| Variant/mode last | Describes the workflow type | `i2v`, `t2v`, `keyframe`, `prompt-relay`, `image-edit` |
+| JSON and script share the same base | Always | `ltx-23-fflf-seed-hunter.json` ↔ `ltx-23-fflf-seed-hunter.sh` |
+| Shared helper scripts prefixed with `_` | Not a workflow entry point | `_hf_download.sh` |
+
+**Current canonical names in the repo** (always check for the most recent):
+
+| Script | JSON | Description |
+|--------|------|-------------|
+| `ltx-23-i2v-distilled.sh` | `ltx-23-i2v-distilled.json` | LTX 2.3 distilled FP8 I2V |
+| `ltx-23-i2v-keyframe.sh` | `ltx-23-i2v-keyframe.json` | LTX 2.3 first/last-frame keyframing |
+| `ltx-23-prompt-relay.sh` | `ltx-23-prompt-relay.json` | LTX 2.3 PromptRelay multi-segment |
+| `ltx-23-fflf-seed-hunter.sh` | `ltx23FFLFSeedHunter_v10.json` | LTX 2.3 FFLF Seed Hunter (FFLF = First/Last Frame) |
+| `ltx-23-director-subgraphs.sh` | `ltx-23-director-subgraphs.json` | LTX 2.3 Director 2-stage subgraphs |
+| `qwen-image-edit.sh` | `qwen-image-edit.json` | Qwen image editing |
+| `qwen-image-edit-2511-4steps.sh` | `qwen-image-edit-2511-4steps.json` | Qwen image edit 25.11, 4-step Lightning |
+| `wan-22-i2v-keyframe.sh` | *(no JSON yet)* | Wan 2.2 multi-keyframe I2V |
+
+> ⚠️ **The JSON filename is preserved as-is from the user** — even if it doesn't match kebab-case (e.g. `ltx23FFLFSeedHunter_v10.json`). Only the **script** uses canonical kebab-case.
+
+### 0.3 `workflow:` frontmatter ID
+
+Derive the frontmatter `workflow:` field from the JSON filename (NOT the script name). This is the stable machine tag the provisioning pipeline uses.
+
+```bash
+# ---
+# name: LTX 2.3 FFLF Seed Hunter
+# workflow: ltx23_FFLFSeedHunter_v10   ← matches the JSON filename
+# aliases: [ltx fflf, ltx 2.3 fflf, ltx23 fflf, ...]
+# description: ...
+# size: ~44.5GB
+# min_vram: 24GB
+# nodes: [ComfyUI-KJNodes, ComfyUI-LTXVideo, rgthree-comfy, ComfyUI-VideoHelperSuite, ComfyUI-Impact-Pack, cg-use-everywhere, ComfyUI-Easy-Use, ComfyUI-mxToolkit]
+# node_patches: [ComfyUI-LTXVideo/kornia-pad (kornia 0.8.x compat, idempotent)]
+# ---
+```
+
+The `nodes:` field is a hint for the agent generating the script — it lists all custom node packs the install section must cover. The `node_patches:` field is optional and lists any source patches the script applies (e.g. kornia compat).
+
+### 0.4 Storage locations
+
+| What | Where |
+|---|---|
+| Workflow JSONs (input) | `$REPO_ROOT/current-setup/comfyui-workflows/*.json` |
+| Download scripts (output) | `$REPO_ROOT/scripts/workflows/<kebab-case>.sh` |
+| Shared helper | `$REPO_ROOT/scripts/workflows/_hf_download.sh` |
+| This skill | `$REPO_ROOT/current-setup/skills/workflow-researcher/SKILL.md` |
+| Worked examples | `$REPO_ROOT/current-setup/skills/workflow-researcher/references/` |
+| Provisioning skill | `$REPO_ROOT/current-setup/skills/vast-ai/SKILL.md` |
+
+**Preserve the original JSON filename** — do not rename, slugify, or otherwise modify the name the user gave it. The internal `id` field inside the JSON (often a UUID) stays as-is.
+
+---
+
+## §1. Extract Models & Custom Nodes from Workflow JSON
+
+> ⚠️ **ComfyUI workflows have THREE possible node representations:**
+> 1. **Flat** — `nodes[]` array, each with `type` = class name.
+> 2. **`extra.prompt`** — Alternate path inside `extra.prompt` keyed by node_id. May describe a different rendering branch.
+> 3. **Subgraphs** — Top-level `nodes[]` may contain only UUID-typed "container" nodes; the real loaders live inside `definitions.subgraphs[].nodes[]`.
 >
-> **Also check the `mode` field** — nodes with `"mode": 4` are collapsed/disabled in the UI. **Exclude them from the model manifest** unless explicitly told to include alternate paths.
->
-> **extra.prompt alternate paths:** When `extra.prompt` contains a different rendering path (e.g., LTX multimodal with `CheckpointLoaderSimple` + `LTXVGemmaCLIPModelLoader` alongside a LTXV nodes-array path), treat them as separate rendering branches. Only include the models from the path you intend to run. If unsure, extract from both and deduplicate.
+> **Always check all three.** For subgraphs, recurse. The two FFLF and Director reference walkthroughs in `references/` show what each format looks like in practice.
 
-### 1.1 Identify Loader Nodes
+### 1.1 Detect the format
 
-Scan every node in the workflow JSON. Each node has a `class_type` and `inputs` object. The following loader types contain model references:
+Run these three checks **first** — they'll save you a lot of time:
 
-| `class_type` | Input Field | Model Type | ComfyUI Models Subdirectory |
+1. **Count top-level `nodes[]`.** If `<10` and any `type` is a UUID (e.g. `"739520a4-718f-490f-87d1-34ffbca98e3f"`), the workflow uses **subgraphs**.
+2. **Check `extra.prompt`.** If present and non-empty, it may describe a different rendering branch. Compare its `class_type` values against `nodes[]` — if they overlap, treat as same graph; if they diverge, ask the user which branch to model.
+3. **Grep every `properties.cnr_id`.** The distinct values map 1:1 to GitHub repos for the custom nodes (`comfyui-kjnodes` → `kijai/ComfyUI-KJNodes`, `whatdreamscost-comfyui` → `WhatDreamsCost/WhatDreamsCost-ComfyUI`, etc.). Don't rely on `class_type` alone — many packs use human-readable class names that look core-native.
+
+### 1.2 Walk the JSON (works for flat, subgraphs, and `extra.prompt`)
+
+```python
+# Recursive walk — finds loaders anywhere in the tree
+def walk(obj, results):
+    if isinstance(obj, dict):
+        if obj.get("type") in LOADER_TYPES and isinstance(obj.get("inputs"), list):
+            results.append(obj)
+        for v in obj.values():
+            walk(v, results)
+    elif isinstance(obj, list):
+        for v in obj:
+            walk(v, results)
+walk(data, loaders)  # finds loaders anywhere in the tree
+```
+
+For subgraph workflows, the walk hits loaders inside `definitions.subgraphs[*].nodes[]` automatically. For `extra.prompt`, the walk finds loaders there too. **One walk covers all three representations.**
+
+### 1.3 Loader node table
+
+Scan every node. Each node has a `class_type` (or `type`) and `inputs` object. Loaders contain model references:
+
+| `class_type` | Input Field | Model Type | ComfyUI Subdirectory |
 |---|---|---|---|
-| `UNETLoader` | `unet_name` | Diffusion Model | `diffusion_models/` or `unet/` |
-| `CLIPLoader` | `clip_name` | Text Encoder / CLIP | `text_encoders/` or `clip/` |
+| `UNETLoader` | `unet_name` | Diffusion Model | `diffusion_models/` |
+| `CLIPLoader` | `clip_name` | Text Encoder / CLIP | `text_encoders/` |
 | `VAELoader` | `vae_name` | VAE | `vae/` |
 | `LoraLoader` | `lora_name` | LoRA | `loras/` |
 | `LoraLoaderModelOnly` | `lora_name` | LoRA | `loras/` |
@@ -41,41 +159,86 @@ Scan every node in the workflow JSON. Each node has a `class_type` and `inputs` 
 | `CheckpointLoaderSimple` | `ckpt_name` | Checkpoint (all-in-one) | `checkpoints/` |
 | `DiffusionModelLoader` | `unet_name` | Diffusion Model | `diffusion_models/` |
 | `DualCLIPLoader` | `clip_name1`, `clip_name2` | Text Encoders | `text_encoders/` |
-| `TripleCLIPLoader` | `clip_name1`, `clip_name2`, `clip_name3` | Text Encoders | `text_encoders/` |
+| `TripleCLIPLoader` | `clip_name1/2/3` | Text Encoders | `text_encoders/` |
 | `ControlNetLoader` | `control_net_name` | ControlNet | `controlnet/` |
 | `StyleModelLoader` | `style_model_name` | Style/IP-Adapter | `style_models/` |
 | `CLIPVisionLoader` | `clip_name` | CLIP Vision | `clip_vision/` |
 | `UpscaleModelLoader` | `model_name` | Upscale Model | `upscale_models/` |
 | `ImageOnlyCheckpointLoader` | `ckpt_name` | SVD/Image Checkpoint | `checkpoints/` |
 | `UnetLoaderGGUF` | `unet_name` | Diffusion Model (GGUF) | `unet/` |
-| `DualCLIPLoaderGGUF` | `clip_name1`, `clip_name2` | Text Encoders (GGUF) | `text_encoders/` |
-| `VAELoaderKJ` | `vae_name` | VAE | `vae/` |
-| `LTXVAudioVAELoader` | `ckpt_name` | Audio VAE / Vocoder | `vae/` or `checkpoints/` |
+| `DualCLIPLoaderGGUF` | `clip_name1/2` | Text Encoders (GGUF) | `text_encoders/` |
+| `VAELoaderKJ` | `vae_name` | VAE (KJNodes variant) | `vae/` |
+| `LatentUpscaleModelLoader` | `model_name` | Latent Upscaler | `latent_upscale_models/` |
+| `LTXVAudioVAELoader` | `ckpt_name` | Audio VAE / Vocoder | `vae/` |
 | `LTXVGemmaCLIPModelLoader` | `gemma_path`, `ltxv_path` | Gemma CLIP + Vocoder | `text_encoders/` |
+| `Power Lora Loader (rgthree)` | **nested dict in `widgets_values`** (see §1.5) | LoRA | `loras/` |
 
-### 1.2 Extract Unique Model Filenames
+### 1.4 Extract the filename — `widgets_values[0]` is the model name
 
-> ⚠️ **Most ComfyUI loaders store filenames in `widgets_values`, NOT `inputs`.**
-> When a loader node has `inputs: []` (empty), the model filename is almost always in `widgets_values[0]`.
-> This applies to: `VAELoaderKJ`, `DualCLIPLoader`, `UNETLoader`, `LoraLoaderModelOnly`, `LTXVAudioVAELoader`, and most KJNodes loaders.
->
-> **Rule:** If `inputs` is empty or contains only link references (e.g. `[[node_id, output_idx]]`), look in `widgets_values[0]`.
-
-**Extraction logic:**
+> ⚠️ **Most ComfyUI loaders store filenames in `widgets_values`, NOT `inputs`.** When `inputs` is empty or contains only link references (`[[node_id, output_idx]]`), the model filename is in `widgets_values[0]`. This applies to: `VAELoaderKJ`, `DualCLIPLoader`, `UNETLoader`, `LoraLoaderModelOnly`, `LTXVAudioVAELoader`, and most KJNodes loaders.
 
 ```python
-# For nodes where inputs[model_field] is a string → use it directly
-# For nodes where inputs is [] or only contains links → use widgets_values[0]
 wv = node.get("widgets_values", [])
 if isinstance(wv, list) and len(wv) > 0:
     model_filename = wv[0]  # model name is always first
 ```
 
-**Deduplicate** — many workflows reuse the same model across multiple nodes (e.g., a shared VAE used by 10 scenes).
+For `DualCLIPLoader`, the second text encoder is in `widgets_values[1]` (not in `inputs`).
 
-### 1.3 Output a Model Manifest
+**Deduplicate** — many workflows reuse the same model across multiple nodes (e.g. a shared VAE used by 10 scenes).
 
-Present the extracted models as a clear table:
+### 1.5 Power Lora Loader (rgthree) widget format — exception
+
+`Power Lora Loader (rgthree)` stores its LoRAs inside a **list of dicts** in `widgets_values`, NOT a flat list of filenames:
+
+```json
+{
+  "widgets_values": [
+    {},
+    {"type": "PowerLoraLoaderHeaderWidget"},
+    {"on": true, "lora": "LTX2\\LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors", "strength": 2.0, "strengthTwo": null},
+    {},
+    ""
+  ]
+}
+```
+
+Extraction:
+
+```python
+for wv in node.get("widgets_values", []):
+    if isinstance(wv, dict) and wv.get("on") and wv.get("lora"):
+        lora_path = wv["lora"].split("\\")[-1]  # strip secondary-dir prefix
+        # lora_path is now the bare filename, ready for HF lookup
+```
+
+The `\<dirname>` prefix is a "secondary directory" ComfyUI display quirk — it's NOT a real subdirectory. The actual HF file has no prefix. The `hf_download` helper saves the file as the bare basename under the target subdir, which is what the workflow widget expects.
+
+### 1.6 Disabled nodes — exclude by default
+
+Nodes with `"mode": 4` are collapsed/disabled in the UI. **Exclude them from the model manifest** unless explicitly told to include alternate paths.
+
+### 1.7 Custom node pack detection — don't rely on `class_type` alone
+
+> ⚠️ **Custom node detection by `class_type` is unreliable.** A `*KJ` suffix suggests KJNodes, but many other packs (rgthree, mxToolkit, WhatDreamsCost) use human-readable class names that look core-native. The `properties.cnr_id` field on every node is the authoritative source.
+
+| Pack | `cnr_id` value | Signature class_types (fallback) |
+|---|---|---|
+| `kijai/ComfyUI-KJNodes` | `comfyui-kjnodes` | `*KJ`, `LTX2SamplingPreviewOverride`, `PatchSageAttentionKJ` |
+| `Lightricks/ComfyUI-LTXVideo` | `comfyui-ltxvideo` (or no `cnr_id` for core LTX nodes) | `LTXV*` (AddGuide, Conditioning, ConcatAVLatent, etc.) |
+| `WhatDreamsCost/WhatDreamsCost-ComfyUI` | `whatdreamscost-comfyui` | `LTXDirector`, `LTXDirectorGuide`, `LTXSequencer`, `LTXKeyframer` |
+| `rgthree/rgthree-comfy` | `rgthree-comfy` | `Any Switch (rgthree)`, `Fast Groups Bypasser (rgthree)`, `Power Lora Loader (rgthree)` |
+| `chrisgoringe/cg-use-everywhere` | `cg-use-everywhere` | `Anything Everywhere` |
+| `yolain/ComfyUI-Easy-Use` | `comfyui-easy-use` | `easy seed`, `easy showLoaderSettingsNames` |
+| `Smirnov75/ComfyUI-mxToolkit` | `comfyui-mxtoolkit` | `mxSlider`, `mxSeed`, `mxReroute` |
+| `Kosinkadink/ComfyUI-VideoHelperSuite` | `comfyui-videohelpersuite` | `VHS_*` |
+| `ltdrdata/ComfyUI-Impact-Pack` | `comfyui-impact-pack` | `ImpactSwitch`, `SAMLoader`, `UltralyticsDetectorProvider` |
+
+`MarkdownNote` / FAQ nodes often include "Where do I download these models??" sections from the workflow author — read these for source-repo hints and one-off variants that aren't obvious from filenames alone.
+
+### 1.8 Output — model manifest + node manifest
+
+Present as a table:
 
 ```
 Model Filename                                              | Type           | Loader Node
@@ -84,129 +247,77 @@ qwen_image_edit_2509_fp8_e4m3fn.safetensors                 | Diffusion      | U
 qwen_2.5_vl_7b_fp8_scaled.safetensors                      | Text Encoder   | CLIPLoader
 qwen_image_vae.safetensors                                  | VAE            | VAELoader
 Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors| LoRA           | LoraLoaderModelOnly
+
+Custom node packs required: 3
+  - kijai/ComfyUI-KJNodes
+  - Lightricks/ComfyUI-LTXVideo
+  - rgthree/rgthree-comfy
 ```
-
-### 1.4 Detect Custom Nodes (Optional)
-
-Some workflows use non-standard `class_type` values that require custom ComfyUI nodes. Common patterns:
-- `FluxKontextImageScale` → may need a Flux-related custom node
-- `TextEncodeQwenImageEditPlus` → Qwen-specific node
-- `CFGNorm`, `ModelSamplingAuraFlow` → specialized sampling nodes
-
-If custom nodes are detected, note them in the output but **do not block** — model download scripts don't need to install nodes (that's a separate concern, though some scripts like `ltx2-keyframing.sh` do include node installation).
 
 ---
 
-## Phase 2: Research HuggingFace URLs
+## §2. Research HuggingFace URLs
 
-### ⚠️ Safety Rules
+### 2.1 Safety rules
 
 1. **NEVER** run `hf download` without `--dry-run`
 2. **NEVER** use `--local-dir` or `--cache-dir` — those actually download
-3. Always verify URLs resolve before adding to the script
-4. Prefer `Comfy-Org` repos when available — they contain pre-split, ComfyUI-ready model files
+3. Always verify URLs resolve before adding to the script (`curl -sI` HEAD request)
+4. Prefer `Comfy-Org/*` repos when available — pre-split, ComfyUI-ready
 
-### 2.1 Search for Model Repos
+### 2.2 Search for model repos
 
-For each model filename, search HuggingFace to find the repository that hosts it:
+For each filename, find the repo that hosts it:
 
 ```bash
 hf models ls --search "<model keywords>" --limit 10
 ```
 
-**Search strategy by model name:**
+**Search strategy:**
 - Strip file extension (`.safetensors`, `.ckpt`, `.bin`)
 - Strip quantization suffixes (`_fp8`, `_fp8_e4m3fn`, `_bf16`, `_fp4_mixed`)
 - Use the core model name as search terms
-- Also try the creator/org name if it's embedded in the filename
 
-**Example:** For `qwen_image_edit_2509_fp8_e4m3fn.safetensors`:
-```bash
-hf models ls --search "qwen image edit" --limit 10
-hf models ls --search "qwen image edit comfyui" --limit 5
-```
+**Priority order:**
+1. `Comfy-Org/*` repos (pre-split, most reliable)
+2. Official model author repos (`Qwen/*`, `Lightricks/*`, `Kijai/*`)
+3. Community repos (`Kijai/*`, `GitMylo/*`)
 
-**Prioritize repos in this order:**
-1. `Comfy-Org/*` repos (pre-split for ComfyUI, most reliable)
-2. Official model author repos (e.g., `Qwen/*`, `Lightricks/*`)
-3. Community repos (e.g., `Kijai/*` — good for optimized variants)
+> ⚠️ **`hf models ls --search` searches repo IDs/names, not filenames inside repos.** If a search returns nothing useful, skip the search and go directly to the most likely repo + `hf download <repo> --dry-run` to see the file listing.
 
-### 2.2 Get Model Info & List Files
-
-Once you find a candidate repo, get its details:
+### 2.3 Inspect a repo (without downloading)
 
 ```bash
 # Quick info
 hf models info <org>/<repo>
 
-# List all files (siblings = file listing)
+# List ALL files in a repo with sizes — USE THIS to explore what a repo contains
+hf download <org>/<repo> --dry-run
+
+# Filter dry-run to a specific file
+hf download <org>/<repo> --dry-run | grep "filename_you_want"
+
+# Siblings (file listing only)
 hf models info <org>/<repo> --expand siblings
 ```
 
-### 2.3 Dry-Run to See Files + Sizes
+### 2.4 Construct the exact URL
 
-**This is the safest way to see all files and their sizes without downloading:**
+**Manual URL pattern (preferred):**
 
-```bash
-hf download <org>/<repo> --dry-run
-```
-
-Example output:
-```
-[dry-run] Will download 16 files (out of 16) totalling 247.2G.
-File                                                                     Bytes to download
------------------------------------------------------------------------- -----------------
-split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors 20.4G
-split_files/loras/Qwen-Image-Edit-2509-Anything2RealAlpha.safetensors    609.6M
-...
-```
-
-**To check a specific file:**
-```bash
-hf download <org>/<repo> <path/to/file> --dry-run
-```
-
-### 2.5 LTX Repo Naming Gotcha
-
-**`Comfy-Org/ltx-2.3` vs `Comfy-Org/ltx-2`:**
-- `Comfy-Org/ltx-2.3` does NOT contain gemma text encoders. They are in **`Comfy-Org/ltx-2`** (the v2 repo), not v2.3.
-- In `Comfy-Org/ltx-2`, gemma files live under **`split_files/text_encoders/`** prefix (e.g. `split_files/text_encoders/gemma_3_12B_it.safetensors`), not `text_encoders/`.
-- Always verify with `curl -sI` HEAD request — 302 = valid redirect, 404 = wrong repo/path.
-
-**Gemma CLIP Search Tip:**
-`hf models ls --search` often returns no useful results for gemma text encoders because the repo naming doesn't match obvious keywords. **If a gemma search fails, skip the search and go directly to `Comfy-Org/ltx-2`** — it is the known home for all LTX gemma text encoders regardless of model version.
-
-**`Kijai/LTX2.3_comfy` vs `Lightricks/LTX-2.3`:**
-- `Kijai/LTX2.3_comfy` has VAEs, diffusion models, text projections, and someLORAs — all with ComfyUI-friendly paths (e.g. `vae/`, `diffusion_models/`).
-- **LoRA variants differ between repos.** `Kijai/LTX2.3_comfy` has dynamic fro9 rank variants. The official Lightricks repo (`Lightricks/LTX-2.3`) has different LoRA versions (e.g. `ltx-2.3-22b-distilled-lora-384-1.1.safetensors`). If a workflow's LoRA filename isn't in Kijai's repo, search `Lightricks/LTX-2.3` directly with `hf download Lightricks/LTX-2.3 --dry-run | grep lora`.
-- `Kijai/LTX2.3_comfy` does NOT have gemma text encoders — those always come from `Comfy-Org/ltx-2`.
-
-### 2.6 Extract the Exact Download URL
-
-**Method 1 — Manual URL pattern (preferred, no debug needed):**
-
-HuggingFace uses a deterministic URL pattern:
 ```
 https://huggingface.co/{org}/{repo}/resolve/main/{filepath}
 ```
 
-Where `{filepath}` is the `rfilename` from siblings or the path shown in dry-run.
+Where `{filepath}` is the `rfilename` from siblings or the path shown in dry-run. Example: `split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors`.
 
-**Examples:**
-```
-https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors
-https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
-https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors
-```
+**Debug mode (use with `--dry-run` for safety):**
 
-**Method 2 — Debug mode (shows full URL in output, use for verification):**
 ```bash
 HF_DEBUG=1 hf download <org>/<repo> <filepath> --dry-run 2>&1 | grep "https://"
 ```
 
-### 2.7 Verify Each URL
-
-Before adding a URL to the script, verify it resolves (HEAD request, no download):
+### 2.5 Verify each URL (no download)
 
 ```bash
 curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/resolve/main/<filepath>"
@@ -216,411 +327,389 @@ curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/res
 - `404` = ❌ wrong path/repo
 - `401` = 🔒 gated model (needs auth token)
 
+### 2.6 LTX / gemma gotchas (high-frequency)
+
+These are the most common traps. Read once, avoid 30 minutes of debugging.
+
+**`Comfy-Org/ltx-2.3` vs `Comfy-Org/ltx-2`:**
+- `Comfy-Org/ltx-2.3` does NOT contain gemma text encoders.
+- They are in **`Comfy-Org/ltx-2`** (the v2 repo).
+- In `Comfy-Org/ltx-2`, gemma files live under **`split_files/text_encoders/`** prefix (e.g. `split_files/text_encoders/gemma_3_12B_it.safetensors`).
+
+**`Kijai/LTX2.3_comfy` vs `Lightricks/LTX-2.3`:**
+- `Kijai/LTX2.3_comfy` has VAEs, diffusion models, text projections, and some LoRAs — all with ComfyUI-friendly paths (`vae/`, `diffusion_models/`).
+- LoRA variants differ. Kijai has dynamic fro9 rank variants; the official `Lightricks/LTX-2.3` has different LoRAs (e.g. `ltx-2.3-22b-distilled-lora-384-1.1.safetensors`). If a LoRA isn't in Kijai's repo, search `Lightricks/LTX-2.3` directly.
+- `Kijai/LTX2.3_comfy` does NOT have gemma text encoders — those come from `Comfy-Org/ltx-2` or community quantizations.
+
+**`Lightricks/LTX-2.3-fp8` is a SEPARATE repo from `Lightricks/LTX-2.3`:**
+- The LTX 2.3 FP8 transformer files (`ltx-2.3-22b-dev-fp8.safetensors`, `ltx-2.3-22b-distilled-fp8.safetensors`) live at `https://huggingface.co/Lightricks/LTX-2.3-fp8/...` — NOT in `Lightricks/LTX-2.3`.
+- The latter only has full bf16 checkpoints and Lightricks-named LoRAs.
+- When a widget references `ltx-2.3-22b-dev-fp8.safetensors` (no `transformer_only` suffix), it's expected to land in `checkpoints/` for use with `CheckpointLoaderSimple` — download from `Lightricks/LTX-2.3-fp8`.
+
+**`gemma_3_12B_it_fp8_e4m3fn.safetensors` is a COMMUNITY quantization, not in `Comfy-Org/ltx-2`:**
+- `Comfy-Org/ltx-2` only ships `gemma_3_12B_it.safetensors` (24.4G bf16), `gemma_3_12B_it_fp8_scaled.safetensors` (13.2G fp8 scaled), `gemma_3_12B_it_fp4_mixed.safetensors` (9.4G fp4 mixed).
+- The `fp8_e4m3fn` variant is a community build at `GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn` — file lives at the repo root (no `split_files/` prefix), ~13.2GB. Public, ungated.
+- This is the variant the LTX 2.3 FFLF Seed Hunter, LTX-2 text2vid, and most post-2026 LTX workflows use.
+
 ---
 
-## Phase 3: Generate the Workflow Script
+## §3. Generate the Workflow Script
 
-### 3.1 Script Template
+> ⚠️ **Output policy (Munees, 2026-06-08):** The download script is the **single self-contained entry point** that makes a ComfyUI instance ready to run the workflow. It must:
+> 1. Detect the platform (Vast.ai vs RunPod) for `BASE_DIR`
+> 2. Detect the ComfyUI Python interpreter (`/venv/main/bin/python3` on Vast, `venv/bin/python3` on RunPod, system as fallback)
+> 3. Install all required custom node packs (via `comfy-cli` with `git clone` fallback)
+> 4. Install pip deps for each pack **into ComfyUI's own Python** (not system Python)
+> 5. Apply any known patches (e.g. kornia-0.8.x compat for ComfyUI-LTXVideo) — idempotent
+> 6. Download all models sequentially via `hf_download`
+> 7. **Restart ComfyUI at the end** via `supervisorctl` (Vast) with manual fallback (RunPod)
+>
+> The older guidance ("scripts only download models, the bootstrap installs nodes") is **deprecated**. Don't generate model-only scripts anymore.
 
-Every script in `$REPO_ROOT/scripts/workflows/` MUST follow this exact pattern:
+### 3.1 Canonical script template
 
 ```bash
 #!/bin/bash
 # ---
 # name: <Human-Readable Workflow Name>
+# workflow: <matches JSON filename>
 # aliases: [<alias1>, <alias2>, <alias3>]
-# description: <One-line description of what models this downloads>
+# description: <One-line description of what models this downloads and which nodes it installs>
 # size: ~<estimated total download size>GB
 # min_vram: <minimum VRAM required>GB
+# nodes: [<pack1>, <pack2>, ...]                ← custom node packs the install section covers
+# node_patches: [<pack>/<patch-name> <desc>]    ← optional, source patches applied
 # ---
 set -e
 
-BASE_DIR="/workspace/ComfyUI/models"
+# ─── Platform-aware base directory detection (Vast.ai vs RunPod) ───
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
+  COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI/models"
+  COMFYUI_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI/models"
+  COMFYUI_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 
-echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{<comma-separated subdirectories needed>}
+CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
-# Load shared HF download helper
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
-  [ -f "$f" ] && source "$f" && break
+echo "==> Setting up ComfyUI nodes..."
+cd "$COMFYUI_DIR"
+
+# ─── ComfyUI Python detection ───
+COMFY_PYTHON=""
+COMFY_PIP=""
+if [ -f /venv/main/bin/python3 ]; then
+    COMFY_PYTHON="/venv/main/bin/python3"
+    COMFY_PIP="/venv/main/bin/pip"
+elif [ -f venv/bin/activate ]; then
+    source venv/bin/activate
+    COMFY_PYTHON="$(which python3)"
+    COMFY_PIP="$(which pip)"
+elif [ -f .venv-cu128/bin/activate ]; then
+    source .venv-cu128/bin/activate
+    COMFY_PYTHON="$(which python3)"
+    COMFY_PIP="$(which pip)"
+else
+    COMFY_PYTHON="$(which python3)"
+    COMFY_PIP="$(which pip)"
+fi
+echo "  Using ComfyUI Python: $COMFY_PYTHON"
+
+# ─── Custom node install (comfy-cli first, manual fallback) ───
+# List every pack the workflow requires here, derived from §1.7.
+if command -v comfy &> /dev/null; then
+    echo "  Using comfy-cli to install nodes..."
+    comfy node install https://github.com/<org>/<pack1>
+    comfy node install https://github.com/<org>/<pack2>
+    # ... one per pack
+else
+    echo "  comfy-cli not found, cloning node repositories manually..."
+    mkdir -p "$CUSTOM_NODES_DIR"
+    cd "$CUSTOM_NODES_DIR"
+    [ -d <pack1-dir> ]    || git clone https://github.com/<org>/<pack1>     || true
+    [ -d <pack2-dir> ]    || git clone https://github.com/<org>/<pack2>     || true
+    # ... one per pack
+    cd "$COMFYUI_DIR"
+fi
+
+# ─── Known-patch block (idempotent, document every patch) ───
+# Example: kornia 0.8.x dropped the `pad` re-export required by ComfyUI-LTXVideo.
+# See: https://github.com/Lightricks/ComfyUI-LTXVideo/issues/505
+# This block must be idempotent — re-running on an already-patched file is a no-op.
+PATCH_FILE="$CUSTOM_NODES_DIR/<pack>/<file.py>"
+if [ -f "$PATCH_FILE" ] && grep -q "<marker-for-original-import>" "$PATCH_FILE"; then
+    if grep -q "<marker-for-patched-state>" "$PATCH_FILE"; then
+        echo "  <pack> patch already applied"
+    else
+        echo "  Patching <pack> <file.py>..."
+        sed -i 's|<original>|<patched>|' "$PATCH_FILE"
+    fi
+fi
+
+# ─── Pip deps for each pack into ComfyUI's Python ───
+echo "==> Installing node dependencies..."
+for repo in <pack1-dir> <pack2-dir> ...; do
+    REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
+    if [ -f "$REQ" ]; then
+        echo "  Installing $repo deps..."
+        $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -3 || true
+    fi
 done
 
+# ─── Model directory creation ───
+echo "==> Creating directories..."
+mkdir -p "$BASE_DIR"/{<subdir1>,<subdir2>,...}   # only dirs that are actually used
+
+# ─── Load shared HF download helper (auto-fetch if missing) ───
+# All workflow scripts self-fetch _hf_download.sh from GitHub if not present locally.
+# The Vast.ai ComfyUI image does not bundle it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_HF_HELPER=""
+for f in "$SCRIPT_DIR/_hf_download.sh" "/workspace/_hf_download.sh" "/tmp/_hf_download.sh"; do
+  [ -f "$f" ] && _HF_HELPER="$f" && break
+done
+if [ -z "$_HF_HELPER" ]; then
+  echo "  Fetching _hf_download.sh from GitHub..."
+  GITHUB_BASE="https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows"
+  _HF_HELPER="/tmp/_hf_download.sh"
+  if ! curl -sSL --fail "$GITHUB_BASE/_hf_download.sh" -o "$_HF_HELPER" 2>/dev/null; then
+    curl -sSL --fail "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/_hf_download.sh" -o "$_HF_HELPER" \
+      || { echo "❌ FATAL: could not download _hf_download.sh"; exit 1; }
+  fi
+  chmod +x "$_HF_HELPER"
+fi
+source "$_HF_HELPER"
+unset _HF_HELPER
+
+# ─── Downloads ───
 echo "==> Starting downloads..."
 
 # <Model Type Comment>
 echo "[1/N] <Model Name>..."
-hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdirectory>"
+hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"
 
-# ... more downloads ...
+# ... one per model ...
 
 echo "==> All downloads completed!"
 
+# ─── Restart ComfyUI so new nodes + models are picked up ───
+echo "==> Restarting ComfyUI..."
+if command -v supervisorctl &> /dev/null; then
+    supervisorctl restart comfyui 2>/dev/null \
+        && echo "✅ ComfyUI restarted via supervisorctl" \
+        || echo "⚠️  supervisorctl failed — restart ComfyUI manually"
+elif [ -f /etc/supervisor/supervisord.conf ]; then
+    supervisord -c /etc/supervisor/supervisord.conf 2>/dev/null \
+        && echo "✅ ComfyUI supervisor started" \
+        || echo "⚠️  supervisord failed — restart ComfyUI manually"
+else
+    echo "⚠️  No supervisor found — restart ComfyUI manually"
+    echo "    Run: cd $COMFYUI_DIR && $COMFY_PYTHON main.py --listen 0.0.0.0 --port 8188 &"
+fi
+
 echo "==> Done!"
-echo "👉 Restart ComfyUI or click Refresh in the UI."
+echo "👉 ComfyUI should now be loading the new nodes and models."
 ```
 
-### 3.2 Template Rules
+### 3.2 Template rules
 
-1. **Frontmatter is REQUIRED** — The provisioning system uses it for discovery via GitHub API
-2. **`aliases`** — Include the workflow name in various formats (lowercase, hyphenated, abbreviated)
-3. **`size`** — Sum all model file sizes from the dry-run output. Use `~` prefix for approximation
-4. **`min_vram`** — Usually `24GB` for most modern workflows (RTX 3090/4090)
-5. **`set -e`** — Script MUST exit on error
-6. **`BASE_DIR`** — Always `/workspace/ComfyUI/models`
-7. **`mkdir -p`** — Create all needed subdirectories in one command. Only include directories that are actually used
-8. **HF download helper** — Source `hf_download.sh` from script directory or `/workspace/`. Provides `hf_download REPO_ID FILEPATH LOCAL_DIR` function
-9. **Downloads** — Use `hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"` for each model
-   - First arg: HuggingFace repo ID (e.g., `Kijai/LTX2.3_comfy`)
-   - Second arg: File path within repo (e.g., `vae/LTX23_video_vae_bf16.safetensors`)
-   - Third arg: Local directory to save to
-   - Sequential downloads (hf_transfer is fast enough, no need for `&` + `wait`)
-10. **Comments** — Add a comment above each download indicating the model type
-11. **Progress** — Use `echo "[N/Total] Description..."` before each download
+1. **YAML frontmatter is REQUIRED** — `name`, `workflow:`, `aliases:`, `description:`, `size:`, `min_vram:`, `nodes:`, optional `node_patches:`.
+2. **`workflow:`** — matches the JSON filename, used as the stable machine ID.
+3. **`aliases:`** — kebab-case + space-separated variants (lowercase, hyphenated, abbreviated).
+4. **`size:`** — sum all model file sizes from dry-run, use `~` prefix.
+5. **`min_vram:`** — usually `24GB` for modern video workflows (RTX 3090/4090).
+6. **`nodes:`** — complete list of custom node packs the install section will clone. **No partial installs** — if the workflow uses nodes from 8 packs, list all 8.
+7. **`set -e`** — fail fast.
+8. **Platform-aware `BASE_DIR` block** — mandatory, see template.
+9. **ComfyUI Python detection** — `/venv/main/bin/python3` (Vast) > `venv/bin/python3` (RunPod slimmer) > `.venv-cu128/bin/activate` (RunPod CUDA 12.8) > system.
+10. **`mkdir -p`** — only include subdirs actually used.
+11. **HF download helper** — sources `_hf_download.sh` (underscore prefix). Self-fetches from GitHub if not present locally.
+12. **Downloads** — `hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"`. Sequential (hf_transfer is fast enough). Progress echoes `[N/Total]`.
+13. **Custom node install** — `comfy node install` first, manual `git clone` fallback to `custom_nodes/`. List **every** pack the workflow needs (see §1.7).
+14. **Pip deps** — install per-pack `requirements.txt` into **ComfyUI's Python** (`$COMFY_PIP`), not system Python.
+15. **Patch block** — idempotent. Document every patch with a comment + a marker grep so re-runs are no-ops. Reference the upstream issue.
+16. **ComfyUI restart** — `supervisorctl restart comfyui` (Vast) with manual fallback. **Mandatory** — without it, new nodes don't register until the next reboot.
 
-### 3.3 Directory Mapping
-
-Map the model type to the correct ComfyUI subdirectory:
+### 3.3 Directory mapping
 
 | Model Type | Directory |
 |---|---|
 | Checkpoint | `checkpoints/` |
-| Diffusion Model / UNET | `diffusion_models/` or `unet/` (check existing scripts) |
+| Diffusion Model / UNET | `diffusion_models/` (or `unet/` for older workflows) |
 | VAE | `vae/` |
 | Text Encoder / CLIP | `text_encoders/` |
 | LoRA | `loras/` |
 | ControlNet | `controlnet/` |
-| Upscale Model | `upscale_models/` or `latent_upscale_models/` |
+| Upscale Model | `upscale_models/` (or `latent_upscale_models/` for latent upscalers) |
 | Style Model | `style_models/` |
 | CLIP Vision | `clip_vision/` |
 
-> **Note:** ComfyUI has evolved its directory naming. Some older workflows use `unet/` while newer ones use `diffusion_models/`. Some use `checkpoints/` as an alias for diffusion models. Check the existing `$REPO_ROOT/scripts/workflows/` scripts for precedent.
+> ComfyUI directory naming has evolved. Some older workflows use `unet/` while newer ones use `diffusion_models/`. Some use `checkpoints/` as an alias for diffusion models. **Check the existing scripts in `$REPO_ROOT/scripts/workflows/` for precedent** when unsure.
 
-### 3.4 Filename Rules
+### 3.4 Filename rules
 
-The **output filename** (`-o` flag) MUST match exactly what the workflow JSON expects. This is the filename from the loader node's input field. Do NOT rename or modify it.
-
-### 3.5 Custom Nodes (If Applicable)
-
-If the workflow requires custom nodes (detected in Phase 1), add a section before downloads:
-
-```bash
-echo "==> Setting up ComfyUI nodes..."
-cd /workspace/ComfyUI
-if [ -f venv/bin/activate ]; then
-    source venv/bin/activate
-fi
-if command -v comfy &> /dev/null; then
-    comfy node install <node_repo_url>
-else
-    echo "comfy-cli not found, cloning node repository manually..."
-    cd custom_nodes
-    git clone <node_repo_url> || true
-    cd ..
-fi
-```
+The **output filename** must match exactly what the workflow JSON's loader node expects. The filename comes from the loader node's input field (or `widgets_values[0]`). Do NOT rename, lowercase, or modify it.
 
 ---
 
-## Phase 4: Validation
+## §4. Validation
 
-Before finalizing the script, verify:
+Before finalizing the script:
 
-### 4.1 Completeness Check
-- [ ] Every model from the Phase 1 manifest has a corresponding `aria2c` line
-- [ ] No extra models were added that aren't in the workflow
-- [ ] All directories referenced in `-d` flags are included in the `mkdir -p` line
+### 4.1 Completeness
+- [ ] Every model from §1.8 manifest has a corresponding `hf_download` line
+- [ ] No extra models added that aren't in the workflow
+- [ ] All directories referenced are included in the `mkdir -p` line
+- [ ] Every custom node pack from §1.8 is listed in the `nodes:` frontmatter AND cloned in the install section
 
-### 4.2 URL Check
-- [ ] Every URL follows the pattern `https://huggingface.co/{org}/{repo}/resolve/main/{filepath}`
-- [ ] Every URL was verified with a HEAD request (200 or 302)
+### 4.2 URL check
+- [ ] Every URL follows `https://huggingface.co/{org}/{repo}/resolve/main/{filepath}`
+- [ ] Every URL was verified with `curl -sI` (200 or 302)
 - [ ] No URLs point to gated models without noting auth requirements
 
-### 4.3 Filename Check
-- [ ] Every `-o` filename matches exactly what the workflow JSON expects
-- [ ] No filename modifications, renaming, or path changes
+### 4.3 Filename check
+- [ ] Every filename matches exactly what the workflow JSON expects
+- [ ] No filename modifications or path renames
+- [ ] For `DualCLIPLoader`, `widgets_values[0]` = clip_name1, `widgets_values[1]` = clip_name2
+- [ ] For `Power Lora Loader (rgthree)`, secondary-dir `\<dirname>` prefix is stripped before HF lookup
 
-### 4.4 Pattern Check
-- [ ] Script has the correct frontmatter block
-- [ ] Uses `set -e`
-- [ ] Uses `BASE_DIR="/workspace/ComfyUI/models"`
-- [ ] Sources `hf_download.sh` helper
+### 4.4 Pattern check
+- [ ] YAML frontmatter has all required fields
+- [ ] `set -e` present
+- [ ] Platform-aware `BASE_DIR` block present
+- [ ] ComfyUI Python detection block present
+- [ ] Custom node install covers **all** packs in `nodes:`
+- [ ] `_hf_download.sh` sourced (underscore prefix)
 - [ ] All downloads use `hf_download "<org>/<repo>" "<filepath>" "$BASE_DIR/<subdir>"`
-- [ ] Has progress echoes (`[N/Total] Description...`)
-- [ ] Ends with restart hint
+- [ ] Progress echoes `[N/Total]` present
+- [ ] ComfyUI restart at end (`supervisorctl` with fallback)
 
-### 4.5 Cross-Reference with Existing Scripts
+### 4.5 Cross-reference with existing scripts
 
-Check if any models are already downloaded by other workflow scripts. Document shared models:
 ```bash
 # Check for duplicate model filenames across existing scripts
 grep -r "hf_download" "$REPO_ROOT/scripts/workflows/" | grep -o '"[^"]*\.safetensors\|"[^"]*\.gguf"'
 ```
 
----
+Document any shared models so the next script author knows they can skip the download.
 
-## Phase 5: Commit & Push to Git
-
-After the script is written to `scripts/workflows/` and passes all Phase 4 validation checks, commit and push it so the provisioning pipeline can access it via raw GitHub URL.
-
-> The repository remote (`origin`) and SSH key for push access are already configured. No additional auth setup is needed.
-
-### 5.1 Stage, Commit, and Push
+### 4.6 Bash syntax check
 
 ```bash
-git add scripts/workflows/<script-name>.sh
-git commit -m "feat: add <workflow-name> workflow download script"
+bash -n "$REPO_ROOT/scripts/workflows/<new-script>.sh"
+```
+
+### 4.7 Worktree-isolation check (subgraph workflows)
+
+If the workflow uses subgraphs (§1.1 detection), **all** loaders must be inside the extracted manifest — not just the top-level `nodes[]`. Verify by counting: the union of all `type` values matching the loader table should equal the manifest size.
+
+---
+
+## §5. Commit & Push
+
+After the script passes all §4 validation checks, commit and push to `main`. The provisioning pipeline fetches scripts from `raw.githubusercontent.com`.
+
+### 5.1 Commit and push
+
+```bash
+cd $REPO_ROOT
+git add scripts/workflows/<new-script>.sh
+git commit -m "feat: add <workflow-name> workflow download + node install script"
 git push origin main
 ```
 
-### 5.2 Commit Message Convention
+### 5.2 Commit message convention
 
-Use this format:
-- **New script:** `feat: add <workflow-name> workflow download script`
+- **New script:** `feat: add <workflow-name> workflow download + node install script`
 - **Update existing:** `fix: update <model-name> URL in <script-name>`
 - **Multiple changes:** `feat: add <workflow-name> script and update <other-script>`
 
-### 5.3 Verify the Raw URL
+### 5.3 Verify the raw URL
 
-After pushing, the script is immediately available at:
-```
-https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<script-name>.sh
-```
-
-This is the URL used in the `WORKFLOW_SCRIPT` env var during provisioning. Verify it resolves:
 ```bash
-curl -sI -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<script-name>.sh"
+curl -sI -o /dev/null -w '%{http_code}' \
+  "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<script-name>.sh"
 ```
-- `200` = ✅ live and ready for provisioning
+
+`200` = ✅ live and ready for provisioning. This is the URL the provisioning pipeline uses in the `WORKFLOW_SCRIPT` env var.
 
 ---
 
-## Quick Reference: HF CLI Commands
+## §6. Reference Walkthroughs
 
-### Repo Discovery (finding which repo hosts a model)
+End-to-end worked examples for the two most common workflow shapes. Read these before generating a new script — they'll save you the discovery work.
+
+| Reference | Use when |
+|---|---|
+| [`references/ltx-23-director.md`](references/ltx-23-director.md) | Canonical pattern. LTX 2.3 with 3 custom node packs, subgraphs, `LoraLoaderModelOnly` with `\<dirname>` prefix, `cnr_id`-based pack detection. |
+| [`references/ltx-23-fflf-seed-hunter.md`](references/ltx-23-fflf-seed-hunter.md) | **All loaders inside a subgraph**, **Power Lora Loader (rgthree)** nested-dict widget, **7-pack custom node install** (`rgthree` + `Impact` + `VHS` + `mxSlider` etc. in addition to KJNodes/LTXVideo), `GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn` source. |
+
+---
+
+## §7. Quick Reference — HF CLI Commands
+
+### Repo discovery
 ```bash
-# Search repos by name/keywords — searches repo IDs, not file contents
 hf models ls --search "<keywords>" --limit 10
-
-# ⚠️ The command is `hf models ls` (NOT `hf models list`). The `list` subcommand does not exist.
+# ⚠️ The command is `hf models ls` (NOT `hf models list`). `list` does not exist.
 ```
 
-### Repo Inspection (once you know the repo)
+### Repo inspection
 ```bash
-# Get repo metadata
 hf models info <org>/<repo>
-
-# List ALL files in a repo with sizes — USE THIS to explore what a repo contains
 hf download <org>/<repo> --dry-run
-
-# Filter the dry-run output to find a specific file
 hf download <org>/<repo> --dry-run | grep "filename_you_want"
-
-# List only specific files/directories in a repo (siblings = file listing)
 hf models info <org>/<repo> --expand siblings
 ```
 
-### File Verification (getting the exact URL and checking it resolves)
+### File verification (no download)
 ```bash
-# Verify a URL resolves (HEAD request — no download)
-# 200 = direct hit, 302 = valid redirect (HF redirects to CDN), 404 = wrong path/repo
+# HEAD request — 200/302 = valid, 404 = wrong path, 401 = gated
 curl -sI -o /dev/null -w '%{http_code}' "https://huggingface.co/<org>/<repo>/resolve/main/<filepath>"
 
-# Dry-run for a specific file to see its size
+# Dry-run for a specific file
 hf download <org>/<repo> <filepath> --dry-run
 
-# Debug mode — shows the full resolved URL (SAFE with --dry-run)
+# Debug mode (SAFE with --dry-run)
 HF_DEBUG=1 hf download <org>/<repo> <filepath> --dry-run 2>&1 | grep "https://"
 ```
 
-### URL Pattern (manual — no CLI needed)
+### URL pattern
 ```
 https://huggingface.co/{org}/{repo}/resolve/main/{filepath}
 ```
-Where `{filepath}` is the `rfilename` from siblings or the path shown in dry-run output.
-
-### Common Pitfalls
-- **`hf models ls --search`** searches **repo IDs/names**, not filenames inside repos. If you can't find a model by searching, use `hf download <repo> --dry-run` directly on the likely repo.
-- **Comfy-Org LTX v2.3 vs v2:** `Comfy-Org/ltx-2.3` does NOT contain gemma text encoders. They are in **`Comfy-Org/ltx-2`** (the v2 repo). Always verify with `curl -sI`.
-- **Disabled nodes:** Nodes with `"mode": 4` in the JSON are collapsed/disabled. Exclude them unless instructed otherwise.
-- **extra.prompt section:** Some workflows store a completely different node graph in `extra.prompt`. This can describe alternate/active rendering paths with different models from the interactive `nodes[]` array. Always check both.
 
 ---
 
-## Example: Full Walkthrough
+## §8. Common Pitfalls — Cheat Sheet
 
-Given `$REPO_ROOT/current-setup/comfyui-workflows/qwen_img_story_10scenes.json`:
-
-### Step 1: Extract models
-| Filename | Type | Loader |
-|---|---|---|
-| `qwen_image_edit_2509_fp8_e4m3fn.safetensors` | UNET | `UNETLoader` |
-| `qwen_2.5_vl_7b_fp8_scaled.safetensors` | CLIP | `CLIPLoader` |
-| `qwen_image_vae.safetensors` | VAE | `VAELoader` |
-| `Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors` | LoRA | `LoraLoaderModelOnly` |
-
-### Step 2: Research URLs
-```bash
-hf models ls --search "qwen image edit comfyui" --limit 5
-# → Found: Comfy-Org/Qwen-Image-Edit_ComfyUI, Comfy-Org/Qwen-Image_ComfyUI
-
-hf download Comfy-Org/Qwen-Image-Edit_ComfyUI --dry-run
-# → split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors (20.4G)
-
-hf download Comfy-Org/Qwen-Image_ComfyUI --dry-run
-# → split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
-# → split_files/vae/qwen_image_vae.safetensors
-
-# LoRA is from a different repo:
-hf models ls --search "qwen image lightning" --limit 5
-# → lightx2v/Qwen-Image-Lightning
-```
-
-### Step 3: Result → `$REPO_ROOT/scripts/workflows/qwen-image-download.sh`
-
-The generated script uses `hf_download` for each model:
-```bash
-#!/bin/bash
-# ---
-# name: Qwen Image Edit
-# aliases: [qwen, qwen image, qwen image edit, qwen-image]
-# ...
-set -e
-BASE_DIR="/workspace/ComfyUI/models"
-mkdir -p "$BASE_DIR"/{vae,text_encoders,diffusion_models,loras}
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in "$SCRIPT_DIR/hf_download.sh" "/workspace/hf_download.sh"; do
-  [ -f "$f" ] && source "$f" && break
-done
-
-echo "[1/4] VAE..."
-hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/vae/qwen_image_vae.safetensors" "$BASE_DIR/vae"
-
-echo "[2/4] Text Encoder..."
-hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
-# ... etc
-```
+| Pitfall | Resolution |
+|---|---|
+| `hf models ls --search` returns nothing | It searches repo IDs, not filenames. Try `hf download <likely-repo> --dry-run` directly. |
+| `Comfy-Org/ltx-2.3` has no gemma | Try `Comfy-Org/ltx-2` (v2 repo) or `GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn` (community fp8_e4m3fn). |
+| `Lightricks/LTX-2.3-fp8` 404 | It's a SEPARATE repo from `Lightricks/LTX-2.3`. The latter only has bf16. |
+| `LoraLoaderModelOnly` filename has `ltx2\` prefix | Secondary-dir display quirk. Strip the prefix before HF lookup. |
+| `Power Lora Loader (rgthree)` uses dicts in `widgets_values` | See §1.5 — nested `{on, lora, strength}` schema. |
+| `mode: 4` nodes still in the manifest | Exclude them — they're disabled in the UI. |
+| Top-level `nodes[]` has <10 UUID-typed nodes | Workflow uses subgraphs. Recurse into `definitions.subgraphs[].nodes[]`. |
+| `cnr_id` is the right pack detection signal | Many packs use human-readable class names that look core-native. Always grep `properties.cnr_id`. |
+| Script installs nodes but ComfyUI doesn't see them | Missing restart. End the script with `supervisorctl restart comfyui`. |
+| `hf_download: command not found` (EXIT=127) | The shared `_hf_download.sh` helper isn't present. The auto-fetch block in §3.1 fixes this — make sure it's in the script. |
+| LTX-Video kornia import fails on Vast | Vast base image ships kornia 0.8.x, which dropped the `pad` re-export. Apply the kornia-pad patch in §3.1. |
 
 ---
 
 ## Base Path
 
 All paths in this skill reference the repo root:
+
 ```
 REPO_ROOT="/root/repos/auto-startups-vast"
 ```
-
-## Phase 0: Workflow File Naming & Storage Conventions
-
-> ⚠️ **Before doing anything else**, establish the workflow's identity. This determines all subsequent file naming.
-
-### 0.1 Workflow Identity
-
-Every workflow has three identifiers:
-
-| Field | Source | Example |
-|---|---|---|
-| **Workflow filename** | User's original file name — preserve exactly | `prompt_relay_ltx23_test_02.json` |
-| **Script name** | Derived from workflow filename — same base, `.sh` extension | `prompt_relay_ltx23_test_02.sh` |
-| **Internal ID** | Auto-generated from filename — used in frontmatter `workflow:` field | `prltx23_001` |
-
-### 0.2 Canonical Naming Convention
-
-All workflow JSON files and their paired download scripts **MUST** follow this format:
-
-```
-<model-family>-<version>-<variant>.json   ← ComfyUI workflow
-<model-family>-<version>-<variant>.sh     ← download script
-```
-
-**Rules:**
-
-| Rule | Detail | Example |
-|------|--------|---------|
-| All lowercase, hyphen-separated | No underscores, no dots, no spaces | `ltx-23-i2v-keyframe` |
-| Model family first | Short canonical name for the model family | `ltx`, `wan`, `qwen` |
-| Version next | No dots, no `v` prefix | `23` for 2.3, `22` for 2.2 |
-| Variant/mode last | Describes the workflow type | `i2v`, `t2v`, `keyframe`, `prompt-relay`, `image-edit` |
-| JSON and script share identical base name | Always | `ltx-23-i2v-keyframe.json` ↔ `ltx-23-i2v-keyframe.sh` |
-| Shared helper scripts prefixed with `_` | Not a workflow entry point | `_hf_download.sh` |
-
-**Current canonical names (reference):**
-
-| Script | JSON | Description |
-|--------|------|-------------|
-| `ltx-23-i2v-distilled.sh` | `ltx-23-i2v-distilled.json` | LTX 2.3 distilled FP8 I2V |
-| `ltx-23-i2v-keyframe.sh` | `ltx-23-i2v-keyframe.json` | LTX 2.3 first/last-frame keyframing |
-| `ltx-23-prompt-relay.sh` | `ltx-23-prompt-relay.json` | LTX 2.3 PromptRelay multi-segment |
-| `qwen-image-edit.sh` | `qwen-image-edit.json` | Qwen image editing |
-| `wan-22-i2v-keyframe.sh` | *(no JSON yet)* | Wan 2.2 multi-keyframe I2V |
-
-**Do NOT** use the old convention of mirroring the raw JSON filename into the script name (e.g., `prompt_relay_ltx23_test_02.sh`). Always derive the canonical kebab-case name from the model family + version + variant.
-
-### 0.3 Unique ID Convention
-
-When the repo scales to many workflows, frontmatter needs a unique `workflow:` tag for machine-readable identification. Derive it systematically from the filename:
-
-```
-# Format: <prefix>_<seq>
-# - Strip path separators and extensions
-# - Use first 3-4 letters of each meaningful word as prefix
-# - Sequence number padded to 3 digits, starting at 001
-
-prompt_relay_ltx23_test_02.json  →  prltx23_001
-ltx-2.3_t2v_i2v_single_stage    →  ltx23_001
-qwen_img_story_10scenes          →  qwen_001
-```
-
-If a workflow with the same base name already exists (e.g., `prompt_relay_ltx23_test_01.json` and `prompt_relay_ltx23_test_02.json`), increment the sequence: `_002`, `_003`, etc.
-
-### 0.4 Frontmatter Workflow ID
-
-Add a `workflow:` field to every script frontmatter:
-
-```bash
-# ---
-# name: LTX 2.3 Prompt Relay (prompt_relay_ltx23_test_02)
-# workflow: prltx23_002
-# aliases: [...]
-# description: Download LTX 2.3 models for prompt_relay_ltx23_test_02 workflow
-# size: ~61.4GB
-# min_vram: 24GB
-# ---
-```
-
-The `workflow:` field must match the filename of the corresponding JSON in `current-setup/comfyui-workflows/`.
-
-### 0.5 Workflow JSON Storage
-
-Store the original workflow JSON exactly as provided:
-
-```
-$REPO_ROOT/current-setup/comfyui-workflows/
-  └── <original_filename>.json   # e.g. prompt_relay_ltx23_test_02.json
-```
-
-- **Preserve the original filename** — do not rename, slugify, or otherwise modify the name the user gave it.
-- **One workflow JSON per file.**
-- If the user provides a file in a thread or chat (not a file path), save it to this directory using the name from `document` metadata or the name provided in the message.
-- The `id` field inside the JSON may be a UUID. Keep it as-is — do not regenerate or alter it.
-
----
-
-## File Locations
-
-| What | Where |
-|---|---|
-| Workflow JSONs (input) | `$REPO_ROOT/current-setup/comfyui-workflows/*.json` |
-| Download scripts (output) | `$REPO_ROOT/scripts/workflows/<workflow_base_name>.sh` |
-| This skill | `$REPO_ROOT/current-setup/skills/workflow-researcher/SKILL.md` |
-| Provisioning skill | `$REPO_ROOT/current-setup/skills/vast-ai/SKILL.md` |
-| Bootstrap script | `$REPO_ROOT/scripts/comfyui-bootstrap.sh` |
-
-### Quick Reference: Unique ID Derivation
-
-| Workflow Filename | Script Name | `workflow:` ID |
-|---|---|---|
-| `prompt_relay_ltx23_test_02.json` | `prompt_relay_ltx23_test_02.sh` | `prltx23_002` |
-| `ltx-2.3_t2v_i2v_single_stage.json` | `ltx-2.3_t2v_i2v_single_stage.sh` | `ltx23_001` |
-| `qwen_img_story_10scenes.json` | `qwen_img_story_10scenes.sh` | `qwen_001` |
