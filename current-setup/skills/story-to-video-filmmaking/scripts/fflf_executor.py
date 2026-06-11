@@ -234,15 +234,20 @@ def queue_and_wait_video(workflow, base_url, target_dir, auth=None):
         video_items = out.get("gifs", []) + out.get("videos", []) + out.get("images", [])
         for item in video_items:
             filename = item["filename"]
+            subfolder = item.get("subfolder", "")
+            # Bug 5 fix: skip Stage 1 preview outputs (subfolder="temp" or type="temp").
+            # The real final video from node 5033 lives at subfolder="video" type="output".
+            if item.get("type") == "temp" or subfolder == "temp":
+                continue
             base_fname = os.path.basename(filename)
             out_path = os.path.join(target_dir, base_fname)
-            print(f"   📥 Downloading {base_fname}...")
-            if download_output(filename, out_path, base_url, item.get("subfolder", ""), auth=auth, is_video=True):
+            print(f"   📥 Downloading {base_fname} (subfolder={subfolder!r})...")
+            if download_output(filename, out_path, base_url, subfolder, auth=auth, is_video=True):
                 size = os.path.getsize(out_path)
                 print(f"   ✅ Saved final video: {out_path} ({size/1024/1024:.2f} MB)")
                 return out_path
-                
-    print("   ⚠️ No video file found in final execution outputs")
+
+    print("   ⚠️ No video file found in final execution outputs (subfolder=video, type=output)")
     return None
 
 

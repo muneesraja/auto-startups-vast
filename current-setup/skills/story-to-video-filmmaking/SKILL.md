@@ -78,6 +78,48 @@ story-to-video-filmmaking/
 │   └── filmmaking_prompt.json
 ```
 
+## Per-Story Filename Prefixing (Critical, 2026-06-11)
+
+**Problem:** ComfyUI's input folder is shared across all stories. If two
+stories both use `film_001_shot001_ff.png`, the second story's `LoadImage`
+node will pick up the first story's ghost file as its structural anchor,
+corrupting the new story's generation. This happened with tiny-bee: cherry
+ghost files (Pip the cherry) showed up in Barnaby the bee's video output.
+
+**Solution:** Every filename in the `filmmaking_prompt.json` schema is prefixed
+with the story slug:
+
+| Field | Pattern | Example |
+|---|---|---|
+| `filename_prefix` | `{slug}_film_{scene}_{shot}` | `tinybee_film_001_shot001` |
+| `first_frame_image` | `{slug}_film_*.png` | `tinybee_film_001_shot001_ff.png` |
+| `last_frame_image` | `{slug}_film_*.png` | `tinybee_film_001_shot001_lf.png` |
+| `references[]` | `{slug}_{char}_reference_sheet.png` | `tinybee_barnaby_reference_sheet.png` |
+| `lf_references[]` | `{slug}_{char}_reference_sheet.png` | `tinybee_barnaby_reference_sheet.png` |
+| `continues_from` | `{slug}_film_*.png` | `tinybee_film_001_shot001` |
+
+**Local character sheets are renamed to match the schema:**
+```bash
+cd {story_dir}/characters
+mv barnaby_reference_sheet.png tinybee_barnaby_reference_sheet.png
+```
+
+And re-uploaded to ComfyUI:
+```bash
+curl -X POST "$COMFY_URL/upload/image" \
+  -F "image=@tinybee_barnaby_reference_sheet.png" \
+  -F "subfolder=" -F "type=input" -F "overwrite=true"
+```
+
+After prefixing, cross-story contamination is impossible because the LoadImage
+dropdown only matches by exact filename.
+
+**Cleanup of old ghost files:** ComfyUI has no built-in delete API. Old files
+from previous stories stay in the input folder but are harmlessly ignored.
+If you need to manually clean them, ssh into the VPS and run
+`rm /workspace/ComfyUI/input/{prefix}_*.png` (we don't have shell access
+to the VPS from the orchestrator).
+
 ---
 
 ## Pipeline Phases & Instructions

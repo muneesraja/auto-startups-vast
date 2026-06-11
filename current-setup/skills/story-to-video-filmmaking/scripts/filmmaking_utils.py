@@ -37,21 +37,48 @@ def load_filmmaking_prompts(prompts_path):
     return data
 
 
-def upload_image_if_needed(local_path, base_url, available_images, auth=None):
-    """Uploads local image to ComfyUI input folder if not present."""
+def upload_image_if_needed(local_path, base_url, available_images, auth=None,
+                            comfyui_filename=None):
+    """Uploads local image to ComfyUI input folder with optional server-name override.
+
+    The default behavior is "skip if same-name already exists on server" (cheap,
+    no-op fast path). The orchestrator's story-prefixing pattern means
+    cross-story collisions are prevented at the schema level (see tiny-bee
+    lesson 2026-06-11), so we don't need to overwrite by default.
+
+    Args:
+        local_path: Path to the local image file
+        base_url: ComfyUI base URL
+        available_images: Set of images already on ComfyUI input server
+        auth: Optional Basic Auth tuple
+        comfyui_filename: Optional override for the server filename. If None,
+            uses basename(local_path). When set, the file is uploaded with this
+            name (using overwrite=true at the endpoint) regardless of whether
+            it already exists on the server. This is the per-story prefix
+            mechanism that prevents cross-story filename collisions.
+
+    Returns:
+        Server filename on success, None on failure.
+    """
     if not local_path or not os.path.exists(local_path):
         return None
-    server_filename = os.path.basename(local_path)
-    if server_filename not in available_images:
-        print(f"   📤 Uploading to ComfyUI: {server_filename}")
-        upload_result = upload_image(local_path, base_url, auth=auth)
-        if not upload_result or "name" not in upload_result:
-            print(f"   ❌ Failed to upload image: {local_path}")
-            return None
-        server_name = upload_result["name"]
-        print(f"   ✅ Uploaded successfully as '{server_name}'")
-        available_images.add(server_name)
-        return server_name
-    else:
+    server_filename = comfyui_filename or os.path.basename(local_path)
+
+    if comfyui_filename is None and server_filename in available_images:
+        # Fast path: same name already on server, skip upload.
         print(f"   📷 Image already exists on server: {server_filename}")
         return server_filename
+
+    print(f"   📤 Uploading to ComfyUI as: {server_filename}")
+    upload_result = upload_image(
+        local_path, base_url, auth=auth,
+        subfolder="",
+        image_type="input",
+    )
+    if not upload_result or "name" not in upload_result:
+        print(f"   ❌ Failed to upload image: {local_path}")
+        return None
+    server_name = upload_result["name"]
+    print(f"   ✅ Uploaded: {server_name} (local={os.path.basename(local_path)})")
+    available_images.add(server_name)
+    return server_name

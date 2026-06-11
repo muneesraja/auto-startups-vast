@@ -188,3 +188,69 @@ Per-shot videos land on ComfyUI at:
 
 The executor's `queue_and_wait_video` mistakenly grabs the temp file. Always
 verify file size > 1MB after download.
+
+**Script fix applied (2026-06-11, tiny-bee run):** Patched
+`scripts/fflf_executor.py::queue_and_wait_video` to filter out temp-directory
+outputs. Now skips items where `type=="temp"` or `subfolder=="temp"`, and
+downloads the real final from node 5033 (subfolder=`video`, type=`output`).
+No more 0-byte false positives.
+
+```python
+# In queue_and_wait_video, before each download:
+if item.get("type") == "temp" or item.get("subfolder", "") == "temp":
+    continue
+```
+
+---
+
+## Character Drift Across Iterations — `lf_references` Lesson (2026-06-11)
+
+**Symptom:** Shot 1 chain_start produced:
+- FF (with `barnaby_reference_sheet.png` as ref): correct chibi Barnaby ✓
+- LF (with FF as the only "anchor", `lf_references=[]`): drifted to a
+  classic cartoon bee with **brown-yellow stripes**, a **green leaf hat**,
+  and **diminished chibi head proportions**. NOT the chibi Barnaby anymore.
+
+**Root cause:** Flux's ReferenceLatent chain *drifts across iterations* when
+the structural anchor is the only identity source. The FF image carries
+Barnaby's identity, but by the LF step, Flux's interpretation of "baby bee"
+loosens — the model reverts to its training bias (generic cartoon bee) and
+adds/removes details that weren't in the original ref sheet.
+
+**Rule:** For every shot where the character is the **emotional focus** of
+the LF, include their character sheet in `lf_references` *alongside* the
+structural anchor. The schema's default heuristic of "anchor carries identity,
+skip the ref" is wrong for character-driven shots.
+
+```json
+// Bad — Barnaby drifts to a leaf-hat bee by the LF step
+"references": ["barnaby_reference_sheet.png"],
+"lf_references": []
+
+// Good — chibi Barnaby locked in across the iteration
+"references": ["barnaby_reference_sheet.png"],
+"lf_references": ["barnaby_reference_sheet.png"]
+```
+
+**Continuation shots — new character joins:** When a new character appears
+in the LF (e.g. Spider enters the frame for the first time) AND the existing
+character is still the focus (e.g. Barnaby reacting to the Spider), include
+**both** character sheets in `lf_references`. The new character needs their
+sheet (the tail-frame anchor doesn't carry them yet), and the existing
+character needs their sheet to prevent dilution by the new ref.
+
+```json
+// Spider joins, Barnaby reacts — both refs needed
+"lf_references": ["barnaby_reference_sheet.png", "spider_reference_sheet.png"]
+```
+
+**3-slot budget:** `lf_references` has a hard max of 3 items. For 3-character
+scenes (future, e.g. Mama Bee + Barnaby + Spider all in one shot), you may
+hit this limit. The structural anchor still gets the 1st slot, so
+2-character scenes (like Spider + Barnaby) leave room for 1 more ref. Plan
+shot compositions around the 3-ref budget.
+
+**How to detect this drift:** When reviewing generated stills, compare the
+LF to the ref sheet — if the character has *any* new feature not in the
+sheet (a hat, different stripes, different eyes, changed proportions), the
+anchor is not strong enough. Add the sheet to `lf_references` and re-run.
