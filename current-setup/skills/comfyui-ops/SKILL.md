@@ -26,6 +26,63 @@ This script sources `/root/.hermes/.env`, verifies `COMFYUI_URL`/`USER`/`PASS`, 
 
 ---
 
+## 🚨 Critical Patterns (learned 2026-06-12, panda-pippin T3)
+
+> **Read this before anything else.** These are the 3 most common ways to fail a ComfyUI job today. Each one burned 5-30 minutes in the panda-pippin T3 re-test; if you follow the rules below you'll skip them entirely.
+
+### Pattern 1: Flux 2 Dev Turbo uses UNETLoader, NOT CheckpointLoaderSimple
+
+Modern Flux models (ComfyUI v0.21+) are loaded as **separate UNET + CLIP + VAE**, not as a single `.safetensors` checkpoint. The shipped `flux-2-dev-turbo.json` template already does this correctly. **Do not hand-build a Flux workflow with `CheckpointLoaderSimple`** — that node type only sees SD 1.5 / SDXL checkpoints like `sd_xl_turbo_1.0_fp16.safetensors`, and will return a `value_not_in_list` error when you try to load `flux2-dev-turbo-fp8mixed.safetensors`.
+
+The 3 model files for Flux 2 Dev Turbo, and where they live in the workflow:
+
+| File | Loader node class | Workflow example |
+|---|---|---|
+| `flux2-dev-turbo-fp8mixed.safetensors` | `UNETLoader` | Node 122 in `flux-2-dev-turbo.json` |
+| `mistral_3_small_flux2_fp8mixed.safetensors` | `CLIPLoader` (type=`flux2`) | Node 146 |
+| `flux2-vae.safetensors` | `VAELoader` | Node 148 |
+
+**Verify with `/object_info` first:**
+```bash
+# What UNETs are available?
+curl_json GET /object_info/UNETLoader <url> auth=<auth>
+# -> Look for 'flux2-dev-turbo-fp8mixed.safetensors' in unet_name[0]
+```
+
+### Pattern 2: NEVER hand-build Flux T2I workflows. Use `generate_scene.py`.
+
+The shipped `flux-2-dev-turbo.json` template has a `__REFERENCE_1__` placeholder baked into node 131 (`LoadImage`). ComfyUI validates **all** nodes at queue time, even if your `references:[]` array would route around them via `ComfySwitchNode` (nodes 175/197/164/172). A hand-built workflow with empty references returns **HTTP 500 with no useful body** — the agent then loops trying to figure out what went wrong.
+
+**The fix is to use the official entry point, which handles the switch wiring for you:**
+
+```bash
+# Single-shot (T3 character sheets, T5 single frame)
+python3 /root/.hermes/skills/creative/story-to-video/scripts/generate_scene.py \
+  --prompts prompt_char_sheet.json \
+  --shot pippin_reference_sheet \
+  --url <comfyui_url> --auth <user>:<pass_or_token>
+
+# Full batch (T6 scenes, all shots in a prompt.json)
+python3 /root/.hermes/skills/creative/story-to-video/scripts/generate_scene.py \
+  --prompts filmmaking_prompt.json \
+  --url <url> --auth <auth> \
+  --skip-existing --output-dir <story>
+```
+
+`generate_scene.py` toggles the `ComfySwitchNode`s correctly when `references:[]`, so no 500. This is **faster than `filmmaking_orchestrator.py`** for single-shot work and gives clear per-shot output (✅ Saved: path/to/file.png). Use the orchestrator only when you need the full Phase 2-5 chain (continuation chains, tail-frame extraction, video stitching).
+
+### Pattern 3: `COMFYUI_AUTH` in `.env` is the **raw token**, not `user:pass`
+
+The user is `vastai` by default. The auth pattern you pass to `--auth` is either:
+- `vastai:<64-char-hex-token>` (combined, if `.env` has the raw token — which it does)
+- `vastai:<your_password>` (if you set `COMFYUI_USER` and `COMFYUI_PASS` as separate vars)
+
+`quickstart_auth.sh` (Pattern 0 above) handles both forms automatically. The filmmaking skill's Quick Start used to show `--auth "<username>:<password>"` as if both were known — that's been fixed (see L3 in this skill's CHANGELOG).
+
+**Anti-pattern reminder:** Don't put the token into a Python f-string (`f"-u {user}:{token}"`). Multi-line prompts and embedded quotes will produce a SyntaxError and start the 80-turn f-string debugging loop. Pass auth as a tuple: `auth=("vastai", token)`.
+
+---
+
 ## What changed in v2.0
 
 | Area | v1.4.0 (monolith) | v2.0 (chunked) |
