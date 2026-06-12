@@ -14,6 +14,16 @@ metadata:
 
 Execute the FFLF Seed Hunter pipeline on a Cloudflare-tunneled ComfyUI server — verify connectivity, upload references (with dedup + retry), queue prompts, poll for completion, download artifacts, extract tail frames.
 
+## One-shot auth check (use this first, every time)
+
+**New 2026-06-12.** Before any other ComfyUI work, run:
+
+```bash
+bash /root/.hermes/skills/creative/comfyui-ops/scripts/quickstart_auth.sh
+```
+
+This script sources `/root/.hermes/.env`, verifies `COMFYUI_URL`/`USER`/`PASS`, calls `/system_stats` with Basic auth, and exits 0 on success. **Replaces** the previous pattern of manually running 10+ curl commands to discover the auth header. It also avoids the Python f-string-with-embedded-quotes SyntaxError loop (the panda-pippin T3 bug) by keeping credentials inside shell variables, never f-strings.
+
 ---
 
 ## What changed in v2.0
