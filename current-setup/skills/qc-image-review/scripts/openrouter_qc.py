@@ -32,6 +32,11 @@ except ImportError:
     print("ERROR: 'requests' not installed. pip install requests")
     sys.exit(1)
 
+# Note: `requests` (not httpx/aiohttp) is intentional here.
+# OpenRouter is an external REST API over HTTPS — no async streaming needed,
+# no Cloudflare-Tunnel-403 quirks, no long-lived WebSocket. Plain sync requests
+# is the right primitive. (Compare: comfyui_api.py uses httpx for tunnel quirks.)
+
 # Per-gate image budget enforcement
 GATE_BUDGET = {
     "ff_gate": 2,

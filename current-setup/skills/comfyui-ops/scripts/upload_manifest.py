@@ -129,11 +129,21 @@ class UploadManifest:
         """Record successful upload in manifest."""
         import datetime
         key = self._key(local_path, comfyui_url)
+        # File may have been deleted between upload and manifest write (e.g., gc()
+        # ran on a stale upload from a previous story). Store None for md5/mtime
+        # in that case so the record still persists for backward compat.
+        try:
+            md5 = compute_md5(local_path)
+            mtime = int(os.path.getmtime(local_path))
+        except (FileNotFoundError, OSError):
+            md5 = None
+            mtime = None
         self.data["uploads"][key] = {
-            "md5": compute_md5(local_path),
+            "md5": md5,
             "comfyui_filename": comfyui_filename,
-            "mtime": int(os.path.getmtime(local_path)),
-            "uploaded_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "mtime": mtime,
+            # Python 3.12+ deprecates datetime.utcnow() — use timezone-aware now()
+            "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         self._save()
     
@@ -150,13 +160,29 @@ class UploadManifest:
                 local_path, comfyui_url = key.split("||", 1)
             else:
                 # Backward compat: old keys used ':' separator.
-                # The last ':' separates local_path from comfyui_url
-                # (since URLs end with :PORT or :PORT/).
-                idx = key.rfind(":")
-                if idx < 0:
+                # Format: <local_path>:<comfyui_url_with_port>
+                # We split on the FIRST ':' that's preceded by 'http' or 'https' (the
+                # scheme://host:port boundary), then take everything after that as URL.
+                # If the path itself contains a colon (rare on Linux but possible on
+                # Mac/Windows) AND the URL is http://, the split-on-scheme handles it.
+                scheme_idx = max(key.find("http://"), key.find("https://"))
+                if scheme_idx < 0:
+                    # No URL — skip (malformed legacy entry)
                     continue
-                local_path = key[:idx]
-                comfyui_url = key[idx + 1:]
+                # Find the ':' that ends the scheme ('http:' or 'https:')
+                scheme_end = key.find(":", scheme_idx)
+                if scheme_end < 0:
+                    continue
+                # The path-to-URL separator is the ':' that follows the scheme's
+                # '://' (i.e., scheme_end + 3 — but we need to be careful: the URL
+                # itself contains '://', and after the host there's a ':PORT').
+                # The separator between path and URL is the colon right before 'http'
+                local_path = key[:scheme_idx].rstrip(":")
+                comfyui_url = key[scheme_idx:].lstrip(":")
+                # If local_path ended with ':' and we stripped it, prepend it back? No —
+                # the old format was <path>:<url>, so if local_path had a trailing ':'
+                # that got eaten. Restore by checking if the next char after our split
+                # is 'h' (start of http) — which it is by construction.
             result.append({
                 "local_path": local_path,
                 "comfyui_url": comfyui_url,
@@ -167,7 +193,8 @@ class UploadManifest:
     def gc(self, max_age_days: int = 30) -> int:
         """Remove entries older than max_age_days. Returns count removed."""
         import datetime
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=max_age_days)
+        # Python 3.12+ deprecates datetime.utcnow() — use timezone-aware now()
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=max_age_days)
         removed = 0
         keys_to_remove = []
         
