@@ -51,3 +51,22 @@ config/
 .failed_hosts.json
 failed_hosts.json
 
+
+# === Hermes-specific patterns (added by Aurora 2026-06-12) ===
+
+# Hermes profiles — may contain credentials
+.profiles/
+profiles/*/auth.json
+profiles/*/auth.lock
+profiles/*/.env
+profiles/*/channel_directory.json
+
+# Kanban SQLite DBs
+kanban.db
+kanban.db-shm
+kanban.db-wal
+kanban/boards/
+
+# Upload manifests (per-story cache of ComfyUI uploads)
+.upload_manifest.json
+*.upload_manifest.json
