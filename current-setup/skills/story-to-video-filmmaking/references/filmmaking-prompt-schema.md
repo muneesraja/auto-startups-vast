@@ -81,6 +81,16 @@ Unlike the legacy `prompt.json` (static scene stills) or `motion_prompt.json` (s
 | `global.auto_select_motion` | bool | `true` | Auto-pick best Stage 1 preview via Gemini evaluator |
 | `global.continuation_mode` | string | `"auto_chain"` | `"auto_chain"` or `"independent"` |
 | `global.style` | string | — | Global cinematic style descriptor |
+| `global.style_description` | string | — | Optional. Detailed style description used by the per-image quality gate. E.g. `"3D Pixar-animal style, chibi proportions, soft plush textures, warm cinematic lighting"`. |
+| `global.character_spec` | string | — | Optional. Detailed character spec used by the per-image quality gate. E.g. `"round cartoon baby elephant, soft warm gray skin, big dark-brown eyes, short stubby trunk, floppy ears"`. If omitted, the gate uses a generic "as defined in the character reference sheet" hint. |
+| `global.quality_gate.enabled` | bool | `false` | Per-image quality gate. When `true`, every generated still is scored against its target character reference sheet using Gemini 3.1 Flash Lite via OpenRouter. Images below `min_score` are flagged and the gate can reject. **Disabled by default** — enable if you observe character drift. |
+| `global.quality_gate.min_score` | float | `7.0` | Minimum overall score (0-10) to pass the gate. |
+| `global.quality_gate.max_retries` | int | `1` | Max regeneration attempts on gate failure. Bounded to prevent loops. |
+| `global.quality_gate.provider` | string | `"openrouter"` | `"openrouter"` (Gemini 3.1 Flash Lite, default, ~$0.0005/image) or `"gemini"` (direct Gemini API). |
+
+CLI overrides: `--quality-gate` (enables for one run), `--quality-gate-min-score FLOAT`, `--quality-gate-max-retries INT`. CLI flags take precedence over `global.quality_gate.*`.
+
+See [fflf-production-learnings.md § Per-Image Quality Gate](../fflf-production-learnings.md#per-image-quality-gate-2026-06-11-added-in-v140) for the full description and cost profile. |
 
 ---
 
@@ -91,8 +101,8 @@ Unlike the legacy `prompt.json` (static scene stills) or `motion_prompt.json` (s
 | `scene` | int | ✅ | Scene index |
 | `shot` | int | ✅ | Shot index within scene |
 | `shot_type` | string | ✅ | See Shot Types below |
-| `first_frame_prompt` | string\|null | chain_start/independent only | Detailed Flux prompt for the opening composition |
-| `last_frame_prompt` | string | ✅ | Detailed Flux prompt for the closing composition |
+| `first_frame_prompt` | string\|null | chain_start/independent only | Detailed Flux prompt for the opening composition. **T2I vocabulary** — describe character, pose, setting, lighting as a complete scene (50–250 tokens). |
+| `last_frame_prompt` | string | ✅ | **Edit instruction** describing the delta from the FF, with explicit `KEEP UNCHANGED:` preserve list and `CHANGE:` delta list. NOT a fresh scene description. See [phases/phase-1-prompt-composition.md § "The Edit-Instruction LF Pattern"](phases/phase-1-prompt-composition.md#the-edit-instruction-lf-pattern-2026-06-11-elephant-story) for the full template, vocabulary, and calibration example. |
 | `first_frame_image` | string\|null | chain_start/independent only | Filename for FF still (e.g. `film_001_shot001_ff.png`) |
 | `last_frame_image` | string | ✅ | Filename for LF still (e.g. `film_001_shot001_lf.png`) |
 | `motion_prompt` | string | ✅ | Brief (20–60 word) motion description for the LTX video model |

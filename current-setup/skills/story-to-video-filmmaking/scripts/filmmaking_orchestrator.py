@@ -145,7 +145,9 @@ def print_execution_plan(chains, mode):
 def process_chain(chain, global_cfg, image_template, video_template,
                   base_url, output_dir, scenes_dir, videos_dir, motion_eval_dir,
                   references_base_dir, available_images, mode, auth,
-                  skip_existing, evaluate, api_key, provider):
+                  skip_existing, evaluate, api_key, provider,
+                  quality_gate=False, quality_gate_min_score=7.0,
+                  quality_gate_max_retries=1):
     """Process a full continuation chain recursively.
 
     Returns:
@@ -191,6 +193,9 @@ def process_chain(chain, global_cfg, image_template, video_template,
                 print(f"  ⚠️  No tail frame available for {prefix}. LF will generate without structural anchor.")
 
         print(f"\n  📸 Phase 2 — Generating still images...")
+        if quality_gate:
+            print(f"   🔍 Per-image quality gate ENABLED (min_score={quality_gate_min_score}, max_retries={quality_gate_max_retries})")
+
         frame_result = generate_frames_for_shot(
             shot_data=shot,
             global_cfg=global_cfg,
@@ -203,7 +208,10 @@ def process_chain(chain, global_cfg, image_template, video_template,
             provider=provider,
             evaluate=evaluate,
             auth=auth,
-            structural_anchor_path=structural_anchor
+            structural_anchor_path=structural_anchor,
+            quality_gate=quality_gate,
+            quality_gate_min_score=quality_gate_min_score,
+            quality_gate_max_retries=quality_gate_max_retries,
         )
 
         if evaluate and (frame_result["first_frame_path"] or frame_result["last_frame_path"]):
@@ -322,10 +330,29 @@ Examples:
                         help="Vision provider for evaluation")
     parser.add_argument("--references-dir", type=str, default=None,
                         help="Character reference sheets folder (defaults to sibling 'characters/')")
+    parser.add_argument("--quality-gate", action="store_true",
+                        help="Run per-image quality gate after each still is generated (catches character drift)")
+    parser.add_argument("--preflight-audit", action="store_true",
+                        help="Run pre-flight FF↔LF text-based audit before Phase 2 (advisory, does not block)")
+    parser.add_argument("--quality-gate-min-score", type=float, default=None,
+                        help="Override global.quality_gate.min_score for this run (default: use value from filmmaking_prompt.json)")
+    parser.add_argument("--quality-gate-max-retries", type=int, default=None,
+                        help="Override global.quality_gate.max_retries for this run (default: use value from filmmaking_prompt.json)")
 
     args = parser.parse_args()
     base_url = args.url
-    output_dir = args.output_dir
+
+    # Resolve output directory: project-local by default (cwd / story folder),
+    # never the global skill root. This prevents cross-project contamination
+    # when running multiple stories back-to-back. See the `wolf` 2026-06-11
+    # run for the failure mode this fixes.
+    if args.output_dir == DEFAULT_FILMMAKING_OUTPUT_DIR:
+        # Default not overridden — use the directory holding filmmaking_prompt.json
+        # (one level up from prompts file, or the prompts file's own dir).
+        prompts_dir = os.path.dirname(os.path.abspath(args.prompts))
+        output_dir = prompts_dir
+    else:
+        output_dir = args.output_dir
 
     # Establish subdirectories
     scenes_dir = os.path.join(output_dir, "scenes")
@@ -409,6 +436,26 @@ Examples:
         print("\n✅ Dry-run complete — no images or videos generated.")
         return
 
+    # Pre-flight FF↔LF audit (advisory, does not block by default)
+    if args.preflight_audit:
+        print(f"\n{'─'*70}")
+        print(f"  🔍 Pre-flight FF↔LF Audit")
+        print(f"{'─'*70}")
+        import subprocess
+        audit_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_audit.py")
+        audit_proc = subprocess.run(
+            [sys.executable, audit_script, args.prompts],
+            capture_output=True, text=True, timeout=60
+        )
+        print(audit_proc.stdout)
+        if audit_proc.returncode != 0:
+            print(f"  ⚠️  Pre-flight audit found risks (exit {audit_proc.returncode})")
+            print(f"     Review feedback/ff_lf_audit_preflight.md and re-author risky LFs before continuing.")
+            # We do not block by default. Use --strict-preflight (future) to make it blocking.
+        else:
+            print(f"  ✅ Pre-flight audit passed — LFs look healthy.")
+        print()
+
     print_execution_plan(chains, mode)
 
     # Discover available images on ComfyUI
@@ -444,7 +491,21 @@ Examples:
             skip_existing=args.skip_existing,
             evaluate=args.evaluate,
             api_key=args.api_key,
-            provider=args.provider
+            provider=args.provider,
+            quality_gate=(
+                args.quality_gate
+                or global_cfg.get("quality_gate", {}).get("enabled", False)
+            ),
+            quality_gate_min_score=(
+                args.quality_gate_min_score
+                if args.quality_gate_min_score is not None
+                else global_cfg.get("quality_gate", {}).get("min_score", 7.0)
+            ),
+            quality_gate_max_retries=(
+                args.quality_gate_max_retries
+                if args.quality_gate_max_retries is not None
+                else global_cfg.get("quality_gate", {}).get("max_retries", 1)
+            ),
         )
         all_results.update(chain_results)
 

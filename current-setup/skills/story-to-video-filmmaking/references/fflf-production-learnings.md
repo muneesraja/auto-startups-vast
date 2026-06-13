@@ -131,6 +131,34 @@ curl -sSL -u "$AUTH" \
 OR: patch `queue_and_wait_video` to filter to nodes with `save_output: true` / output
 type. (Future improvement; for now the manual curl works fine.)
 
+**Bug 5b (2026-06-11, elephant run) — Stage 1 previews also download as 0 bytes:**
+
+`comfyui_api.py::download_output` hardcoded `type=output` in the ComfyUI `/view` URL.
+Stage 1 preview clips live at `type=temp` (ComfyUI's temp folder), so the request
+returned 404 and the script silently saved a 0-byte file to `motion_eval/`. ffmpeg
+then failed to extract any frames → the auto-evaluator couldn't score the previews
+and fell back to default seed index `[0]`.
+
+**Fix applied:** Added `file_type` parameter to `download_output` (default `"output"`)
+and updated `queue_and_download_previews` to pass `file_type=item.get("type", "temp")`.
+Now previews download as real 170KB+ mp4s and the auto-evaluator can extract frames.
+
+⚠️ **Heads up for in-flight runs:** Python modules load at process start. If a
+long-running orchestrator is already mid-run, the patch won't apply to shots that
+have *already* loaded `fflf_executor` into memory. The current shot's auto-eval
+will fall back to default seed index. New runs (and any re-runs) get the fix.
+
+**Verification commands:**
+```bash
+# Should return ~170KB+ (not 0 bytes):
+curl -sSL -u "$AUTH" \
+  "$COMFY_URL/view?filename=LTX-2_00010.mp4&subfolder=&type=temp" \
+  -o /tmp/test.mp4 -w "%{size_download}\n"
+
+# Then verify it plays:
+ffprobe -v error -show_streams /tmp/test.mp4 2>&1 | grep "codec_name\|nb_frames"
+```
+
 ## Timing & Resource Notes (Vast.ai RTX 3090, batched)
 
 | Operation | Time | Notes |
@@ -316,3 +344,214 @@ SSIM is below `quality_threshold` (0.3), emit a quality gate warning —
 the video likely drifted far from the intended composition, and the next
 shot's FF should be regenerated from scratch rather than using the
 degraded tail.
+
+---
+
+## V2 Motion Evaluator Prompt (2026-06-11, elephant story)
+
+The V1 motion eval prompt (4-axis independent scoring, 5 frames/video, no FF/LF anchors)
+produced inconsistent winners across re-runs of the same inputs. On shot 1.2 of the
+elephant story (3 previews of a foot-slip close-up), V1 selected Preview 0 (score 5.0)
+when hand-scored the correct answer was Preview 1 (score 9).
+
+**V2 prompt design fixes (now default in `motion_evaluator.py`):**
+
+1. **FF + LF as actual image attachments** (not just text descriptions) — the model
+   can directly compare each preview's frame 3 to the actual LF still, eliminating
+   the "model has to remember what the target looks like" failure mode.
+2. **3 frames per video at 10% / 50% / 90%** (vs V1's 5 at 0/25/50/75/100) —
+   0% and 100% are always nearly identical to FF and LF, so they add noise without
+   adding signal. The 90% frame is the only one that correlates with LF-arrival.
+3. **Forced a/b/c ranked comparison** (vs V1's independent 0-10 scoring) — kills
+   the "all three look great, give them all 9" failure mode where the model
+   produces nearly identical scores for all candidates.
+4. **LF-arrival weighted at 35%** with explicit "chain-cleanliness > prettiness"
+   tie-breaker. The only thing that matters for the next shot in the chain is
+   whether this shot's tail frame matches the LF.
+5. **Mandatory "cite ONE specific visual observation"** per video — kills hand-waving
+   "this looks smoother" claims without pointing to actual pixels.
+6. **`temperature=0.2`** in API call — v1 had no temp control, model produced
+   different winners across runs of the same inputs. v2 is much more stable.
+
+**Calibration (shot 1.2, elephant story):**
+
+| Prompt version | Winner | Score | Runner-up | Agree with hand-score? |
+|---|---|---|---|---|
+| V1 (legacy) | A (14) | 5.0 | B (15) = 6.8 | ❌ wrong winner |
+| V2 (initial test) | B (15) | 8.95 | A (14) = 5.05 | ✅ correct winner |
+| V2 (rerun via `evaluate_motion_previews`) | A (14) | 8.65 | B (15) = 3.30 | ❌ flipped |
+| Hand-score (user) | B (15) | 9 | A (14) = 7 | — |
+
+**Honest assessment:** V2 agrees with hand-score in 1 of 2 automated re-runs. The
+infrastructure is in place (anchors, ranked comparison, lower temp) but model
+variance at temp=0.2 is still non-zero. The `lead_over_runnerup` confidence signal
+that's now logged tells you when the selection is uncertain (lead < 1.0 = LOW).
+
+**Still recommended (production):** Run V2, use the winner, but check the
+`lead_over_runnerup` field. If lead < 1.0, consider re-rendering the runner-up
+and picking manually (or boosting temp down to 0.1 next time). If lead > 2.0,
+trust the selection.
+
+### Short-shot heuristic — skip eval for ≤3s shots (2026-06-11, elephant)
+
+For shots with `segment_duration <= 3s` (expression-only / micro-motion), seed
+selection matters very little — there's basically only one valid motion path
+the model can take. The auto-eval cost (~5 cents + ~30s) isn't worth it for
+these.
+
+**Implementation (in `fflf_executor.py`):** If `overrides.segment_duration <= 3`
+and `overrides.force_seed_hunt != true`, skip Stage 1 previews and the eval
+entirely, jump straight to Stage 2+3 with `_selected_gen_index=1` (seed 0).
+
+**Override per-shot:** if you want to force the eval for a specific short shot,
+add `"force_seed_hunt": true` to that shot's `overrides` in `filmmaking_prompt.json`.
+
+**Expected impact on a 14-shot film:** ~3-4 short shots (2-3s) skip the eval,
+saving ~20-30 seconds and 15-20 cents per film. Quality impact: negligible for
+those shots (seed 0 is essentially always right for expression-only).
+
+### Cost summary per shot (RTX 3090, 720p)
+
+| Stage | Time | Cost (USD) |
+|---|---|---|
+| Image gen (Flux 2 Dev Turbo, FF or LF with 1 ref) | ~30-40s | ~$0.01 |
+| Stage 1 previews (3× parallel, low-res) | ~30-60s | ~$0.02 |
+| V2 eval (OpenRouter gemini-3.1-flash-lite, 9 frames + 2 anchors) | ~2-5s | ~$0.0035 |
+| Stage 2+3 (upscale + final render, 720p) | ~30-60s | ~$0.02 |
+| **Total per shot (full pipeline, auto mode)** | **~90-180s** | **~$0.05** |
+| **Short shot (≤3s, heuristic skip)** | **~60-100s** | **~$0.03** |
+
+---
+
+## LF Edit-Mode Prompting (2026-06-11, elephant story)
+
+### Problem
+
+The elephant story (14 shots, 4 scenes) ran end-to-end in 78.6 minutes on RTX 3090 and produced 14 valid mp4 files. Quality audit on the FF↔LF keyframes revealed that **10 of 14 shots (71%) had FF↔LF problems that the video model couldn't recover from**:
+
+| Verdict | SSIM band | Count | Elephant shots |
+|---|---|---|---|
+| ❌ FROZEN (FF≈LF, near-identical) | > 0.92 | 2 | `film_002_shot001`, `film_003_shot001` |
+| ⚠️ SUBTLE (small change, expression-only) | 0.80–0.92 | 2 | `film_001_shot001`, `film_004_shot001` |
+| ✓ STRONG (big change, will animate well) | 0.40–0.60 | 2 | `film_003_shot002`, `film_004_shot002` |
+| ⚠️ RADICAL (too different, model invents transitions) | < 0.40 | 8 | All other shots |
+
+A 71% failure rate on a 14-shot run is unacceptable. The story rendered, the film assembled, but the videos do not interpolate meaningfully between the keyframes the way FFLF Seed Hunter is supposed to work.
+
+### Root cause
+
+The `last_frame_prompt` field in `filmmaking_prompt.json` was being authored as a **T2I composition description** ("Wide shot. Elly is now on the riverbank. The dam is visible behind her...") — exactly the wrong shape for a workflow that calls Flux 2 Dev Turbo with the **FF image already in the `references[]` list**. Flux received the FF as an image attachment, but the prompt told it to "generate this scene" rather than "edit image 1, keep X, change Y". Flux dutifully produced a beautiful still that satisfied the text — and that still happened to share the same semantic concept ("elephant + water + dam") as the FF, so it looked visually similar despite having no enforced structural relationship.
+
+The LTX prompting guides (Single-Reference Editing, Multi-Reference Editing, Image Editing Overview) all say the same thing:
+> *"Be specific about what changes and explicit about what should stay the same. The more precise your instruction, the better the result."*
+
+This rule was being silently violated by the LF prompt format.
+
+### The fix: edit-instruction LF pattern
+
+The LF prompt must be structured as a **delta from the FF**, not a fresh scene. The full template, vocabulary, and calibration example are in [phases/phase-1-prompt-composition.md § "The Edit-Instruction LF Pattern"](phases/phase-1-prompt-composition.md#the-edit-instruction-lf-pattern-2026-06-11-elephant-story). The short version:
+
+```
+Edit image 1 (the previous frame). [1-2 sentence story context]
+
+KEEP UNCHANGED: [explicit preserve list — character, environment, lighting, style]
+
+CHANGE:
+- [primary pose/motion delta]
+- [secondary expression/detail delta]
+- [tertiary ambient motion, e.g. water drips, dust]
+
+Camera: [same as FF / slight change]
+
+Mood: [single word: tense / relieved / heroic / intimate]
+```
+
+**Rule of thumb:** if the LF prompt could be rewritten as an FF prompt (a complete scene description), it's wrong. An LF prompt must be a delta.
+
+### Calibration: elephant shot 3.2 before/after
+
+Shot 3.2 ("The wade-out") is a representative failure. The original LF prompt was 70 words of T2I composition. The rewrite is 200 words of I2I edit instructions. Per the audit I ran after the pipeline finished, the original LF produced a still with 0.45 SSIM to the FF (radical — model invented a transition). The expected SSIM band for a properly-edited LF is 0.65–0.85.
+
+The full before/after prompt text is in phase-1-prompt-composition.md. The diff:
+
+| | Before (T2I) | After (I2I edit) |
+|---|---|---|
+| Opening | "Wide shot. Elly's round body is now on the shallow pebbly riverbank..." | "Edit image 1 (the previous frame). Elly has just been saved from a waterfall by hitting a wooden dam..." |
+| Character | Re-described (gray skin, brown eyes, etc.) | KEEP UNCHANGED: (reference sheet + FF are already attached) |
+| Pose | "stepped out of the deep water" | "stepping forward onto a pebbly riverbank, one foot still in the water, one foot on the pebbles" |
+| Expression | "breathing a huge visible sigh of relief, body deflating" | "eyes open, looking down at her feet, mouth in a small shaky relieved exhale" |
+| Camera | Implied wide shot | "same medium shot angle, slightly wider framing (pulled back ~10%)" |
+| Expected FF↔LF SSIM | 0.45 (radical — actual) | 0.70–0.80 (healthy — expected) |
+
+### Expected impact on the next run
+
+If all 14 LF prompts in the next story are rewritten in I2I edit-mode before Phase 2:
+
+| Metric | Elephant (T2I LF) | Expected next run (I2I edit LF) |
+|---|---|---|
+| Frozen (SSIM > 0.92) | 2 / 14 (14%) | 0 / 14 (0%) — edit-mode forces visible change |
+| Subtle (0.80–0.92) | 2 / 14 (14%) | 2-3 / 14 (14-21%) — expression-only beats accepted, flagged for short-shot heuristic |
+| Healthy (0.60–0.80) | 0 / 14 (0%) | 9-10 / 14 (64-71%) — clearly-edited shots |
+| Radical (SSIM < 0.40) | 8 / 14 (57%) | 1-2 / 14 (7-14%) — only genuine scene changes, flagged for review |
+| Per-shot video quality | Hit or miss | Predictable motion, model has signal to interpolate |
+
+The elephant film is a learning artifact. The next story (using I2I edit-mode LF prompts from the start) should produce a watchable film on the first render. See the next two sections ("Per-Image Quality Gate" and "Pre-Flight FF↔LF Audit") for the safety nets that catch failures earlier and cheaper than the post-render audit I did here.
+
+---
+
+## Per-Image Quality Gate (2026-06-11, added in v1.4.0)
+
+An optional per-image evaluation step that runs after each still is generated. Uses Gemini 3.1 Flash Lite via OpenRouter (or Gemini direct) to score the image against its target character reference sheet, with a hard pass/fail threshold and a single regeneration retry on failure.
+
+**When to enable:** if you observe character drift across iterations (Flux diluting chibi proportions, adding leaf hats, getting the eye color wrong, etc.). Tiny-bee documented this drift; the elephant story did not see it because the character sheets were strong, but it's the next failure mode once the edit-instruction LF pattern is in use.
+
+**Configuration** (`filmmaking_prompt.json` `global`):
+```json
+{
+  "quality_gate": {
+    "enabled": false,
+    "min_score": 7.0,
+    "max_retries": 1
+  }
+}
+```
+
+**CLI flag:** `--quality-gate` enables the gate for a run. Disabled by default.
+
+**What the model scores:** `character_likeness` (does the image match the reference sheet's character?), `style_match` (does it match the visual style — 3D Pixar, chibi, etc.?), `expression_neutrality` (for reference sheets that need to be neutral).
+
+**On failure:** the gate appends the model's `rejection_reason` to the next prompt and regenerates the image, up to `max_retries` times. The retry is bounded to avoid loops.
+
+**Cost:** ~$0.0005 per image (1 candidate + 1 reference). For a 14-shot film with FF+LF = 28 evaluations = ~$0.014 total. Negligible.
+
+**Why gemini-3.1-flash-lite:** the V2 motion eval already uses it via OpenRouter and we have the cost / latency profile validated. Same model, same provider — just a different prompt and different images.
+
+**Detailed implementation:** see [scripts/gemini_eval.py § evaluate_image_against_reference](scripts/gemini_eval.py) and [scripts/generate_frames.py § quality_gate_image](scripts/generate_frames.py).
+
+---
+
+## Pre-Flight FF↔LF Audit (2026-06-11, added in v1.4.0)
+
+A standalone text-based audit that runs **before Phase 2** and checks every shot's FF and LF prompts for the failure modes the elephant run exposed. Emits warnings for frozen, subtle, and radical risk before any image is generated.
+
+**Why this matters:** the elephant post-render audit took 30 seconds to run on already-rendered stills and 14 rendered videos. The pre-flight audit takes 2 seconds on the `filmmaking_prompt.json` text alone, before any GPU time is spent. Catches the same problems for 0.5% of the cost.
+
+**Usage:**
+```bash
+# Standalone
+python3 scripts/prompt_audit.py /path/to/filmmaking_prompt.json
+
+# Or via the orchestrator (advisory, does not block by default)
+python3 scripts/filmmaking_orchestrator.py --prompts filmmaking_prompt.json --preflight-audit
+```
+
+**Output:** `feedback/ff_lf_audit_preflight.md` with a per-shot risk table and re-authoring suggestions.
+
+**Heuristics used:**
+- **Frozen risk** (LF ≈ FF, SSIM expected > 0.92): text similarity (SequenceMatcher) > 0.85 + absence of any spatial-delta keywords ("stepping", "releasing", "turning", "leaning", "looking", "mouth", "pushing in", "pulling back") in the LF prompt
+- **Subtle risk** (expression-only change): presence of "expression", "eyes", "mouth", "sigh", "grip firming" without any spatial-delta keywords
+- **Radical risk** (LF implies a different scene): presence of "different location", "new place", "meanwhile", "later", "elsewhere" OR absence of shared character nouns between FF and LF OR `break_continuity: true` not set
+
+**Not perfect.** The audit is text-only and can't see the actual images, so it's a first-pass filter, not a final judgment. False positives are expected and easy to dismiss. False negatives (truly radical LFs that the audit misses) will be caught by the post-render audit at the end.
+
+**Detailed implementation:** see [scripts/prompt_audit.py](scripts/prompt_audit.py).

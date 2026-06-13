@@ -487,3 +487,133 @@ def parse_eval_response(response_text):
         result["expression_detail"] = {}
 
     return result
+
+
+# ── Per-Image Quality Gate (2026-06-11, v1.4.0) ─────────────────────
+# Used by generate_frames.py after each still is generated, to catch
+# character drift before it propagates into the video pipeline.
+
+QUALITY_GATE_PROMPT = """You are a character / style quality reviewer for an AI animation pipeline.
+
+We have generated ONE image. It is the FIRST image attached. The next {n_refs} image(s) are REFERENCE SHEETS — they define the target character and visual style for this story.
+
+The target style for this story is: {style_description}
+
+The character that should appear in the generated image is: {character_name} ({character_spec}).
+For reference sheets marked as "neutral expression", the generated image should also have a neutral expression unless the prompt clearly requested otherwise.
+
+Score the generated image 0–10 on these three axes:
+
+1. **character_likeness** (0-10): Does the generated image actually depict the target character? Compare to the reference sheet on:
+   - Body proportions and shape
+   - Skin / fur / surface color and texture
+   - Eye shape, size, and color
+   - Face and head shape
+   - Any signature features (hat, glasses, tail, wings, etc.)
+   Cite ONE specific feature that does or does not match the reference.
+
+2. **style_match** (0-10): Does the generated image match the target visual style?
+   - Rendering style (3D Pixar, chibi, painterly, etc.)
+   - Lighting direction and color palette
+   - Camera framing and depth of field
+   - Overall visual feel
+
+3. **expression_neutrality** (0-10, 0 if N/A): If the reference sheet shows a neutral expression, does the generated image also have a neutral expression? If the prompt requested a specific expression, score whether that expression was achieved.
+
+If ANY axis is below 6, the image FAILS the gate. State `rejected: true` and explain the failing axis in `rejection_reason` (≤30 words, will be appended to the next regeneration prompt).
+
+If all axes ≥ 6, set `rejected: false` and `rejection_reason: ""`.
+
+Respond ONLY in JSON:
+{{
+  "character_likeness": N,
+  "style_match": N,
+  "expression_neutrality": N,
+  "overall": N,
+  "rejected": true|false,
+  "rejection_reason": "...",
+  "evidence": "Cite ONE specific feature that does or does not match the reference."
+}}"""
+
+
+def evaluate_image_against_reference(image_path, reference_images, character_name,
+                                     character_spec, style_description="3D Pixar-style",
+                                     provider="openrouter", api_key=None,
+                                     max_tokens=600):
+    """Score a generated image against its target character reference sheet(s).
+
+    Used by the per-image quality gate (see generate_frames.py). Returns parsed
+    scores and a rejection decision. Designed for cheap, fast calls: 1 generated
+    image + 1-2 reference images, ~$0.0005 per call.
+
+    Args:
+        image_path: Path to the generated image (always the first attachment)
+        reference_images: List of paths to character reference sheets (1-2 typical)
+        character_name: e.g. "Elly" — for prompt context
+        character_spec: e.g. "round cartoon baby elephant, chibi proportions,
+                        soft warm gray skin, big dark-brown eyes, short stubby
+                        trunk, floppy ears"
+        style_description: e.g. "3D Pixar-animal style, chibi proportions"
+        provider: "openrouter" or "gemini"
+        api_key: API key (required for both providers)
+
+    Returns:
+        dict with keys: character_likeness, style_match, expression_neutrality,
+        overall, rejected (bool), rejection_reason (str), evidence (str), error (str|None)
+    """
+    if not api_key:
+        return {"error": "No API key provided", "rejected": False, "overall": 0}
+
+    n_refs = len(reference_images) if reference_images else 0
+    prompt = QUALITY_GATE_PROMPT.format(
+        n_refs=n_refs,
+        style_description=style_description,
+        character_name=character_name,
+        character_spec=character_spec,
+    )
+
+    # Call the appropriate provider with image + references
+    if provider == "openrouter":
+        result = call_openrouter_vision(
+            prompt, image_path, api_key,
+            reference_images=reference_images,
+            max_retries=1, retry_delay=2,
+        )
+        raw = result.get("response", "{}")
+    else:
+        raw = call_gemini_vision(
+            prompt, image_path, api_key,
+            reference_images=reference_images,
+            max_retries=1, retry_delay=2,
+        )
+
+    # Parse response
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try to extract JSON from a possibly noisy string
+        match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return {"error": f"Failed to parse: {raw[:200]}",
+                        "rejected": False, "overall": 0}
+        else:
+            return {"error": f"No JSON in response: {raw[:200]}",
+                    "rejected": False, "overall": 0}
+
+    # Sanity defaults
+    parsed.setdefault("character_likeness", 0)
+    parsed.setdefault("style_match", 0)
+    parsed.setdefault("expression_neutrality", 10)  # N/A → don't fail on this
+    parsed.setdefault("rejected", False)
+    parsed.setdefault("rejection_reason", "")
+    parsed.setdefault("evidence", "")
+    parsed["overall"] = (
+        parsed["character_likeness"] * 0.5
+        + parsed["style_match"] * 0.3
+        + parsed["expression_neutrality"] * 0.2
+    )
+    parsed["error"] = None
+    return parsed

@@ -141,6 +141,27 @@ def execute_fflf_shot(shot_data, global_cfg, workflow_template, base_url, videos
         
     # Mode is either "auto" or "interactive" -> runs Stage 1 previews first
     print("   🔭 Phase 1: Running 3× parallel Stage 1 Seed Hunting previews...")
+
+    # Heuristic (2026-06-11, elephant run): for very short shots (≤3s) with small
+    # FF→LF spatial delta (expression-only or micro-motion), seed 0 is almost
+    # always the right choice and the eval cost (~5 cents + ~30s) isn't worth it.
+    # We trust the model's "round trip" to land on a sensible seed for these.
+    # Threshold: segment_duration ≤ 3s. The producer can override by setting
+    # force_seed_hunt=True in the shot overrides.
+    segment_dur = shot_data.get("overrides", {}).get("segment_duration") or global_cfg.get("segment_duration", 5)
+    force_seed_hunt = shot_data.get("overrides", {}).get("force_seed_hunt", False)
+    skip_eval_for_short = segment_dur <= 3 and not force_seed_hunt
+    if mode == "auto" and skip_eval_for_short:
+        print(f"   ⚡ Short-shot heuristic: {segment_dur}s shot — skipping seed eval, defaulting to seed 0")
+        print(f"      (override with overrides.force_seed_hunt=true to force eval)")
+        selected_index = 0
+        # Skip straight to Stage 2+3
+        shot_for_builder["_finish_mode"] = True
+        shot_for_builder["_selected_gen_index"] = 1  # ImpactSwitch is 1-indexed
+        shot_for_builder["filename_prefix"] = f"video/{prefix}"
+        workflow_final = build_dynamic_workflow(workflow_template, shot_for_builder, global_cfg)
+        return queue_and_wait_video(workflow_final, base_url, videos_dir, auth)
+
     shot_for_builder["_finish_mode"] = False
     shot_for_builder["_selected_gen_index"] = 0  # Ignored in seed hunt mode
     shot_for_builder["filename_prefix"] = f"motion_eval/{prefix}_stage1"
@@ -184,6 +205,21 @@ def execute_fflf_shot(shot_data, global_cfg, workflow_template, base_url, videos
             )
             selected_index = eval_result["selected_index"]
             print(f"      Selected index: [{selected_index}] (Motion score: {eval_result['scores'][selected_index]['overall']:.2f})")
+            lead = eval_result.get("lead_over_runnerup")
+            if lead is not None:
+                if lead >= 2.0:
+                    confidence = "HIGH"
+                elif lead >= 1.0:
+                    confidence = "MEDIUM"
+                else:
+                    confidence = "LOW — runner-up nearly tied, review eval report"
+                print(f"      Confidence: {confidence} (lead over runner-up: +{lead:.2f})")
+            # Print per-axis breakdown if available (V2 eval)
+            winner_score = eval_result["scores"][selected_index]
+            if "lf_arrival" in winner_score and winner_score["lf_arrival"] is not None:
+                print(f"      Winner breakdown: LF-arrival={winner_score.get('lf_arrival')} prompt={winner_score.get('prompt_match')} smooth={winner_score.get('smoothness')} consist={winner_score.get('consistency')}")
+            if winner_score.get("note"):
+                print(f"      Note: {winner_score['note']}")
             print(f"      Reason: {eval_result['reasoning']}")
             
             # Save evaluation report
@@ -290,7 +326,10 @@ def queue_and_download_previews(workflow, base_url, target_dir, auth=None):
                 base_fname = os.path.basename(filename)
                 out_path = os.path.join(target_dir, base_fname)
                 print(f"   📥 Downloading preview: {base_fname}...")
-                if download_output(filename, out_path, base_url, item.get("subfolder", ""), auth=auth, is_video=True):
+                # Stage 1 previews live in ComfyUI's temp/ folder — must pass file_type="temp"
+                # or the download returns 404 and saves a 0-byte file, which silently breaks
+                # the auto-evaluator's frame extraction.
+                if download_output(filename, out_path, base_url, item.get("subfolder", ""), auth=auth, is_video=True, file_type=item.get("type", "temp")):
                     previews[node_to_idx[nid]] = out_path
                     
     return [p for p in previews if p is not None]

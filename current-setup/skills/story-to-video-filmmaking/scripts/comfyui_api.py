@@ -66,9 +66,16 @@ def wait_for_prompt(prompt_id, base_url, poll_interval=5, max_wait=2400, auth=No
     raise TimeoutError(f"Prompt {prompt_id} timed out after {max_wait}s")
 
 
-def download_output(filename, output_path, base_url, subfolder="", auth=None, is_video=False):
-    """Download an output image or video from ComfyUI."""
-    url = f"{base_url}/view?filename={filename}&subfolder={subfolder}&type=output"
+def download_output(filename, output_path, base_url, subfolder="", auth=None, is_video=False, file_type="output"):
+    """Download an output image or video from ComfyUI.
+
+    Args:
+        file_type: ComfyUI storage type — "output" (default, for final videos/frames),
+                   "temp" (for Stage 1 preview clips at output/temp/), or "input" (for
+                   uploaded reference images). Must match the file's actual location
+                   or the request returns 404 and saves a 0-byte file.
+    """
+    url = f"{base_url}/view?filename={filename}&subfolder={subfolder}&type={file_type}"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # Use -L to follow the Cloudflare 301 redirect to the actual /view URL.
     # Without -L, the 109-byte "Moved Permanently" HTML body gets saved as the
