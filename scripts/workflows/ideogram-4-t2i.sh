@@ -3,7 +3,7 @@
 # name: Ideogram 4 T2I
 # workflow: image_ideogram4_t2i
 # aliases: [ideogram-4-t2i, ideogram4-t2i, ideogram v4, ideogram v4 t2i, image ideogram4, ideogram4 unet]
-# description: Downloads all models for the ComfyUI official Ideogram 4 text-to-image workflow — conditional + unconditional FP8 diffusion transformers, Qwen3-VL 8B FP8 text encoder, and Flux.2 VAE. Uses only core ComfyUI nodes (Ideogram4Scheduler, DualModelGuider, CFGOverride, EmptyFlux2LatentImage added in 0.23.0+) — no custom node packs required.
+# description: Upgrades ComfyUI to >= v0.24.0 (required for Ideogram4Scheduler/DualModelGuider/CFGOverride core nodes), then downloads all models for the ComfyUI official Ideogram 4 text-to-image workflow — conditional + unconditional FP8 diffusion transformers, Qwen3-VL 8B FP8 text encoder, and Flux.2 VAE. Uses only core ComfyUI nodes — no custom node packs required.
 # size: ~29.6GB
 # min_vram: 24GB
 # ---
@@ -27,31 +27,75 @@ fi
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
 # Detect the Python that ComfyUI actually runs with (Vast.ai images use /venv/main/)
-COMFY_PYTHON=""
-COMFY_PIP=""
-if [ -f /venv/main/bin/python3 ]; then
-    COMFY_PYTHON="/venv/main/bin/python3"
-    COMFY_PIP="/venv/main/bin/pip"
-elif [ -f venv/bin/activate ]; then
-    source venv/bin/activate
-    COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
-elif [ -f .venv-cu128/bin/activate ]; then
-    source .venv-cu128/bin/activate
-    COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
-else
-    COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
-fi
+detect_comfyui_python() {
+  # Prefer the running ComfyUI process's actual binary (skips tclsh/unbuffer wrappers)
+  local pid
+  pid=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ && !/tcl/ {print $1; exit}')
+  if [ -n "$pid" ] && [ -f /proc/$pid/exe ]; then
+    readlink -f /proc/$pid/exe 2>/dev/null && return
+  fi
+  # Fall back to known venv locations
+  for p in /venv/main/bin/python3 "$COMFYUI_DIR/venv/bin/python3"; do
+    [ -x "$p" ] && echo "$p" && return
+  done
+  which python3
+}
+COMFY_PYTHON=$(detect_comfyui_python)
+COMFY_PIP="$COMFY_PYTHON -m pip"
 echo "  Using ComfyUI Python: $COMFY_PYTHON"
+
+# Counter incremented by Phase 0 (ComfyUI upgrade) and Phase 1 (node installs)
+# when changes require a Phase 3 ComfyUI restart.
+NODES_INSTALLED=0
 
 # No custom node packs to install — this workflow uses only core ComfyUI nodes
 # (Ideogram4Scheduler, DualModelGuider, CFGOverride, EmptyFlux2LatentImage, etc.,
-# all added to ComfyUI core in v0.23.0+). The base ComfyUI image already includes them.
-# If running an older ComfyUI (< 0.23.0), update ComfyUI first:
-#   cd $COMFYUI_DIR && git pull
-# Docs: https://docs.comfy.org/changelog
+# added to ComfyUI core in v0.24.0+). The base ComfyUI image does NOT include them.
+# Phase 0 below upgrades ComfyUI if it's running < v0.24.0.
+
+# ─── PHASE 0: Upgrade ComfyUI to >= v0.24.0 (required for Ideogram4 nodes) ───
+echo ""
+echo "==> [Phase 0] Checking ComfyUI version (>= v0.24.0 required for Ideogram4 nodes)..."
+cd "$COMFYUI_DIR"
+CURRENT_VERSION=$($COMFY_PYTHON -c "from comfyui_version import __version__; print(__version__)" 2>/dev/null || echo "unknown")
+echo "  Current version: $CURRENT_VERSION"
+
+# Use `git describe` to get the latest tag on the remote; fall back to short SHA
+git fetch origin --quiet 2>/dev/null || true
+LATEST_TAG=$(git describe --tags --abbrev=0 origin/master 2>/dev/null || git rev-parse --short origin/master 2>/dev/null || echo "unknown")
+echo "  Latest tag: $LATEST_TAG"
+
+# Compare versions (semver-ish). We only need a major.minor.patch tuple.
+ver_ge() {
+  # returns 0 (true) if $1 >= $2
+  [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]
+}
+
+NEEDS_UPGRADE=false
+if [ "$CURRENT_VERSION" = "unknown" ] || ! ver_ge "$CURRENT_VERSION" "v0.24.0"; then
+  NEEDS_UPGRADE=true
+fi
+
+if [ "$NEEDS_UPGRADE" = "true" ] && [ "$LATEST_TAG" != "unknown" ]; then
+  echo "  🔄 Upgrading ComfyUI $CURRENT_VERSION → $LATEST_TAG..."
+  git stash --quiet 2>/dev/null || true
+  if git checkout "$LATEST_TAG" --quiet 2>/dev/null; then
+    echo "  ✅ ComfyUI checked out to $LATEST_TAG"
+    if [ -f requirements.txt ]; then
+      echo "  📦 Updating dependencies..."
+      $COMFY_PYTHON -m pip install -r requirements.txt -q 2>/dev/null || true
+    fi
+    NODES_INSTALLED=$((NODES_INSTALLED + 1))  # triggers Phase 3 restart
+  else
+    echo "  ⚠️  Failed to checkout $LATEST_TAG, staying on $CURRENT_VERSION"
+    git checkout - --quiet 2>/dev/null || true
+  fi
+else
+  echo "  ✅ ComfyUI $CURRENT_VERSION already >= v0.24.0"
+fi
+
+# (Re-)export for the hf_download helper which reads $COMFYUI_DIR
+cd "$COMFYUI_DIR"
 
 echo "==> Creating directories..."
 # NOTE: do NOT pre-create subdirs here — hf_download uses hf_hub_download(local_dir)
@@ -106,20 +150,35 @@ hf_download "Comfy-Org/Ideogram-4" "vae/flux2-vae.safetensors" "$BASE_DIR"
 
 echo "==> All downloads completed!"
 
-# Restart ComfyUI so it picks up the new model files
-echo "==> Restarting ComfyUI..."
-if command -v supervisorctl &> /dev/null; then
-    supervisorctl restart comfyui 2>/dev/null \
-        && echo "✅ ComfyUI restarted via supervisorctl" \
-        || echo "⚠️  supervisorctl failed — restart ComfyUI manually"
-elif [ -f /etc/supervisor/supervisord.conf ]; then
-    supervisord -c /etc/supervisor/supervisord.conf 2>/dev/null \
-        && echo "✅ ComfyUI supervisor started" \
-        || echo "⚠️  supervisord failed — restart ComfyUI manually"
+# ─── PHASE 3: Restart ComfyUI if any upgrade or node install happened ───
+echo ""
+if [ "$NODES_INSTALLED" -gt 0 ]; then
+  echo "==> [Phase 3] Restarting ComfyUI to pick up upgrades/new nodes..."
+  if command -v supervisorctl &> /dev/null && supervisorctl status comfyui &> /dev/null; then
+    supervisorctl restart comfyui 2>&1
+    # Wait for ComfyUI to be ready (extract port from running process)
+    PORT=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ && !/tcl/ {for(i=1;i<=NF;i++) if($i=="--port"){print $(i+1); exit}}')
+    [ -z "$PORT" ] && PORT=8188
+    echo "  ⏳ Waiting for ComfyUI on port $PORT..."
+    for i in $(seq 1 40); do
+      if curl -s -o /dev/null -w "%{http_code}" http://localhost:$PORT/system_stats 2>/dev/null | grep -q 200; then
+        echo "  ✅ ComfyUI ready after ${i}s"; break
+      fi
+      sleep 2
+    done
+  else
+    echo "  ⚠️  supervisorctl not available — restart ComfyUI manually:"
+    echo "    cd $COMFYUI_DIR && $COMFY_PYTHON main.py --listen 0.0.0.0 --port 8188 --enable-cors-header &"
+  fi
 else
-    echo "⚠️  No supervisor found — restart ComfyUI manually"
-    echo "    Run: cd $COMFYUI_DIR && $COMFY_PYTHON main.py --listen 0.0.0.0 --port 8188 &"
+  echo "==> [Phase 3] No upgrades needed — ComfyUI already current"
+  echo "  💡 Click Refresh in the ComfyUI UI to load new models"
 fi
 
-echo "==> Done!"
-echo "👉 ComfyUI should now be loading the new models."
+echo ""
+echo "==> All tasks completed!"
+echo "📊 Summary:"
+echo "  • ComfyUI version: $($COMFY_PYTHON -c 'from comfyui_version import __version__; print(__version__)' 2>/dev/null || echo 'unknown')"
+echo "  • Upgrades/installs this run: $NODES_INSTALLED"
+echo "  • Models: 4 downloaded to $BASE_DIR"
+echo "👉 Refresh the ComfyUI UI to load the Ideogram 4 workflow."
