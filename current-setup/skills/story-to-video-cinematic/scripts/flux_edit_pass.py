@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Story-to-Video-Cinematic: Flux Klein Edit Pass
+Story-to-Video-Cinematic: Flux Klein Edit Pass (Multi-Character Support)
 =============================================
 Performs character consistency editing using Flux Klein 9B Image-to-Image Edit.
 Auto-composes specific edit prompts to replace generic characters with reference sheets.
+Supports multiple character references per shot.
 """
 
 import os
@@ -20,30 +21,62 @@ from comfyui_api import curl_json, wait_for_prompt
 from workflow_builder import build_dynamic_workflow
 
 
-def compose_edit_prompt(edit_prompt_descriptor, style):
-    """Generate a proper Flux Klein edit prompt for character consistency."""
-    return (
-        f"Replace the {edit_prompt_descriptor} character in the scene with "
-        f"the character from reference 1, matching their exact appearance, "
-        f"face, hair, clothing, and proportions. Keep the background, "
-        f"lighting, composition, and overall scene identical. "
-        f"Maintain the {style} art style throughout."
+def compose_multi_character_edit_prompt(characters_present, char_lookup, global_style):
+    """
+    Auto-compose a Klein edit prompt for N characters.
+    
+    Reference image numbering:
+      "reference image 1" = first character in characters_present
+      "reference image 2" = second character
+      etc.
+    """
+    if not characters_present:
+        return f"Keep the background, lighting, composition, and overall scene identical. Maintain the {global_style} art style throughout."
+
+    parts = []
+    for i, char_id in enumerate(characters_present, start=1):
+        char = char_lookup.get(char_id)
+        if not char:
+            continue
+        desc = char.get("edit_prompt_descriptor", f"the {char_id}")
+        parts.append(
+            f"Make {desc} match the character from reference image {i} "
+            f"exactly — same face, body, clothing, and proportions."
+        )
+    
+    preservation = (
+        "Keep the background, lighting, composition, and overall scene identical. "
+        f"Maintain the {global_style} art style throughout."
     )
+    
+    return " ".join(parts) + " " + preservation
 
 
-def execute_flux_klein_edit(scene_image_server_path, character_ref_server_path, edit_prompt,
-                             filename, workflow_template, global_cfg, base_url, auth=None):
-    """Queue and run a Flux Klein edit pass on ComfyUI."""
-    print(f"   🎨 Running Flux Klein Edit:")
+def execute_flux_klein_edit_multi(
+    scene_image_server_path,
+    character_ref_server_paths,  # list of server filenames, ordered by characters_present
+    edit_prompt,
+    filename,
+    workflow_template,
+    global_cfg,
+    base_url,
+    auth=None
+):
+    """
+    Execute a Flux Klein edit with N character references.
+    Uses the dynamic workflow builder.
+    """
+    print(f"   🎨 Running Flux Klein Edit Multi:")
     print(f"      Scene Image: {scene_image_server_path}")
-    print(f"      Character Ref: {character_ref_server_path}")
+    print(f"      Character Refs: {character_ref_server_paths}")
     print(f"      Edit Prompt: {edit_prompt[:120]}...")
 
     shot_for_builder = {
         "prompt": edit_prompt,
         "scene_image": scene_image_server_path,
-        "character_ref": character_ref_server_path,
-        "filename_prefix": filename.replace(".png", "")
+        "character_refs": character_ref_server_paths,
+        "filename_prefix": filename.replace(".png", ""),
+        "_builder_mode": "flux_klein_edit_dynamic"
     }
 
     # Build workflow using builder
@@ -73,3 +106,18 @@ def execute_flux_klein_edit(scene_image_server_path, character_ref_server_path, 
             return srv_filename
 
     return None
+
+
+def execute_flux_klein_edit(scene_image_server_path, character_ref_server_path, edit_prompt,
+                             filename, workflow_template, global_cfg, base_url, auth=None):
+    """Legacy/Single wrapper pointing to execute_flux_klein_edit_multi."""
+    return execute_flux_klein_edit_multi(
+        scene_image_server_path=scene_image_server_path,
+        character_ref_server_paths=[character_ref_server_path] if character_ref_server_path else [],
+        edit_prompt=edit_prompt,
+        filename=filename,
+        workflow_template=workflow_template,
+        global_cfg=global_cfg,
+        base_url=base_url,
+        auth=auth
+    )

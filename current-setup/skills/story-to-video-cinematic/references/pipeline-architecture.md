@@ -1,68 +1,49 @@
-# Cinematic Pipeline Architecture
+# Cinematic Pipeline V2 — Pipeline Architecture
 
-The `story-to-video-cinematic` pipeline orchestrates a three-stage model chain to produce character-consistent, high-fidelity videos.
+The cinematic animation pipeline uses a 3-stage model chain orchestrated via the **batch-wave execution model**. This ensures maximum visual quality, character consistency, and minimizes model swaps on the GPU.
 
-## Visual Pipeline Diagram
+## Model Stack
 
-```mermaid
-graph TD
-    A[Story Manifest] --> B["Phase 1: Agent composes cinematic_prompt.json"]
-    B --> C["Phase 2a: Ideogram 4 T2I"]
-    C --> D["Character Sheets (once per character)"]
-    C --> E["Raw Scene Frames (FF + LF per shot)"]
-    D --> F["Phase 2c: Flux Klein 9B EDIT"]
-    E --> F
-    F --> G["Consistent Scene Frames (FF + LF)"]
-    G --> H["Phase 3: LTX 2.3 FFLF Seed Hunter"]
-    H --> I[Video Clips]
-    I --> J["Phase 4: Continuation Stitching"]
-    
-    style F fill:#ff9900,stroke:#333,color:#000
-    style H fill:#00aa00,stroke:#333,color:#fff
-```
+1. **Stage 1: Ideogram 4 (T2I)**: Generates high-quality base compositions and character reference sheets.
+2. **Stage 2: Flux Klein 9B (I2I Edit)**: Consistency editor that aligns characters with their reference sheets and derives last frames (LF) from first frames (FF).
+3. **Stage 3: LTX 2.3 FFLF (Video)**: Motion engine that interpolates between FF and LF.
 
-## Folder Structure and Assets Flow
+---
 
-All assets generated during the run are stored in specific folders within the story directory:
+## Batch-Wave Execution Model (GPU Swap Timeline)
+
+By batching calls to the same model together, the orchestrator performs a fixed set of GPU loads (max 7 loads) regardless of the number of scenes/shots in the story.
 
 ```
-📂 [story_dir]/
-├── 📄 cinematic_prompt.json              # Schema v2.0 manifest
-├── 📂 character_sheets/                  # Stage 1: Character sheets
-│   └── 🖼️ [character]_character_sheet.png
-├── 📂 scenes/                            # Stage 1: Raw scene frames (FF/LF)
-│   ├── 🖼️ [prefix]_ff_raw.png
-│   └── 🖼️ [prefix]_lf_raw.png
-├── 📂 scenes_edited/                     # Stage 2: Character-consistent frames
-│   ├── 🖼️ [prefix]_ff_edited.png
-│   ├── 🖼️ [prefix]_lf_edited.png
-│   └── 🖼️ [prefix]_tail_frame.png       # Extracted tail from previous video
-└── 📂 videos/                            # Stage 3: Output video clips
-    └── 🎬 [prefix].mp4
+Wave 0 (GPU: Ideogram) 
+   └─ Generate all character reference sheets.
+Wave 1 (GPU: Ideogram) 
+   └─ Generate all raw First Frames (FFs) for visual chain starts.
+Wave 2 (GPU: Flux Klein)
+   ├─ Apply character sheets to raw FFs (FF edit pass).
+   └─ Derive all Last Frames (LFs) from edited FFs.
+Wave 3 (GPU: LTX-Video)
+   ├─ Render all visual chain start videos.
+   └─ Extract tail frames from finished videos.
+Wave 4 (GPU: Flux Klein - Continuation Wave 1)
+   └─ Derive LFs for depth-1 continuation shots using tail frames as FF inputs.
+Wave 5 (GPU: LTX-Video - Continuation Wave 1)
+   ├─ Render all depth-1 continuation videos.
+   └─ Extract tail frames from finished videos.
+Wave 6 & 7 (Depth 2 Continuation)
+   └─ Repeat Wave 4 & 5 logic for depth-2 continuation shots.
 ```
 
-## Batch Processing Phase Design (Model Swap Optimization)
+---
 
-To fit all models (~93GB total) on a single 24GB VRAM GPU, execution is split into four distinct batch phases:
+## Technical Details
 
-1. **Phase 1: Character Sheets Generation**
-   - Loads Ideogram 4.0 T2I.
-   - Generates character sheets for all characters in the story manifest on clean white backgrounds.
-   - Unloads Ideogram.
+### Visual Depth & Wave Scheduling
+Every shot is recursively assigned a visual depth:
+* `depth = 0` if the shot starts a chain (`continuity: "start"`, `##cut`, or `ff_source: "ideogram"`).
+* `depth = d + 1` if it continues from a shot at depth `d`.
 
-2. **Phase 2: Raw Scene Keyframe Generation**
-   - Loads Ideogram 4.0 T2I.
-   - Generates all raw FF (First Frame) and LF (Last Frame) scene stills for all shots.
-   - Unloads Ideogram.
+This visual depth determines the continuation wave in which the shot is processed, allowing the pipeline to scale dynamically to support any chain length.
 
-3. **Phase 3: Flux Klein Edit Pass**
-   - Loads Flux Klein 9B Image Edit.
-   - Performs editing on all raw stills using the character sheets and composed edit instructions.
-   - Saves final frames into `scenes_edited/`.
-   - Unloads Flux Klein.
-
-4. **Phase 4: FFLF Video Pipeline**
-   - Loads LTX 2.3 FFLF.
-   - Sequentially renders each shot's video using the consistent keyframes.
-   - Extracts continuation tail frames for downstream shots in chains.
-   - Unloads LTX.
+### Stitching
+At the end of the pipeline, the orchestrator outputs `stitch_list.json` containing the sorted list of successful video clip paths.

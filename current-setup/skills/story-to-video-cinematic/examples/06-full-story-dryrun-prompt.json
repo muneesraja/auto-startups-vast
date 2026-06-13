@@ -1,0 +1,136 @@
+{
+  "version": "3.0",
+  "pipeline": "cinematic-v2",
+
+  "models": {
+    "character_sheet_generator": "ideogram-4-t2i",
+    "scene_generator": "ideogram-4-t2i",
+    "consistency_editor": "flux-2-klein-image-edit",
+    "video_engine": "ltx-23-fflf-seed-hunter"
+  },
+
+  "global": {
+    "style": "Cinematic 3D Pixar-style, soft volumetric lighting, warm color palette",
+    "resolution_preset": "1080p",
+    "fps": 25,
+    "segment_duration": 5,
+    "overlap_seconds": 1.0,
+    "input_ref_strength": 0.8,
+    "end_ref_strength": 0.8,
+    "seed_base": 42,
+    "auto_select_motion": true,
+    "max_continuous_shots": 3,
+    "quality_gate": {
+      "enabled": true,
+      "provider": "openrouter",
+      "min_composition_score": 7,
+      "min_identity_score": 7,
+      "min_motion_score": 7
+    }
+  },
+
+  "characters": [
+    {
+      "id": "pippin",
+      "display_name": "Pippin the Panda",
+      "description": "A cheerful baby panda with round face, large dark circular eye patches, fluffy white-and-black fur, wearing a small red knitted scarf around his neck",
+      "style_notes": "3D animated, Pixar-style, soft fur rendering, chibi proportions, large head-to-body ratio",
+      "edit_prompt_descriptor": "the baby panda with the red scarf",
+      "character_sheet_path": null,
+      "character_sheet_prompt": "Professional character reference sheet for Pippin the Panda. Front view, 3/4 view, and side profile. A cheerful baby panda with round face, large dark circular eye patches, fluffy white-and-black fur, wearing a small red knitted scarf. Clean white background, studio lighting, 3D Pixar-style rendering."
+    },
+    {
+      "id": "miko",
+      "display_name": "Miko the Monkey",
+      "description": "A playful brown spider monkey with long curled tail, bright amber eyes, wiry brown fur, wearing a tiny green leaf hat tilted to one side",
+      "style_notes": "3D animated, Pixar-style, wiry fur texture, slender build, expressive face",
+      "edit_prompt_descriptor": "the brown monkey with the green leaf hat",
+      "character_sheet_path": null,
+      "character_sheet_prompt": "Professional character reference sheet for Miko the Monkey. Front view, 3/4 view, and side profile. A playful brown spider monkey with long curled tail, bright amber eyes, wiry brown fur, wearing a tiny green leaf hat tilted to one side. Clean white background, studio lighting, 3D Pixar-style rendering."
+    }
+  ],
+
+  "director_plan": {
+    "story_summary": "Pippin the panda discovers a hidden waterfall in the bamboo forest and meets Miko the monkey, who becomes his adventure companion.",
+    "total_scenes": 1,
+    "scenes": [
+      {
+        "scene_id": 1,
+        "scene_title": "Discovery in the Bamboo Forest",
+        "scene_summary": "Pippin walks through a dense bamboo forest and discovers a butterfly, leading him deeper into the woods.",
+        "shots": [
+          {
+            "shot_id": 1,
+            "shot_type": "chain_start",
+            "continuity": "start",
+            "narrative": "A baby panda walks along a mossy dirt path through a dense bamboo forest at golden hour.",
+            "cinematography_notes": "Wide establishing shot, camera at eye level, warm golden light filtering through bamboo stalks.",
+            "characters_present": ["pippin"],
+
+            "ff_source": "ideogram",
+            "ff_prompt": "Wide establishing shot of a dense bamboo forest at golden hour. A baby panda with a red scarf walks along a mossy dirt path. Warm golden light filters through tall bamboo stalks. Soft volumetric fog in the background. 3D Pixar-style cinematic still.",
+            "ff_edit_instructions": {
+              "pippin": "Replace the baby panda in the scene with the character from reference image 1, matching their exact face, fur pattern, and red scarf. Keep the background, lighting, pose, and composition identical."
+            },
+
+            "lf_source": "klein_from_ff",
+            "lf_edit_instruction": "Shift the camera view slightly forward along the path. The panda pauses mid-step and turns its head to the right with curious wide eyes, as if noticing something off-screen. Keep the background environment, lighting, and character identity identical.",
+            "lf_edit_references": ["pippin"],
+
+            "motion_prompt": "Camera gently pushes forward along the path, the panda slows its walk and turns its head curiously to the right",
+
+            "overrides": {}
+          },
+          {
+            "shot_id": 2,
+            "shot_type": "continuation",
+            "continuity": "##continue",
+            "continues_from": "s01_sh01",
+            "narrative": "Pippin notices a glowing blue butterfly and reaches out toward it.",
+            "cinematography_notes": "Medium shot, camera holds steady, slight zoom as panda reaches toward butterfly.",
+            "characters_present": ["pippin"],
+
+            "ff_source": "extracted_tail",
+            "ff_prompt": null,
+            "ff_edit_instructions": null,
+
+            "lf_source": "klein_from_extracted_tail",
+            "lf_edit_instruction": "The panda lifts its right paw gently toward a glowing blue butterfly that has landed on a nearby bamboo leaf. The panda has a delighted, wide-eyed expression. Keep character identity, background, and lighting identical.",
+            "lf_edit_references": ["pippin"],
+
+            "motion_prompt": "The panda slowly raises its right paw toward the butterfly, camera holds steady with slight zoom",
+
+            "overrides": {
+              "segment_duration": 4
+            }
+          },
+          {
+            "shot_id": 3,
+            "shot_type": "chain_start",
+            "continuity": "##cut",
+            "narrative": "A wide shot reveals a sparkling waterfall hidden behind the bamboo. Pippin and Miko stand side by side on a mossy rock.",
+            "cinematography_notes": "Wide establishing shot, dramatic reveal. Both characters visible. Camera slowly zooms in.",
+            "characters_present": ["pippin", "miko"],
+
+            "ff_source": "ideogram",
+            "ff_prompt": "Wide cinematic shot of a sparkling waterfall cascading into a crystal-clear pool, hidden behind parting bamboo stalks. On a mossy rock in the foreground, a baby panda with a red scarf stands next to a brown spider monkey with a green leaf hat. Both look up at the waterfall in awe. Dramatic volumetric light, 3D Pixar-style.",
+            "ff_edit_instructions": {
+              "pippin": "Make the baby panda on the left match the character from reference image 1 exactly — same face, fur pattern, and red scarf. Keep the background, lighting, monkey, and composition identical.",
+              "miko": "Make the brown monkey on the right match the character from reference image 2 exactly — same face, amber eyes, fur texture, and green leaf hat. Keep the background, lighting, panda, and composition identical."
+            },
+
+            "lf_source": "klein_from_ff",
+            "lf_edit_instruction": "The monkey turns toward the panda and extends its right hand in a friendly greeting gesture. The panda looks at the monkey with a surprised, delighted expression, mouth slightly open. Camera has zoomed in slightly closer to both characters. Keep background, lighting, waterfall, and character identities identical.",
+            "lf_edit_references": ["pippin", "miko"],
+
+            "motion_prompt": "Camera slowly zooms in on the two characters, the monkey turns and extends its hand, the panda reacts with surprised delight",
+
+            "overrides": {
+              "segment_duration": 6
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

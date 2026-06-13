@@ -1,106 +1,69 @@
-# Cinematic Prompt Schema (v2.0)
+# Cinematic Prompt Schema v3.0
 
-The prompt manifest schema (`cinematic_prompt.json`) for the `story-to-video-cinematic` pipeline. Evolved from `filmmaking_prompt.json` to support character sheets and Flux Klein edit instructions.
+The `cinematic_prompt.json` configuration file is the single source of truth for the cinematic animation pipeline. Every scene, shot, prompt, character reference sheet, and continuity choice is explicitly declared in this schema.
 
-## Schema Example
+## Top-Level structure
 
 ```json
 {
-  "version": "2.0",
-  "pipeline": "cinematic",
-  "models": {
-    "image_generator": "ideogram-4-t2i",
-    "image_editor": "flux-2-klein-image-edit",
-    "video_engine": "ltx-23-fflf-seed-hunter"
-  },
-  "global": {
-    "style": "Cinematic 3D Pixar-style, soft volumetric lighting, warm color palette",
-    "resolution_preset": "1080p",
-    "fps": 25,
-    "segment_duration": 5,
-    "input_ref_strength": 0.8,
-    "end_ref_strength": 0.8,
-    "seed_base": 42,
-    "auto_select_motion": true,
-    "continuation_mode": "auto_chain"
-  },
-  "characters": {
-    "girl": {
-      "description": "A 10-year-old girl with short brown hair, big green eyes, wearing a blue dress with white polka dots",
-      "style_notes": "chibi proportions, 3D rendered, large head-to-body ratio",
-      "edit_prompt_descriptor": "the young girl with brown hair and blue polka-dot dress"
-    },
-    "wizard": {
-      "description": "An elderly wizard with long white beard, pointed purple hat, flowing violet robes",
-      "style_notes": "realistic proportions, weathered face, kind eyes",
-      "edit_prompt_descriptor": "the elderly wizard in purple robes"
-    }
-  },
-  "shots": [
-    {
-      "scene": 1,
-      "shot": 1,
-      "shot_type": "chain_start",
-      "first_frame_prompt": "establishing shot of a fantasy village at dawn...",
-      "last_frame_prompt": "same village, camera pushed closer...",
-      "motion_prompt": "Camera slowly pushes in toward the girl...",
-      "filename_prefix": "film_001_shot001",
-      "characters_present": ["girl"],
-      "primary_character": "girl",
-      "edit_pass": {
-        "ff_edit_prompt": "Replace the young girl with brown hair in the scene with the character from reference 1, matching their exact appearance. Keep the background, lighting, and composition identical",
-        "lf_edit_prompt": "Replace the young girl with brown hair in the scene with the character from reference 1, matching their exact appearance and confused expression. Keep the background and lighting identical"
-      },
-      "references": [],
-      "lf_references": [],
-      "continues_from": null,
-      "overrides": {}
-    }
-  ]
+  "version": "3.0",
+  "pipeline": "cinematic-v2",
+  "models": { ... },
+  "global": { ... },
+  "characters": [ ... ],
+  "director_plan": { ... }
 }
 ```
 
-## Schema Reference
+## Schema Field Reference
 
-### Top-Level Fields
+### 1. Top-Level Fields
 
-- `version`: String. Schema version, must be `"2.0"`.
-- `pipeline`: String. Pipeline name, must be `"cinematic"`.
-- `models`: Object. Specifies the model family used for each stage:
-  - `image_generator`: `"ideogram-4-t2i"`
-  - `image_editor`: `"flux-2-klein-image-edit"`
-  - `video_engine`: `"ltx-23-fflf-seed-hunter"`
-- `global`: Object. Contains global pipeline configurations.
-- `characters`: Object mapping character ID string to character config.
-- `shots`: Array of Shot Objects.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | string | ✅ | Must be `"3.0"` |
+| `pipeline` | string | ✅ | Must be `"cinematic-v2"` |
+| `models` | object | ✅ | Mapping of model family names to their identifiers |
+| `global` | object | ✅ | Global pipeline parameters |
+| `characters` | array | ✅ | Registry of characters with sheet descriptions and prompts |
+| `director_plan` | object | ✅ | Story summary and list of scenes |
+
+### 2. `characters[]` — Character Registry
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | ✅ | Unique character identifier matching references in shots |
+| `display_name` | string | ✅ | Human-readable name for logging |
+| `description` | string | ✅ | Detailed visual description used for T2I prompts |
+| `style_notes` | string | ❌ | Style instructions (e.g., " Pixar-style, chibi ratios") |
+| `edit_prompt_descriptor` | string | ✅ | Short descriptor representing the character in Flux Klein edit prompts |
+| `character_sheet_path` | string\|null | ❌ | Local file path if pre-existing, `null` if it should be generated |
+| `character_sheet_prompt` | string | ✅ | Ideogram T2I prompt used to generate the character sheet |
+
+### 3. `director_plan.scenes[].shots[]` — Shot Definition
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `shot_id` | int | ✅ | Sequential shot ID within this scene |
+| `shot_type` | enum | ✅ | `"chain_start"` \| `"continuation"` \| `"independent"` |
+| `continuity` | enum | ✅ | `"start"` \| `"##continue"` \| `"##cut"` |
+| `continues_from` | string\|null | ❌ | Prefix of predecessor shot, e.g. `"s01_sh01"`. Null for `chain_start` |
+| `narrative` | string | ✅ | Text narration of what happens in the shot |
+| `cinematography_notes` | string | ❌ | Camera angles, framing, or lighting instructions |
+| `characters_present` | string[] | ✅ | Array of character IDs present in the shot. Order dictates reference mapping index! |
+| `ff_source` | enum | ✅ | `"ideogram"` \| `"extracted_tail"` |
+| `ff_prompt` | string\|null | ❌ | Ideogram T2I prompt for FF. Must be non-empty if `ff_source: "ideogram"` |
+| `ff_edit_instructions` | object\|null | ❌ | Dict mapping character IDs to custom Flux Klein edit prompts |
+| `lf_source` | enum | ✅ | `"ideogram_fresh"` \| `"klein_from_ff"` \| `"klein_from_extracted_tail"` |
+| `lf_edit_instruction` | string | ✅ | Delta prompt for Flux Klein describing change from FF to LF |
+| `lf_edit_references` | string[] | ✅ | Character IDs whose sheets should be mapped as refs for LF generation |
+| `motion_prompt` | string | ✅ | Brief motion description for LTX FFLF (20-60 words) |
+| `overrides` | object | ❌ | Overrides for global parameters (`segment_duration`, etc.) |
 
 ---
 
-### Character Object
+## Design Choices & Key Benefits
 
-- `description`: String. Detailed physical description of the character. Used by Ideogram 4 to generate character sheets and scene frames.
-- `style_notes`: String (optional). Styling hints like "chibi proportions" or "pastel colors".
-- `edit_prompt_descriptor`: String. A short physical descriptor of the character (e.g. `"the girl with brown hair"`) used by the system to auto-compose Flux Klein edit prompts.
-
----
-
-### Shot Object
-
-- `scene`: Integer. Scene index.
-- `shot`: Integer. Shot index.
-- `shot_type`: String. One of:
-  - `"chain_start"`: Start of a continuation chain (generates both FF and LF stills).
-  - `"independent"`: Standalone shot (generates both FF and LF stills).
-  - `"continuation"`: Continues from previous shot (uses previous video tail frame as FF, generates LF still).
-  - `"bridge"`: Similar to continuation.
-- `first_frame_prompt`: String (required for root shots). Text prompt for First Frame generation.
-- `last_frame_prompt`: String (required). Text prompt for Last Frame generation.
-- `motion_prompt`: String (required). Prompt describing the motion to interpolate between keyframes.
-- `filename_prefix`: String. Output filename prefix (e.g., `film_001_shot001`).
-- `characters_present`: Array of Strings (optional). List of character ID keys present in this shot.
-- `primary_character`: String (optional). The primary character ID key whose character sheet should be used for the Flux Klein edit pass.
-- `edit_pass`: Object (optional). Overrides for auto-generated edit prompts:
-  - `ff_edit_prompt`: String. Custom edit instruction for FF.
-  - `lf_edit_prompt`: String. Custom edit instruction for LF.
-- `continues_from`: String (optional). Filename prefix of the preceding shot.
-- `overrides`: Object (optional). Parameter overrides (e.g., `segment_duration`, `seed_base`).
+1. **Explicit Source Enums**: The fields `ff_source` and `lf_source` leave no ambiguity. The orchestrator maps inputs directly to ComfyUI based on these enums.
+2. **Order-based Character Mapping**: The array order of `characters_present` determines which reference sheet maps to which reference input in the dynamic workflow (Index 0 → Ref 1, Index 1 → Ref 2, etc.).
+3. **Continuation Chains**: A shot marked `##continue` is linked via `continues_from` to its predecessor. This forces the orchestrator to extract the tail frame from the predecessor's video and use it as the starting frame (FF) for the current shot, preventing visual jumps.

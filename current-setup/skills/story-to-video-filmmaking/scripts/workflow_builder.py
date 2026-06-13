@@ -385,7 +385,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
 
     Falls back to legacy builder if template does not have _reference_slots metadata.
     """
-    builder_type = template.get("_builder")
+    builder_type = shot_data.get("_builder_mode") or template.get("_builder")
     references = list(shot_data.get("references", []))
 
     # Deduplicate references — same image in multiple slots causes
@@ -409,11 +409,81 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         return build_dynamic_workflow(t2i_template, shot_data, global_cfg)
 
     ref_slots = template.get("_reference_slots")
-    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v", "ltx_director", "ltx_fflf_seed_hunter", "ideogram_t2i", "flux_klein_edit"]:
+    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v", "ltx_director", "ltx_fflf_seed_hunter", "ideogram_t2i", "flux_klein_edit", "flux_klein_edit_dynamic"]:
         return _build_workflow_legacy(template, shot_data, global_cfg)
 
     # Deep copy raw template
     workflow = copy.deepcopy(template)
+
+    if builder_type == "flux_klein_edit_dynamic":
+        character_refs = shot_data.get("character_refs", [])
+        num_refs = len(character_refs)
+        
+        # 1. Update first character ref placeholder if any
+        if num_refs >= 1:
+            workflow["121"]["inputs"]["image"] = character_refs[0]
+            
+        # 2. Clone reference chain for additional characters
+        for i in range(2, num_refs + 1):
+            ref_filename = character_refs[i - 1]
+            suffix = f"_{i}"
+            prev_suffix = f"_{i-1}" if i > 2 else ""
+            
+            prev_pos_node = f"92:131{prev_suffix}"
+            prev_neg_node = f"92:129{prev_suffix}"
+            
+            # LoadImage clone
+            workflow[f"121{suffix}"] = {
+                "inputs": {"image": ref_filename},
+                "class_type": "LoadImage",
+                "_meta": {"title": f"Load Image (Ref {i})"}
+            }
+            
+            # ImageScaleToTotalPixels clone
+            workflow[f"92:85{suffix}"] = {
+                "inputs": {
+                    "upscale_method": "lanczos",
+                    "megapixels": 1,
+                    "resolution_steps": 1,
+                    "image": [f"121{suffix}", 0]
+                },
+                "class_type": "ImageScaleToTotalPixels",
+                "_meta": {"title": f"Scale Image to Total Pixels (Ref {i})"}
+            }
+            
+            # VAEEncode clone
+            workflow[f"92:130{suffix}"] = {
+                "inputs": {
+                    "pixels": [f"92:85{suffix}", 0],
+                    "vae": ["92:110", 0]
+                },
+                "class_type": "VAEEncode",
+                "_meta": {"title": f"VAE Encode (Ref {i})"}
+            }
+            
+            # ReferenceLatent positive clone — chains from previous positive
+            workflow[f"92:131{suffix}"] = {
+                "inputs": {
+                    "conditioning": [prev_pos_node, 0],
+                    "latent": [f"92:130{suffix}", 0]
+                },
+                "class_type": "ReferenceLatent",
+                "_meta": {"title": f"ReferenceLatent Positive (Ref {i})"}
+            }
+            
+            # ReferenceLatent negative clone — chains from previous negative
+            workflow[f"92:129{suffix}"] = {
+                "inputs": {
+                    "conditioning": [prev_neg_node, 0],
+                    "latent": [f"92:130{suffix}", 0]
+                },
+                "class_type": "ReferenceLatent",
+                "_meta": {"title": f"ReferenceLatent Negative (Ref {i})"}
+            }
+            
+            # Rewire CFGGuider to use the new last-in-chain ReferenceLatent
+            workflow["92:103"]["inputs"]["positive"] = [f"92:131{suffix}", 0]
+            workflow["92:103"]["inputs"]["negative"] = [f"92:129{suffix}", 0]
 
     # Limit number of references to max_references
     max_refs = template.get("_max_references", 12)
@@ -442,7 +512,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     conditioning_input_pattern = template.get("_conditioning_input_pattern", "images.image_{N}")
 
     # Apply reference modifications
-    if builder_type in ["flux_t2i", "ltx_i2v", "ltx_director", "ideogram_t2i", "flux_klein_edit"]:
+    if builder_type in ["flux_t2i", "ltx_i2v", "ltx_director", "ideogram_t2i", "flux_klein_edit", "flux_klein_edit_dynamic"]:
         # Zero-reference T2I or simple video/edit workflows have no references to prune or spawn
         pass
     elif builder_type == "flux_reference_chain":
@@ -536,6 +606,15 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         workflow_str = workflow_str.replace("__SCENE_IMAGE__", _json_escape(scene_image))
         workflow_str = workflow_str.replace("__CHARACTER_REF__", _json_escape(character_ref))
         workflow_str = workflow_str.replace("__EDIT_PROMPT__", _json_escape(edit_prompt))
+    elif builder_type == "flux_klein_edit_dynamic":
+        scene_image = shot_data.get("scene_image", "")
+        edit_prompt = shot_data.get("prompt", "")
+        character_refs = shot_data.get("character_refs", [])
+        char_ref = character_refs[0] if character_refs else ""
+        
+        workflow_str = workflow_str.replace("__SCENE_IMAGE__", _json_escape(scene_image))
+        workflow_str = workflow_str.replace("__EDIT_PROMPT__", _json_escape(edit_prompt))
+        workflow_str = workflow_str.replace("__CHARACTER_REF__", _json_escape(char_ref))
     elif builder_type == "ltx_i2v":
         motion_image = shot_data.get("motion_image", "")
         if not motion_image and references:

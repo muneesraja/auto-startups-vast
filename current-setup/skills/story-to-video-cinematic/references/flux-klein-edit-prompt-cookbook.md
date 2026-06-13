@@ -1,53 +1,46 @@
-# Flux Klein 9B Edit Prompt Cookbook
+# Flux Klein Edit Prompt Cookbook
 
-A prompt engineering guide specifically for the Flux Klein edit pass in this cinematic pipeline.
+Flux Klein 9B is an image-to-image **editor**, not a text-to-image generator. To get the best consistency, prompts must follow specific formulas.
 
-## Edit Prompt Formula
+## Edit Prompt Structure
 
-```
-[PRIMARY ACTION] + [SUBJECT IDENTIFICATION] + [REFERENCE DIRECTIVE] + [PRESERVATION CONSTRAINT]
-```
+`[Action/Change Instruction] + [Character Descriptor] + [Reference Directive] + [Style/Detail Preservation]`
 
-## Prompt Patterns
-
-### Pattern 1: Character Replacement (most common)
-"Replace the [generic character description] in the scene with the character from reference 1, matching their exact appearance, outfit, and features while keeping the background, lighting, pose, and composition identical"
-
-### Pattern 2: Character Identity Lock
-"Make the [character position] character look exactly like reference 1 — match their face, hair, clothing, and proportions while preserving the scene's lighting, background, and overall composition"
-
-### Pattern 3: Style-Consistent Character Edit
-"Edit the [character] to match reference 1's appearance in the style of [3D Pixar / anime / cinematic realism]. Preserve all environmental elements and the character's pose unchanged"
+* **Correct**: `"Replace the baby panda with the red scarf with the character from reference image 1, keeping face, fur and scarf identical. Keep background and lighting same."`
+* **Incorrect**: `"A cute baby panda wearing a red scarf walks through a bamboo forest."` (This will cause Klein to ignore the reference image and hallucinate a generic panda).
 
 ---
 
-## Anti-Patterns (Do NOT use)
+## Cookbook Patterns
 
-❌ **"A beautiful scene with a girl standing in a fantasy village"**
-- *Why:* This is a GENERATION prompt, not an EDIT prompt. Klein will ignore the scene image and hallucinate a new one.
+### 1. Single-Character Consistency Pass
+Used to align a raw Ideogram scene to the registered character sheet.
+```
+Replace the [character description] with the character from reference image 1, matching their exact face, clothing, and proportions. Keep the background, lighting, and composition identical. Maintain the [global style] art style.
+```
 
-❌ **"Make the character look better"**
-- *Why:* Vague. Klein needs specific instructions about what to change.
+### 2. Multi-Character Consistency Pass
+Used when multiple characters are in the same shot.
+```
+Make the [character 1 descriptor] match the character from reference image 1 exactly — same face, fur pattern, and clothing. Make the [character 2 descriptor] match the character from reference image 2 exactly — same face, colors, and clothing. Keep the background, lighting, and composition identical. Maintain the [global style] art style throughout.
+```
 
-❌ **"Generate a new image of the character from reference 1 in a village"**
-- *Why:* Klein is an editor, not a generator. It needs the scene image as context.
+### 3. Last Frame (LF) Derivation (`klein_from_ff`)
+Used to modify the First Frame (FF) into the Last Frame (LF) describing ONLY the movement/expression delta.
+```
+[Describe the camera or subject delta, e.g. "Shift camera view slightly forward. The panda turns its head to the right with curious wide eyes."] Keep character identity and background identical.
+```
 
-❌ **Redescribing the entire scene**
-- *Why:* Klein already "sees" the scene image. Redescribing it causes drift/hallucination in background elements.
+### 4. Continuation LF Edit (`klein_from_extracted_tail`)
+Used to edit an extracted tail frame to produce the LF for a continuation shot.
+```
+[Describe the action delta, e.g. "The panda lifts its right paw toward the butterfly. It has a delighted wide-eyed expression."] Keep character identity, background, and lighting identical.
+```
 
 ---
 
-## Reference Preprocessing Rules
+## Critical Rules & Guidelines
 
-### For SCENE IMAGE (Image 1 / node 76):
-- ✅ Full scene from Ideogram with characters in position
-- ✅ Keep full background, lighting, environment intact
-- ✅ Resolution should match output target (1344×768 for 16:9)
-
-### For CHARACTER REFERENCE (Image 2 / node 121):
-- ✅ Clean character sheet on white/neutral background
-- ✅ Background removed or minimal to prevent background bleed
-- ✅ Upright faces — Klein struggles with rotated inputs
-- ✅ Include face close-up for identity lock (or multi-view sheet)
-- ❌ Do NOT use scene images as character references
-- ❌ Do NOT use heavily stylized backgrounds in character refs
+1. **Reference Numbering**: References correspond 1:1 to the order of characters in the `characters_present` list. Refer to them as `"reference image 1"`, `"reference image 2"`, etc.
+2. **One Delta per LF**: For best animation coherence in LTX, restrict LF edits to **one** major visual change (either a camera shift, an expression shift, or a single character action). Do not combine all three in one edit.
+3. **Preserve Backgrounds**: Always append `"Keep the background, lighting, and composition identical."` to prevent Klein from drifting the environment.
