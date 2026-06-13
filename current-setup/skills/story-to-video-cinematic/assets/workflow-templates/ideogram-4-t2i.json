@@ -1,0 +1,542 @@
+{
+  "_comment": "Ideogram 4 T2I workflow template. Placeholders: __PROMPT__, __SEED__, __FILENAME_PREFIX__",
+  "_builder": "ideogram_t2i",
+  "_overrides_map": {
+    "aspect_ratio": { "node": "37", "key": "aspect_ratio" },
+    "seed": { "node": "98:18", "key": "noise_seed" },
+    "mode": { "node": "98:156", "key": "choice" }
+  },
+  "_model_id": "ideogram-4-t2i",
+  "37": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 1
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "111": {
+    "inputs": {
+      "source": [
+        "134:170",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  },
+  "158": {
+    "inputs": {
+      "filename_prefix": "__FILENAME_PREFIX__",
+      "images": [
+        "98:13",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "98:9": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "98:10": {
+    "inputs": {
+      "conditioning": [
+        "98:24",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "98:11": {
+    "inputs": {
+      "width": [
+        "98:31",
+        1
+      ],
+      "height": [
+        "98:32",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "98:12": {
+    "inputs": {
+      "noise": [
+        "98:18",
+        0
+      ],
+      "guider": [
+        "98:155",
+        0
+      ],
+      "sampler": [
+        "98:16",
+        0
+      ],
+      "sigmas": [
+        "98:17",
+        0
+      ],
+      "latent_image": [
+        "98:11",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "98:13": {
+    "inputs": {
+      "samples": [
+        "98:12",
+        0
+      ],
+      "vae": [
+        "98:9",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "98:16": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "98:17": {
+    "inputs": {
+      "steps": [
+        "98:151",
+        1
+      ],
+      "width": [
+        "98:31",
+        1
+      ],
+      "height": [
+        "98:32",
+        1
+      ],
+      "mu": [
+        "98:144",
+        0
+      ],
+      "std": [
+        "98:146",
+        0
+      ]
+    },
+    "class_type": "Ideogram4Scheduler",
+    "_meta": {
+      "title": "Ideogram 4 Scheduler"
+    }
+  },
+  "98:18": {
+    "inputs": {
+      "noise_seed": "__SEED__"
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "98:23": {
+    "inputs": {
+      "unet_name": "ideogram4_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "98:24": {
+    "inputs": {
+      "text": "__PROMPT__",
+      "clip": [
+        "98:14",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "98:14": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_fp8_scaled.safetensors",
+      "type": "ideogram4",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "98:27": {
+    "inputs": {
+      "value": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (Width)"
+    }
+  },
+  "98:28": {
+    "inputs": {
+      "value": [
+        "37",
+        1
+      ]
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (Height)"
+    }
+  },
+  "98:31": {
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "98:27",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "98:32": {
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "98:28",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "98:144": {
+    "inputs": {
+      "value": [
+        "98:145",
+        0
+      ]
+    },
+    "class_type": "ComfyNumberConvert",
+    "_meta": {
+      "title": "Number Convert"
+    }
+  },
+  "98:145": {
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "mu"
+    },
+    "class_type": "JsonExtractString",
+    "_meta": {
+      "title": "Extract Text from JSON"
+    }
+  },
+  "98:146": {
+    "inputs": {
+      "value": [
+        "98:150",
+        0
+      ]
+    },
+    "class_type": "ComfyNumberConvert",
+    "_meta": {
+      "title": "Number Convert"
+    }
+  },
+  "98:147": {
+    "inputs": {
+      "json_string": "{\n  \"Quality\": {\n    \"num_steps\": 48,\n    \"mu\": 0.0,\n    \"std\": 1.5,\n    \"preset_id\": \"V4_QUALITY_48\"\n  },\n  \"Default\": {\n    \"num_steps\": 20,\n    \"mu\": 0.0,\n    \"std\": 1.75,\n    \"preset_id\": \"V4_DEFAULT_20\"\n  },\n  \"Turbo\": {\n    \"num_steps\": 12,\n    \"mu\": 0.5,\n    \"std\": 1.75,\n    \"preset_id\": \"V4_TURBO_12\"\n  }\n}",
+      "key": [
+        "98:156",
+        0
+      ]
+    },
+    "class_type": "JsonExtractString",
+    "_meta": {
+      "title": "Extract Text from JSON"
+    }
+  },
+  "98:148": {
+    "inputs": {
+      "string": [
+        "98:147",
+        0
+      ],
+      "find": "'",
+      "replace": "\""
+    },
+    "class_type": "StringReplace",
+    "_meta": {
+      "title": "Replace Text"
+    }
+  },
+  "98:149": {
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "num_steps"
+    },
+    "class_type": "JsonExtractString",
+    "_meta": {
+      "title": "Extract Text from JSON"
+    }
+  },
+  "98:150": {
+    "inputs": {
+      "json_string": [
+        "98:148",
+        0
+      ],
+      "key": "std"
+    },
+    "class_type": "JsonExtractString",
+    "_meta": {
+      "title": "Extract Text from JSON"
+    }
+  },
+  "98:151": {
+    "inputs": {
+      "value": [
+        "98:149",
+        0
+      ]
+    },
+    "class_type": "ComfyNumberConvert",
+    "_meta": {
+      "title": "Number Convert"
+    }
+  },
+  "98:154": {
+    "inputs": {
+      "unet_name": "ideogram4_unconditional_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "98:155": {
+    "inputs": {
+      "cfg": 7,
+      "model": [
+        "98:157",
+        0
+      ],
+      "positive": [
+        "98:24",
+        0
+      ],
+      "model_negative": [
+        "98:154",
+        0
+      ],
+      "negative": [
+        "98:10",
+        0
+      ]
+    },
+    "class_type": "DualModelGuider",
+    "_meta": {
+      "title": "Dual Model CFG Guider"
+    }
+  },
+  "98:156": {
+    "inputs": {
+      "choice": "Default",
+      "index": 1,
+      "option1": "Quality",
+      "option2": "Default",
+      "option3": "Turbo",
+      "option4": ""
+    },
+    "class_type": "CustomCombo",
+    "_meta": {
+      "title": "Custom Combo"
+    }
+  },
+  "98:157": {
+    "inputs": {
+      "cfg": 3,
+      "start_percent": 0.7,
+      "end_percent": 1,
+      "model": [
+        "98:23",
+        0
+      ]
+    },
+    "class_type": "CFGOverride",
+    "_meta": {
+      "title": "CFG Override"
+    }
+  },
+  "134:114": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "System Prompt"
+    }
+  },
+  "134:115": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "User Prompt"
+    }
+  },
+  "134:163": {
+    "inputs": {
+      "string": [
+        "134:114",
+        0
+      ],
+      "find": "{{original_prompt}}",
+      "replace": [
+        "134:115",
+        0
+      ]
+    },
+    "class_type": "StringReplace",
+    "_meta": {
+      "title": "Replace Text"
+    }
+  },
+  "134:164": {
+    "inputs": {
+      "source": [
+        "134:166",
+        1
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  },
+  "134:165": {
+    "inputs": {
+      "source": [
+        "134:167",
+        1
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  },
+  "134:166": {
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "134:167": {
+    "inputs": {
+      "expression": "max(((a + 15) // 16) * 16, 256)",
+      "values.a": [
+        "37",
+        1
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "134:169": {
+    "inputs": {
+      "string": [
+        "134:163",
+        0
+      ],
+      "find": "{{width}}",
+      "replace": [
+        "134:164",
+        0
+      ]
+    },
+    "class_type": "StringReplace",
+    "_meta": {
+      "title": "Replace Text"
+    }
+  },
+  "134:170": {
+    "inputs": {
+      "string": [
+        "134:169",
+        0
+      ],
+      "find": "{{height}}",
+      "replace": [
+        "134:165",
+        0
+      ]
+    },
+    "class_type": "StringReplace",
+    "_meta": {
+      "title": "Replace Text"
+    }
+  }
+}

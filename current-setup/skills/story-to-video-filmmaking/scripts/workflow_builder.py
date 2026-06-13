@@ -409,7 +409,7 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         return build_dynamic_workflow(t2i_template, shot_data, global_cfg)
 
     ref_slots = template.get("_reference_slots")
-    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v", "ltx_director", "ltx_fflf_seed_hunter"]:
+    if ref_slots is None and builder_type not in ["flux_t2i", "ltx_i2v", "ltx_director", "ltx_fflf_seed_hunter", "ideogram_t2i", "flux_klein_edit"]:
         return _build_workflow_legacy(template, shot_data, global_cfg)
 
     # Deep copy raw template
@@ -442,8 +442,8 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
     conditioning_input_pattern = template.get("_conditioning_input_pattern", "images.image_{N}")
 
     # Apply reference modifications
-    if builder_type in ["flux_t2i", "ltx_i2v", "ltx_director"]:
-        # Zero-reference T2I or simple video workflows have no references to prune or spawn
+    if builder_type in ["flux_t2i", "ltx_i2v", "ltx_director", "ideogram_t2i", "flux_klein_edit"]:
+        # Zero-reference T2I or simple video/edit workflows have no references to prune or spawn
         pass
     elif builder_type == "flux_reference_chain":
         chain_endpoints = template.get("_chain_endpoints", {})
@@ -528,7 +528,15 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         if placeholder in workflow_str:
             workflow_str = workflow_str.replace(placeholder, _json_escape(references[i]))
 
-    if builder_type == "ltx_i2v":
+    if builder_type == "flux_klein_edit":
+        scene_image = shot_data.get("scene_image", "")
+        character_ref = shot_data.get("character_ref", "")
+        edit_prompt = shot_data.get("prompt", "")
+        
+        workflow_str = workflow_str.replace("__SCENE_IMAGE__", _json_escape(scene_image))
+        workflow_str = workflow_str.replace("__CHARACTER_REF__", _json_escape(character_ref))
+        workflow_str = workflow_str.replace("__EDIT_PROMPT__", _json_escape(edit_prompt))
+    elif builder_type == "ltx_i2v":
         motion_image = shot_data.get("motion_image", "")
         if not motion_image and references:
             motion_image = references[0]
