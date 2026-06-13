@@ -3,25 +3,71 @@
 # name: Flux.2 Klein 9B Image Edit
 # workflow: flkl_001
 # aliases: [flux-2-klein, flux-2-klein-image-edit, flux-klein, flux2-klein]
-# description: Downloads Flux.2 Klein 9B FP8 diffusion model + Qwen 3 8B text encoder + full encoder/small decoder VAE for image editing.
+# description: Installs KJNodes, then downloads Flux.2 Klein 9B FP8 diffusion model + Qwen 3 8B text encoder + full encoder/small decoder VAE for image editing. Auto-restarts ComfyUI after node install.
 # size: ~18.4GB
 # min_vram: 24GB
 # ---
 set -e
 
-# Platform-aware base directory detection
+# ─── Platform-aware base directory detection ───
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
-  BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
+  COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
+  BASE_DIR="$COMFYUI_DIR/models"
   echo "  Platform: RunPod (base: $BASE_DIR)"
 elif [ -d "/workspace/ComfyUI" ]; then
-  BASE_DIR="/workspace/ComfyUI/models"
+  COMFYUI_DIR="/workspace/ComfyUI"
+  BASE_DIR="$COMFYUI_DIR/models"
   echo "  Platform: Vast.ai (base: $BASE_DIR)"
 else
-  BASE_DIR="/workspace/ComfyUI/models"
+  COMFYUI_DIR="/workspace/ComfyUI"
+  BASE_DIR="$COMFYUI_DIR/models"
   echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
 fi
 
-echo "==> Creating directories..."
+export BASE_DIR
+export COMFYUI_DIR
+
+# ─── Detect ComfyUI launch args from running process ───
+detect_comfyui_args() {
+  local args
+  args=$(ps aux | grep '[p]ython.*main.py' | head -1 | sed 's/.*main\.py//')
+  if [ -n "$args" ]; then
+    echo "$args"
+  else
+    echo "--listen 0.0.0.0 --port 8188 --enable-cors-header"
+  fi
+}
+
+# ─── Get the Python binary used by ComfyUI ───
+detect_comfyui_python() {
+  local python_bin
+  local comfyui_pid
+  comfyui_pid=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ && !/tcl/ {print $1; exit}')
+  if [ -n "$comfyui_pid" ] && [ -f "/proc/$comfyui_pid/exe" ]; then
+    python_bin=$(readlink -f "/proc/$comfyui_pid/exe" 2>/dev/null)
+    if [ -n "$python_bin" ] && [ -x "$python_bin" ] && [[ "$python_bin" == *python* ]]; then
+      echo "$python_bin"
+      return
+    fi
+  fi
+  if [ -f /venv/main/bin/python3 ]; then
+    echo "/venv/main/bin/python3"
+    return
+  elif [ -f "$COMFYUI_DIR/venv/bin/python3" ]; then
+    echo "$COMFYUI_DIR/venv/bin/python3"
+    return
+  fi
+  echo "$(which python3)"
+}
+
+COMFYUI_PYTHON=$(detect_comfyui_python)
+COMFYUI_ARGS=$(detect_comfyui_args)
+echo "  ComfyUI Python: $COMFYUI_PYTHON"
+echo "  ComfyUI Args: $COMFYUI_ARGS"
+
+# ─── Create model directories ───
+echo ""
+echo "==> Creating model directories..."
 mkdir -p "$BASE_DIR"/{diffusion_models,text_encoders,vae}
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
@@ -44,7 +90,27 @@ fi
 source "$_HF_HELPER"
 unset _HF_HELPER
 
-echo "==> Starting downloads..."
+# ─── PHASE 1: Install custom nodes ───
+echo ""
+echo "==> [Phase 1] Setting up ComfyUI nodes..."
+cd "$COMFYUI_DIR"
+NODES_DIR="custom_nodes"
+NODES_INSTALLED=0
+
+# KJNodes (required by Flux.2 Klein image edit workflow — nodes 75, 92)
+if [ -d "$NODES_DIR/comfyui-kjnodes" ]; then
+  echo "  ✅ KJNodes already installed"
+else
+  echo "  📥 Installing KJNodes (kijai/ComfyUI-KJNodes)..."
+  git clone https://github.com/kijai/ComfyUI-KJNodes "$NODES_DIR/comfyui-kjnodes" || true
+  if [ -f "$NODES_DIR/comfyui-kjnodes/requirements.txt" ]; then
+    $COMFYUI_PYTHON -m pip install -r "$NODES_DIR/comfyui-kjnodes/requirements.txt" -q 2>/dev/null || true
+  fi
+  NODES_INSTALLED=$((NODES_INSTALLED + 1))
+fi
+
+echo ""
+echo "==> Starting model downloads..."
 
 # 1. Flux.2 Klein 9B FP8 diffusion model (~9.43GB)
 echo "[1/3] Flux.2 Klein 9B FP8 diffusion model..."
@@ -109,5 +175,56 @@ echo "[3/3] Full encoder small decoder VAE..."
 hf_download "black-forest-labs/FLUX.2-small-decoder" "full_encoder_small_decoder.safetensors" "$BASE_DIR/vae"
 
 echo "==> All downloads completed!"
-echo "==> Done!"
+
+# ─── PHASE 3: Restart ComfyUI if nodes were installed ───
+echo ""
+if [ "$NODES_INSTALLED" -gt 0 ]; then
+  echo "==> [Phase 3] Restarting ComfyUI to load new nodes..."
+
+  # Prefer supervisorctl (Vast.ai manages ComfyUI via supervisord)
+  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status comfyui >/dev/null 2>&1; then
+    echo "  🔄 supervisorctl restart comfyui"
+    supervisorctl restart comfyui 2>&1
+  else
+    # Fallback: find and kill the main.py process tree, then relaunch
+    COMFYUI_PID=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ && !/tcl/ {print $1; exit}')
+    if [ -n "$COMFYUI_PID" ]; then
+      echo "  🛑 Stopping ComfyUI (PID: $COMFYUI_PID)..."
+      kill "$COMFYUI_PID" 2>/dev/null || true
+      for i in $(seq 1 10); do
+        if ! kill -0 "$COMFYUI_PID" 2>/dev/null; then break; fi
+        sleep 1
+      done
+      if kill -0 "$COMFYUI_PID" 2>/dev/null; then
+        kill -9 "$COMFYUI_PID" 2>/dev/null || true
+      fi
+    fi
+    cd "$COMFYUI_DIR"
+    echo "  🚀 Starting ComfyUI..."
+    nohup $COMFYUI_PYTHON main.py $COMFYUI_ARGS > /workspace/comfyui.log 2>&1 &
+    NEW_PID=$!
+    echo "  ✅ ComfyUI started (PID: $NEW_PID)"
+  fi
+
+  # Wait for ComfyUI to be ready (check the actual port from $COMFYUI_ARGS)
+  COMFYUI_PORT=$(echo "$COMFYUI_ARGS" | grep -oE -- '--port [0-9]+' | awk '{print $2}' | head -1)
+  [ -z "$COMFYUI_PORT" ] && COMFYUI_PORT=8188
+  echo "  ⏳ Waiting for ComfyUI on port $COMFYUI_PORT..."
+  for i in $(seq 1 40); do
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:$COMFYUI_PORT/system_stats 2>/dev/null | grep -q 200; then
+      echo "  ✅ ComfyUI is ready!"
+      break
+    fi
+    sleep 2
+  done
+else
+  echo "==> [Phase 3] No new nodes installed — restart skipped"
+  echo "  💡 To load models, click Refresh in the ComfyUI UI"
+fi
+
+echo ""
+echo "==> All tasks completed!"
+echo "📊 Summary:"
+echo "  • Custom nodes installed this run: $NODES_INSTALLED"
+echo "  • Models: 3 downloaded to $BASE_DIR"
 echo "👉 Restart ComfyUI or click Refresh in the UI."
