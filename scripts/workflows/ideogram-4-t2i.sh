@@ -54,7 +54,11 @@ echo "  Using ComfyUI Python: $COMFY_PYTHON"
 # Docs: https://docs.comfy.org/changelog
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{diffusion_models,text_encoders,vae}
+# NOTE: do NOT pre-create subdirs here — hf_download uses hf_hub_download(local_dir)
+# which preserves the filename's directory prefix. If we pre-create e.g. $BASE_DIR/vae/
+# and pass filename="vae/flux2-vae.safetensors", the file lands in $BASE_DIR/vae/vae/.
+# Passing $BASE_DIR as the local_dir and letting the helper create subdirs avoids that.
+mkdir -p "$BASE_DIR"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,24 +83,26 @@ unset _HF_HELPER
 echo "==> Starting downloads..."
 
 # 1. Ideogram 4 conditional diffusion model — FP8 scaled (~9.3GB)
-# Used as the primary UNet in the workflow's DualModelGuider
+# Used as the primary UNet in the workflow's DualModelGuider.
+# local_dir = $BASE_DIR (not $BASE_DIR/diffusion_models) — the helper creates the subdir
+# from the filename prefix, preventing double-nested $BASE_DIR/diffusion_models/diffusion_models/.
 echo "[1/4] Ideogram 4 diffusion model (FP8 scaled)..."
-hf_download "Comfy-Org/Ideogram-4" "diffusion_models/ideogram4_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "Comfy-Org/Ideogram-4" "diffusion_models/ideogram4_fp8_scaled.safetensors" "$BASE_DIR"
 
 # 2. Ideogram 4 unconditional diffusion model — FP8 scaled (~9.3GB)
 # Used as the unconditional UNet in DualModelGuider (asymmetric CFG, drops text tokens)
 echo "[2/4] Ideogram 4 unconditional diffusion model (FP8 scaled)..."
-hf_download "Comfy-Org/Ideogram-4" "diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "Comfy-Org/Ideogram-4" "diffusion_models/ideogram4_unconditional_fp8_scaled.safetensors" "$BASE_DIR"
 
 # 3. Qwen3-VL 8B FP8 scaled text encoder (~10.6GB)
 # Used as the CLIP loader (type=ideogram) for prompt encoding
 echo "[3/4] Qwen3-VL 8B text encoder (FP8 scaled)..."
-hf_download "Comfy-Org/Ideogram-4" "text_encoders/qwen3vl_8b_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Comfy-Org/Ideogram-4" "text_encoders/qwen3vl_8b_fp8_scaled.safetensors" "$BASE_DIR"
 
 # 4. Flux.2 VAE (~336MB)
 # Bundled in the same Comfy-Org/Ideogram-4 repo for convenience (single-source download)
 echo "[4/4] Flux.2 VAE..."
-hf_download "Comfy-Org/Ideogram-4" "vae/flux2-vae.safetensors" "$BASE_DIR/vae"
+hf_download "Comfy-Org/Ideogram-4" "vae/flux2-vae.safetensors" "$BASE_DIR"
 
 echo "==> All downloads completed!"
 
