@@ -240,3 +240,4 @@ vast.ssh_url(id=<ID>)  # returns 'ssh://root@host:port'
 | `references/china-host-download-speed.md` | China host download slowdowns, HF CLI vs aria2c benchmarks, hf-mirror.com mitigation |
 | `references/driver-version-requirements.md` | NVIDIA driver version filtering to avoid CUDA errors on old drivers |
 | `references/vast-ai-instance-gotchas.md` | FRP port fixes, Jupyter HTTPS→HTTP, CUDA Error 804 workarounds |
+| `references/instance-auth-discovery.md` | Extracting the ComfyUI/tunnel auth token (username=`vastai`, password=`$OPEN_BUTTON_TOKEN`) from a running instance — for Cloudflare tunnel setup |
