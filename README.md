@@ -6,13 +6,16 @@ Automated GPU server provisioning for ComfyUI workflows on Vast.ai.
 
 ```
 aurora/
-├── scripts/
-│   ├── comfyui-bootstrap.sh          # Provisioning script (runs on Vast.ai instances)
-│   └── workflows/
-│       ├── wan22-download.sh          # Wan 2.2 model download script
-│       └── ltx2.3-img2video.sh        # LTX 2.3 Image to Video model download script
-├── current-setup/
-│   └── skills/                        # Hermes agent skill definitions (gitignored)
+├── skills/                            # Hermes agent skill definitions
+│   ├── story-to-video-cinematic/
+│   ├── vast-ai/
+│   └── ...
+├── workflows/
+│   ├── comfyui/                       # ComfyUI JSON templates
+│   └── setup/                         # Workflow download/setup scripts
+├── scripts/                           # System VM provision/bootstrap scripts
+│   ├── comfyui-bootstrap.sh
+│   └── fast-provision.sh
 └── README.md
 ```
 
@@ -34,7 +37,7 @@ Provisioning script that runs after the Vast.ai ComfyUI image boots. Handles:
 
 **Raw URL:** `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/comfyui-bootstrap.sh`
 
-### Workflow Scripts (`scripts/workflows/`)
+### Workflow Scripts (`workflows/setup/`)
 Standalone bash scripts for downloading AI models. Each script is self-contained and can be passed via the `WORKFLOW_SCRIPT` env var during provisioning.
 
 ## Environment Variables
@@ -48,7 +51,7 @@ Standalone bash scripts for downloading AI models. Each script is self-contained
 
 ## Adding a New Workflow
 
-1. Create a new `.sh` file in `scripts/workflows/`
-2. Follow the pattern in `wan22-download.sh`
+1. Create a new `.sh` file in `workflows/setup/`
+2. Follow the pattern in `wan-22-i2v-keyframe.sh`
 3. Push to `main` branch
-4. Use the raw URL: `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/scripts/workflows/<name>.sh`
+4. Use the raw URL: `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/workflows/setup/<name>.sh`
