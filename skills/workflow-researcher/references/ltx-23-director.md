@@ -6,11 +6,11 @@ A canonical end-to-end walkthrough of the full `workflow-researcher` + this patc
 - Requires **multiple** custom node packs (not just one)
 - Includes an LTX 2.3 Director-style 2-stage video workflow
 
-The resulting script (`scripts/workflows/ltx-23-director-subgraphs.sh` in the auto-startups-vast repo) is the current standard in the repo and the script this skill's policy section is written against.
+The resulting script (`workflows/setup/ltx-23-director-subgraphs.sh` in the auto-startups-vast repo) is the current standard in the repo and the script this skill's policy section is written against.
 
 ## Source workflow
 
-- File: `current-setup/comfyui-workflows/ltx-23-director-subgraphs.json` (renamed from `LTX_Director_Example_Workflow_Subgraphs_v2_workflow.json`)
+- File: `workflows/comfyui/ltx-23-director-subgraphs.json` (renamed from `LTX_Director_Example_Workflow_Subgraphs_v2_workflow.json`)
 - Author: WhatDreamsCost
 - Workflow type: 2-stage LTX 2.3 video gen (Stage #1 base → Stage #2 spatial upscaler v1.1)
 - Top-level `nodes[]` has 7 entries: 1 `LTXDirector` (timeline editor), 1 `SaveVideo`, 4 subgraph instances, 1 `MarkdownNote` (FAQ)

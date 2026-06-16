@@ -69,10 +69,10 @@ The implementation is modularized into a standalone skill path:
 ```
 
 Global provisioning tools are registered at:
-- **Setup script**: [cinematic-pipeline-setup.sh](file:///Users/muneesraja/projects/brainstorm/aurora/scripts/workflows/cinematic-pipeline-setup.sh)
+- **Setup script**: [cinematic-pipeline-setup.sh](file:///Users/muneesraja/projects/brainstorm/aurora/workflows/setup/cinematic-pipeline-setup.sh)
 - **Workflows copied to ComfyUI folder**:
-  - [ideogram-4-t2i.json](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/comfyui-workflows/ideogram-4-t2i.json)
-  - [flux-2-klein-image-edit.json](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/comfyui-workflows/flux-2-klein-image-edit.json)
+- [ideogram-4-t2i.json](file:///Users/muneesraja/projects/brainstorm/aurora/workflows/comfyui/ideogram-4-t2i.json)
+- [flux-2-klein-image-edit.json](file:///Users/muneesraja/projects/brainstorm/aurora/workflows/comfyui/flux-2-klein-image-edit.json)
 
 ---
 

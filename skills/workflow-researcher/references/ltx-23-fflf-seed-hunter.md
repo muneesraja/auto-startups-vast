@@ -17,8 +17,8 @@ director example does NOT cover, so it's worth documenting separately:
 
 | Source | Destination | Notes |
 |---|---|---|
-| `current-setup/comfyui-workflows/ltx23FFLFSeedHunter_v10.json` | Preserved exactly (per skill 0.5) | Original filename kept — do NOT rename to kebab-case |
-| `scripts/workflows/ltx-23-fflf-seed-hunter.sh` | Generated | Canonical kebab-case name (per skill 0.2) |
+| `workflows/comfyui/ltx23FFLFSeedHunter_v10.json` | Preserved exactly (per skill 0.5) | Original filename kept — do NOT rename to kebab-case |
+| `workflows/setup/ltx-23-fflf-seed-hunter.sh` | Generated | Canonical kebab-case name (per skill 0.2) |
 | `workflow:` frontmatter ID | `ltx23_FFLFSeedHunter_v10` | Matches the JSON filename |
 
 ## Model Manifest (8 files, ~44.5GB)

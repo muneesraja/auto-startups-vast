@@ -133,7 +133,7 @@ The `ltx-23-director` workflow requires a broader suite of models compared to st
 
 Run the script on your worker instance to provision the environment:
 ```bash
-./scripts/workflows/ltx-23-director-subgraphs.sh
+./workflows/setup/ltx-23-director-subgraphs.sh
 ```
 
 ---
