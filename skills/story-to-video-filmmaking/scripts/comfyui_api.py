@@ -13,6 +13,34 @@ DEFAULT_BASE_URL = "https://comfy-instance_mandi-qwen.muneesraja.com"
 DEFAULT_OUTPUT_DIR = "/root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video"
 
 
+def _auth_args(auth):
+    """Convert various auth shapes into curl args.
+
+    Supported forms:
+      - None                          → no auth
+      - ("user", "pass")              → basic auth (-u user:pass) — LEGACY
+      - "TOKEN"                       → bearer header (Authorization: Bearer TOKEN)
+      - "user:TOKEN"                  → basic auth (explicit user)
+
+    Bearer is the recommended form for Vast.ai Caddy frontends. On at least
+    one Vast instance (Jun 2026, dog-chase-eagle), basic auth returned 401
+    even though the bcrypt hash in /etc/Caddyfile matched the env token —
+    Caddy's bcrypt comparison appears to mismatch in this version. Use
+    bearer (a bare string) or query-string `?token=...` instead.
+    Ref: ~/.hermes/skills/vast-ai/references/instance-auth-discovery.md
+    """
+    if not auth:
+        return []
+    if isinstance(auth, str):
+        if ":" in auth:
+            user, _, token = auth.partition(":")
+            return ["-u", f"{user}:{token}"]
+        return ["-H", "Authorization: Bearer " + auth]
+    if isinstance(auth, (tuple, list)) and len(auth) == 2:
+        return ["-u", f"{auth[0]}:{auth[1]}"]
+    return []
+
+
 def curl_json(method, endpoint, base_url, data=None, timeout=30, auth=None):
     """Make ComfyUI API call via curl (avoids Cloudflare 403 on urllib).
 
@@ -22,15 +50,16 @@ def curl_json(method, endpoint, base_url, data=None, timeout=30, auth=None):
         base_url: ComfyUI base URL
         data: Optional JSON data for POST requests
         timeout: Request timeout in seconds
-        auth: Optional tuple of (username, password) for Basic Auth
+        auth: Optional auth — tuple (user, pass) for basic, bare string for
+              bearer token, or "user:TOKEN" for basic. See _auth_args for
+              why bearer is preferred on Vast.
     """
     # Strip trailing slash from base_url — otherwise Cloudflare responds to
     # /object_info/... with an HTML 301 "Moved Permanently" body, which
     # json.loads() blows up on. (Caught 2026-06-05, story-to-video t_beb4767d.)
     base_url = base_url.rstrip("/")
     cmd = ["curl", "-s", "-X", method, f"{base_url}{endpoint}"]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    cmd.extend(_auth_args(auth))
     if data is not None:
         cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -81,8 +110,7 @@ def download_output(filename, output_path, base_url, subfolder="", auth=None, is
     # Without -L, the 109-byte "Moved Permanently" HTML body gets saved as the
     # image file.
     cmd = ["curl", "-sSL", "-w", "%{http_code}", "-o", output_path, url]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    cmd.extend(_auth_args(auth))
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     saved = os.path.exists(output_path)
     if saved:
@@ -149,8 +177,7 @@ def upload_image(image_path, base_url, auth=None, subfolder="", image_type="inpu
 
     # Build curl command for multipart upload
     cmd = ["curl", "-s", "-X", "POST", f"{base_url}/upload/image"]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    cmd.extend(_auth_args(auth))
     cmd.extend([
         "-F", f"image=@{image_path};type={mime_type}",
         "-F", f"subfolder={subfolder}",

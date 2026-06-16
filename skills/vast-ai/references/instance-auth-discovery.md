@@ -75,11 +75,13 @@ Once a tunnel is set up to the Vast box (e.g. `https://comfy-mandi.muneesraja.co
 curl "https://<tunnel>/system_stats?token=7e6009b49e7d...a20"
 
 # Bearer header (for API clients / scripts)
-curl -H "Authorization: Bearer 7e6009b49e7d...a20" https://<tunnel>/system_stats
+curl -H "Authorization: Bearer 7e6009...a20" https://<tunnel>/system_stats
 
 # Basic Auth (browser popup, curl --user)
 curl -u "vastai:7e6009b49e7d...a20" https://<tunnel>/system_stats
 ```
+
+> **⚠️ Caddy basic-auth quirk (Jun 2026, dog-chase-eagle run):** On at least one Vast instance, `curl -u vastai:TOKEN` returned **401** even though the bcrypt hash in `/etc/Caddyfile` was computed from the same token, and `Authorization: Bearer *** and `?token=...` both worked. Caddy's bcrypt comparison appears to mismatch against the same plaintext in this version. **Workaround: always prefer Bearer header or query-string for API scripts.** If a client lib is hardcoded to basic auth (e.g. `story-to-video-cinematic`'s `comfyui_api.curl_json`), monkey-patch it to use `Authorization: Bearer $COMFYUI_AUTH` instead — see `_wave0_char_sheets.py` in that story for the working pattern.
 
 ## Storing the token safely
 
