@@ -1,4 +1,4 @@
-# Cinematic Prompt Schema v3.0
+# Cinematic Prompt Schema v3.1
 
 The `cinematic_prompt.json` configuration file is the single source of truth for the cinematic animation pipeline. Every scene, shot, prompt, character reference sheet, and continuity choice is explicitly declared in this schema.
 
@@ -24,9 +24,37 @@ The `cinematic_prompt.json` configuration file is the single source of truth for
 | `version` | string | ✅ | Must be `"3.0"` |
 | `pipeline` | string | ✅ | Must be `"cinematic-v2"` |
 | `models` | object | ✅ | Mapping of model family names to their identifiers |
-| `global` | object | ✅ | Global pipeline parameters |
+| `global` | object | ✅ | Global pipeline parameters, including the quality gate config |
 | `characters` | array | ✅ | Registry of characters with sheet descriptions and prompts |
 | `director_plan` | object | ✅ | Story summary and list of scenes |
+
+### 1.1 `global.quality_gate` — Quality Gate Configuration
+
+The `quality_gate` object in global settings configures the automated evaluation of images and videos:
+
+```json
+"quality_gate": {
+  "enabled": true,
+  "provider": "openrouter",
+  "model_image": "google/gemini-3.1-flash-lite",
+  "model_video": "google/gemini-3.5-flash",
+  "min_score": 6,
+  "gates": {
+    "character_sheet": true,
+    "scene_composition": true,
+    "klein_consistency": true,
+    "lf_delta": true,
+    "final_video": true
+  }
+}
+```
+
+- `enabled` (bool): Toggle all quality gates on/off.
+- `provider` (string): API provider, e.g., `"openrouter"` or `"gemini"`.
+- `model_image` (string): Model to use for image evaluation gates (Gates 1–4).
+- `model_video` (string): Model to use for video coherence check (Gate 5).
+- `min_score` (number): Pass/fail threshold (default: 6).
+- `gates` (object): Toggles for individual gates.
 
 ### 2. `characters[]` — Character Registry
 
@@ -55,6 +83,7 @@ The `cinematic_prompt.json` configuration file is the single source of truth for
 | `ff_prompt` | string\|null | ❌ | Ideogram T2I prompt for FF. Must be non-empty if `ff_source: "ideogram"` |
 | `ff_edit_instructions` | object\|null | ❌ | Dict mapping character IDs to custom Flux Klein edit prompts |
 | `lf_source` | enum | ✅ | `"ideogram_fresh"` \| `"klein_from_ff"` \| `"klein_from_extracted_tail"` |
+| `lf_prompt` | string\|null | ❌ | Ideogram prompt for LF. Used if `lf_source` is `"ideogram_fresh"` |
 | `lf_edit_instruction` | string | ✅ | Delta prompt for Flux Klein describing change from FF to LF |
 | `lf_edit_references` | string[] | ✅ | Character IDs whose sheets should be mapped as refs for LF generation |
 | `motion_prompt` | string | ✅ | Brief motion description for LTX FFLF (20-60 words) |

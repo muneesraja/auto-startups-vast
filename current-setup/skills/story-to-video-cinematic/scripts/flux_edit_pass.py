@@ -21,35 +21,8 @@ from comfyui_api import curl_json, wait_for_prompt
 from workflow_builder import build_dynamic_workflow
 
 
-def compose_multi_character_edit_prompt(characters_present, char_lookup, global_style):
-    """
-    Auto-compose a Klein edit prompt for N characters.
-    
-    Reference image numbering:
-      "reference image 1" = first character in characters_present
-      "reference image 2" = second character
-      etc.
-    """
-    if not characters_present:
-        return f"Keep the background, lighting, composition, and overall scene identical. Maintain the {global_style} art style throughout."
-
-    parts = []
-    for i, char_id in enumerate(characters_present, start=1):
-        char = char_lookup.get(char_id)
-        if not char:
-            continue
-        desc = char.get("edit_prompt_descriptor", f"the {char_id}")
-        parts.append(
-            f"Make {desc} match the character from reference image {i} "
-            f"exactly — same face, body, clothing, and proportions."
-        )
-    
-    preservation = (
-        "Keep the background, lighting, composition, and overall scene identical. "
-        f"Maintain the {global_style} art style throughout."
-    )
-    
-    return " ".join(parts) + " " + preservation
+# Backward compat — use prompt_composer.compose_multi_character_edit_prompt instead
+from prompt_composer import compose_multi_character_edit_prompt
 
 
 def execute_flux_klein_edit_multi(

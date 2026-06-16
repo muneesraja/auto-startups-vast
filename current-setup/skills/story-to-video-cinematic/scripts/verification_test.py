@@ -149,11 +149,105 @@ def test_v2_features(flux_template):
     print("   ✅ visual depth calculation and chain boundaries resolved correctly")
 
 
+def test_pipeline_logger():
+    print("\n⏳ [Test 4] Verifying PipelineLogger and JSON output...")
+    import shutil
+    from pipeline_logger import PipelineLogger
+    
+    test_dir = "temp_logger_test"
+    if os.path.exists(test_dir):
+        shutil.rmtree(test_dir)
+    os.makedirs(test_dir)
+    
+    waves_plan = {
+        "wave_0_character_sheets": ["pippin"],
+        "wave_1_ideogram_ffs": ["s01_sh01_ff_raw"]
+    }
+    
+    logger = PipelineLogger(
+        output_dir=test_dir,
+        run_id="test_run",
+        total_shots=1,
+        total_characters=1,
+        waves_plan=waves_plan
+    )
+    
+    # Verify initial json file
+    status_path = os.path.join(test_dir, "pipeline_status.json")
+    assert os.path.exists(status_path), "pipeline_status.json should exist"
+    
+    with open(status_path) as f:
+        data = json.load(f)
+    assert data["run_id"] == "test_run"
+    assert data["waves"]["wave_0_character_sheets"]["items"]["pippin"]["status"] == "pending"
+    
+    # Update item
+    logger.update_item("wave_0_character_sheets", "pippin", "completed", output="pippin.png", eval_score=8.5)
+    with open(status_path) as f:
+        data = json.load(f)
+    assert data["waves"]["wave_0_character_sheets"]["items"]["pippin"]["status"] == "completed"
+    assert data["waves"]["wave_0_character_sheets"]["items"]["pippin"]["output"] == "pippin.png"
+    assert data["waves"]["wave_0_character_sheets"]["items"]["pippin"]["eval_score"] == 8.5
+    
+    # Clean up
+    shutil.rmtree(test_dir)
+    print("   ✅ PipelineLogger tests passed")
+
+
+def test_prompt_composer():
+    print("\n⏳ [Test 5] Verifying Prompt Composer utilities...")
+    from prompt_composer import build_ff_edit_prompt, build_lf_derivation_prompt
+    
+    shot = {
+        "filename_prefix": "s01_sh01",
+        "characters_present": ["pippin"],
+        "ff_edit_instructions": {
+            "pippin": "Make Pippin wear a small bowler hat."
+        }
+    }
+    char_lookup = {
+        "pippin": {"edit_prompt_descriptor": "baby panda"}
+    }
+    
+    prompt = build_ff_edit_prompt(shot, char_lookup, "3D cartoon")
+    assert "bowler hat" in prompt
+    assert "identical" in prompt
+    
+    shot_no_override = {
+        "filename_prefix": "s01_sh01",
+        "characters_present": ["pippin"]
+    }
+    prompt_no_override = build_ff_edit_prompt(shot_no_override, char_lookup, "3D cartoon")
+    assert "Replace the baby panda" in prompt_no_override
+    
+    shot_lf = {
+        "lf_edit_instruction": "The baby panda waves."
+    }
+    prompt_lf = build_lf_derivation_prompt(shot_lf, "3D cartoon")
+    assert "waves" in prompt_lf
+    assert "identical" in prompt_lf
+    
+    print("   ✅ Prompt composer tests passed")
+
+
+def test_wave_2_split():
+    print("\n⏳ [Test 6] Verifying BatchWaveOrchestrator splits Wave 2...")
+    from cinematic_orchestrator import BatchWaveOrchestrator
+    
+    # Check that both wave_2a_klein_ff_edits and wave_2b_klein_lf_derivations are present
+    assert hasattr(BatchWaveOrchestrator, "wave_2a_klein_ff_edits"), "wave_2a_klein_ff_edits method missing"
+    assert hasattr(BatchWaveOrchestrator, "wave_2b_klein_lf_derivations"), "wave_2b_klein_lf_derivations method missing"
+    print("   ✅ Wave 2 split method checks passed")
+
+
 if __name__ == "__main__":
     try:
         ideo_t, flux_t = test_templates_parsing()
         test_builder_compilation(ideo_t, flux_t)
         test_v2_features(flux_t)
+        test_pipeline_logger()
+        test_prompt_composer()
+        test_wave_2_split()
         print("\n🎉 All automated tests passed successfully!")
     except Exception as e:
         import traceback
