@@ -56,6 +56,18 @@ The `quality_gate` object in global settings configures the automated evaluation
 - `min_score` (number): Pass/fail threshold (default: 6).
 - `gates` (object): Toggles for individual gates.
 
+**Recommended model IDs:**
+
+| Provider | Gate | Recommended Model |
+|----------|------|-------------------|
+| `openrouter` | Image (Gates 1–4) | `google/gemini-flash-1.5-8b` |
+| `openrouter` | Video (Gate 5) | `google/gemini-2.0-flash-exp` |
+| `gemini` | Image (Gates 1–4) | `gemini-2.5-flash` |
+| `gemini` | Video (Gate 5) | `gemini-2.5-flash` |
+
+> [!NOTE]
+> Model availability on OpenRouter can change. If `google/gemini-flash-1.5-8b` is unavailable, substitute `google/gemini-flash-1.5` or check [openrouter.ai/models](https://openrouter.ai/models) for current free-tier vision models.
+
 ### 2. `characters[]` — Character Registry
 
 | Field | Type | Required | Description |

@@ -49,7 +49,7 @@ Instead of swapping models per shot (which causes `N * 3` swaps), the pipeline r
 
 ## Director Log (Required)
 
-Before running the orchestrator, the agent MUST write a `director_log.json` file alongside `cinematic_prompt.json` to capture its design reasoning, decisions regarding continuity chains, and prompt descriptors. See [09-director-log-example.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/09-director-log-example.md) for details.
+Before running the orchestrator, the agent MUST write a `director_log.json` file alongside `cinematic_prompt.json` to capture its design reasoning, decisions regarding continuity chains, and prompt descriptors. See [09-director-log-example.md](examples/09-director-log-example.md) for details.
 
 ---
 
@@ -77,23 +77,25 @@ python3 current-setup/skills/story-to-video-cinematic/scripts/cinematic_orchestr
 
 We provide a comprehensive set of worked examples for every stage of the pipeline:
 
-* **[01-director-decisions.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/01-director-decisions.md)**: How the agent decides about `##cut` vs `##continue` and visual continuity.
-* **[02-character-sheet-prompts.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/02-character-sheet-prompts.md)**: Ideogram T2I character sheet prompt best practices.
-* **[03-scene-ff-prompts.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/03-scene-ff-prompts.md)**: Ideogram T2I scene still prompt formula.
-* **[04-klein-edit-patterns.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/04-klein-edit-patterns.md)**: Flux Klein edit patterns for single, multi-character, and LF derivation edits.
-* **[05-motion-prompts.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/05-motion-prompts.md)**: FFLF motion prompts and anti-jump-cut guidelines.
-* **[06-full-story-dryrun-prompt.json](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/06-full-story-dryrun-prompt.json)**: Fully valid V3 schema cinematic prompt file.
-* **[06-full-story-dryrun.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/06-full-story-dryrun.md)**: Detailed wave-by-wave execution walkthrough.
-* **[07-continuity-chain-walkthrough.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/07-continuity-chain-walkthrough.md)**: Step-by-step tail frame extraction logic.
-* **[08-multi-character-scene.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/08-multi-character-scene.md)**: Handling multi-character scenes and reference slot mapping.
-* **[09-director-log-example.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/09-director-log-example.md)**: Capturing agent planning reasoning in `director_log.json`.
-* **[10-evaluation-gates-walkthrough.md](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/examples/10-evaluation-gates-walkthrough.md)**: Payload and response flows for Gates 1–5.
+* **[01-director-decisions.md](examples/01-director-decisions.md)**: How the agent decides about `##cut` vs `##continue` and visual continuity.
+* **[02-character-sheet-prompts.md](examples/02-character-sheet-prompts.md)**: Ideogram T2I character sheet prompt best practices.
+* **[03-scene-ff-prompts.md](examples/03-scene-ff-prompts.md)**: Ideogram T2I scene still prompt formula.
+* **[04-klein-edit-patterns.md](examples/04-klein-edit-patterns.md)**: Flux Klein edit patterns for single, multi-character, and LF derivation edits.
+* **[05-motion-prompts.md](examples/05-motion-prompts.md)**: FFLF motion prompts and anti-jump-cut guidelines.
+* **[06-full-story-dryrun-prompt.json](examples/06-full-story-dryrun-prompt.json)**: Fully valid V3 schema cinematic prompt file.
+* **[06-full-story-dryrun.md](examples/06-full-story-dryrun.md)**: Detailed wave-by-wave execution walkthrough.
+* **[07-continuity-chain-walkthrough.md](examples/07-continuity-chain-walkthrough.md)**: Step-by-step tail frame extraction logic.
+* **[08-multi-character-scene.md](examples/08-multi-character-scene.md)**: Handling multi-character scenes and reference slot mapping.
+* **[09-director-log-example.md](examples/09-director-log-example.md)**: Capturing agent planning reasoning in `director_log.json`.
+* **[10-evaluation-gates-walkthrough.md](examples/10-evaluation-gates-walkthrough.md)**: Payload and response flows for Gates 1–5.
+* **[11-ideogram-json-prompts.md](examples/11-ideogram-json-prompts.md)**: Ideogram JSON structured prompt patterns with bounding box layouts.
 
 ---
 
 ## Reference Documentation
 
-* **[Cinematic Prompt Schema v3.1](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/references/cinematic-prompt-schema.md)**: Schema documentation.
-* **[Flux Klein Edit Cookbook](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/references/flux-klein-edit-prompt-cookbook.md)**: Multi-character prompts patterns.
-* **[Pipeline Architecture v2](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/references/pipeline-architecture.md)**: Core wave architecture.
-* **[Batch-Wave Execution Reference](file:///Users/muneesraja/projects/brainstorm/aurora/current-setup/skills/story-to-video-cinematic/references/batch-wave-execution.md)**: Detailed model timeline.
+* **[Cinematic Prompt Schema v3.1](references/cinematic-prompt-schema.md)**: Schema documentation.
+* **[Flux Klein Edit Cookbook](references/flux-klein-edit-prompt-cookbook.md)**: Multi-character prompts patterns.
+* **[Pipeline Architecture v3.1](references/pipeline-architecture.md)**: Core wave architecture.
+* **[Batch-Wave Execution Reference](references/batch-wave-execution.md)**: Detailed model timeline.
+* **[Ideogram Prompt Engineering](references/ideogram-prompt-engineering.md)**: JSON structured prompt schema and bbox reference.

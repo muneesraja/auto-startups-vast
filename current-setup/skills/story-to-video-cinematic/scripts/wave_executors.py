@@ -39,6 +39,10 @@ from quality_gates import (
     evaluate_klein_consistency,
     evaluate_lf_delta,
 )
+from ideogram_generator import (
+    compose_character_sheet_prompt,
+    compose_scene_prompt,
+)
 
 
 class WaveExecutorMixin:
@@ -81,8 +85,16 @@ class WaveExecutorMixin:
                 self.state["character_sheets"][char_id] = srv_name
                 self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=sheet_filename)
             else:
-                prompt = char["character_sheet_prompt"]
-                pending_prompts.append((char_id, prompt, local_path, sheet_filename))
+                prompt_text = char["character_sheet_prompt"]
+                # Compose Ideogram JSON structured prompt for richer layout control
+                style_notes = char.get("style_notes", "")
+                ideogram_prompt = compose_character_sheet_prompt(
+                    character_name=char.get("display_name", char_id),
+                    character_desc=char.get("description", prompt_text),
+                    style_notes=style_notes,
+                    global_style=self.global_cfg.get("style", "")
+                )
+                pending_prompts.append((char_id, ideogram_prompt, local_path, sheet_filename))
                 self.logger.update_item("wave_0_character_sheets", char_id, "running")
 
         if not pending_prompts:
@@ -108,7 +120,7 @@ class WaveExecutorMixin:
                 self.logger.log(f"      ❌ Failed to queue character sheet for {char_id}: {err_msg}", "ERROR")
                 self.logger.update_item("wave_0_character_sheets", char_id, "failed", error=err_msg)
                 self.logger.update_wave("wave_0_character_sheets", "failed")
-                sys.exit(1)
+                raise RuntimeError(f"[Wave 0] Queue failed for character sheet '{char_id}': {err_msg}")
 
         # Wait and download
         for char_id, prompt_id, local_path, sheet_filename in queue_ids:
@@ -153,7 +165,7 @@ class WaveExecutorMixin:
                 self.logger.log(f"      ❌ Error waiting/downloading sheet for {char_id}: {err_msg}", "ERROR")
                 self.logger.update_item("wave_0_character_sheets", char_id, "failed", error=err_msg)
                 self.logger.update_wave("wave_0_character_sheets", "failed")
-                sys.exit(1)
+                raise RuntimeError(f"[Wave 0] Failed to download character sheet '{char_id}': {err_msg}") from e
                 
         self.logger.update_wave("wave_0_character_sheets", "completed")
 
@@ -186,7 +198,15 @@ class WaveExecutorMixin:
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=ff_raw_name)
                 else:
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "running")
-                    pending_prompts.append((prefix, "ff", shot["ff_prompt"], ff_raw_path, ff_raw_name, item_id, shot))
+                    # Compose Ideogram JSON structured prompt for layout control
+                    ff_prompt_text = shot["ff_prompt"]
+                    ideogram_ff_prompt = compose_scene_prompt(
+                        prompt_text=ff_prompt_text,
+                        global_style=self.global_cfg.get("style", ""),
+                        characters_present=shot.get("characters_present", []),
+                        characters_cfg=self.char_lookup
+                    )
+                    pending_prompts.append((prefix, "ff", ideogram_ff_prompt, ff_raw_path, ff_raw_name, item_id, shot))
 
             # LF still (only if lf_source is ideogram_fresh)
             if shot.get("lf_source") == "ideogram_fresh":
@@ -200,9 +220,16 @@ class WaveExecutorMixin:
                     self.state["lf_images"][prefix] = srv_name
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=lf_raw_name)
                 else:
-                    lf_prompt = shot.get("lf_prompt") or shot.get("narrative")
+                    lf_prompt_text = shot.get("lf_prompt") or shot.get("narrative", "")
+                    # Compose Ideogram JSON structured prompt for layout control
+                    ideogram_lf_prompt = compose_scene_prompt(
+                        prompt_text=lf_prompt_text,
+                        global_style=self.global_cfg.get("style", ""),
+                        characters_present=shot.get("characters_present", []),
+                        characters_cfg=self.char_lookup
+                    )
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "running")
-                    pending_prompts.append((prefix, "lf", lf_prompt, lf_raw_path, lf_raw_name, item_id, shot))
+                    pending_prompts.append((prefix, "lf", ideogram_lf_prompt, lf_raw_path, lf_raw_name, item_id, shot))
 
         if not pending_prompts:
             self.logger.log("   ✅ No raw frames need generation.", "INFO")

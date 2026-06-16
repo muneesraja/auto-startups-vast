@@ -15,31 +15,39 @@ The director parses this into 1 Scene and 3 Shots, generating the V3 prompt JSON
 
 ## 2. Wave Execution Roadmap
 
-The orchestrator executes the pipeline in 7 distinct waves:
+The orchestrator executes the pipeline in **8 distinct waves** (V3.1):
 
 ```
 [Wave 0] Generate Pippin & Miko character sheets (Ideogram)
    │
 [Wave 1] Generate Shot 1 FF & Shot 3 FF (Ideogram)
    │
-[Wave 2] Edit FFs + Derive LFs:
-         - Edit Shot 1 FF with Pippin sheet
-         - Derive Shot 1 LF from edited Shot 1 FF
-         - Edit Shot 3 FF with Pippin & Miko sheets
-         - Derive Shot 3 LF from edited Shot 3 FF
+[Wave 2a] Klein FF Edits:
+          - Edit Shot 1 FF with Pippin sheet    → s01_sh01_ff_edited.png
+          - Edit Shot 3 FF with Pippin & Miko   → s01_sh03_ff_edited.png
+   │
+[Wave 2b] Klein LF Derivations (uses EDITED FFs — race condition fix!):
+          - Derive Shot 1 LF from edited Shot 1 FF
+          - Derive Shot 3 LF from edited Shot 3 FF
    │
 [Wave 3] LTX Video Generation (Batch 1):
-         - Render Shot 1 Video (FF=Shot 1 FF, LF=Shot 1 LF)
-         - Render Shot 3 Video (FF=Shot 3 FF, LF=Shot 3 LF)
-         - Extract Tail Frame of Shot 1 Video → Shot 2 FF
+          - Render Shot 1 Video (FF=Shot 1 ff_edited, LF=Shot 1 lf_edited)
+          - Render Shot 3 Video (FF=Shot 3 ff_edited, LF=Shot 3 lf_edited)
+          - Extract Tail Frame of Shot 1 Video → Shot 2 FF
    │
 [Wave 4] Derive Shot 2 LF from extracted Shot 2 FF (Klein)
    │
 [Wave 5] LTX Video Generation (Batch 2):
-         - Render Shot 2 Video (FF=Shot 2 FF, LF=Shot 2 LF)
+          - Render Shot 2 Video (FF=Shot 2 FF, LF=Shot 2 LF)
    │
 [Done]   Stitch and export final videos!
 ```
+
+> [!NOTE]
+> Wave 2 is intentionally split into 2a and 2b. This prevents a race condition
+> where the LF derivation would read a raw (unedited) FF path instead of the
+> edited FF that Klein just produced.
+
 
 ---
 

@@ -1,0 +1,139 @@
+{
+  "run_id": "run_20260616_111423",
+  "started_at": "2026-06-16T11:14:23.566459Z",
+  "updated_at": "2026-06-16T11:14:23.566459Z",
+  "status": "running",
+  "current_wave": null,
+  "progress_pct": 0,
+  "total_shots": 3,
+  "total_characters": 2,
+  "waves": {
+    "wave_0_character_sheets": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "pippin": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        },
+        "miko": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_1_ideogram_ffs": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh01_ff_raw": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        },
+        "s01_sh03_ff_raw": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_2a_klein_ff_edits": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh01_ff_edit": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        },
+        "s01_sh03_ff_edit": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_2b_klein_lf_derivations": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh01_lf_derivation": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        },
+        "s01_sh03_lf_derivation": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_3_fflf_batch": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh01_video": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        },
+        "s01_sh03_video": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_N_continuations_depth_1_klein": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh02_lf_continuation": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_N_continuations_depth_1_fflf": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "s01_sh02_video": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    },
+    "wave_final_video_eval": {
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "items": {
+        "final_stitched_video": {
+          "status": "pending",
+          "output": null,
+          "error": null
+        }
+      }
+    }
+  },
+  "summary": {
+    "videos_generated": 0,
+    "evaluations_passed": 0,
+    "evaluations_failed": 0,
+    "errors": []
+  }
+}

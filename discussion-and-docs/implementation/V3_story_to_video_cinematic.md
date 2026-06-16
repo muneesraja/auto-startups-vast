@@ -46,3 +46,50 @@ Ran automated test suite in `verification_test.py`:
 ```
 🎉 All automated tests passed successfully!
 ```
+
+---
+
+## 3. V3.1.1 Review Fixes (2026-06-16)
+
+Post-implementation review identified 10 issues. All have been fixed:
+
+### 3.1 Critical Fixes
+
+**C-01 — Ideogram JSON prompt composition wired up**
+- `wave_executors.py` now imports and calls `compose_character_sheet_prompt()` and `compose_scene_prompt()` from `ideogram_generator.py` in Wave 0 and Wave 1 respectively.
+- `ideogram_generator.py` → `compose_scene_prompt()` now handles 1, 2, and 3 characters using split bounding boxes (centred / left-right halves / thirds).
+- The Ideogram JSON structure (`high_level_description`, `style_description`, `compositional_deconstruction` with `bbox`) is now actually sent to the CLIPTextEncode node.
+
+**C-02 — SKILL.md hardcoded paths removed**
+- All 16 `file:///Users/muneesraja/...` links replaced with relative paths. SKILL.md now works on any machine including the VPS.
+- Also added link to new example 11 and to `ideogram-prompt-engineering.md` reference.
+
+**C-03 — Ideogram JSON prompting example created**
+- New `examples/11-ideogram-json-prompts.md` documents the full JSON prompt structure, bounding box coordinate system, bbox pattern table, and 3 worked examples (character sheet / single-char scene / multi-char scene).
+
+### 3.2 Important Fixes
+
+**I-01 — verification_test.py path fix**
+- Line 122 changed from CWD-relative open() to `script_dir`-relative path.
+
+**I-04 — 06-full-story-dryrun.md updated**
+- Wave roadmap updated: "Wave 2" split into "[Wave 2a] Klein FF Edits" and "[Wave 2b] Klein LF Derivations".
+- Wave count updated from 7 to 8. Added Note callout explaining the race-condition rationale.
+
+**I-03 — cinematic-prompt-schema.md model IDs documented**
+- Added recommended model ID table for OpenRouter and Gemini for image gates (1–4) and video gate (5).
+
+### 3.3 Minor Fixes
+
+**M-01 — pipeline-architecture.md swap count**: "max 7 loads" → "max 8 loads for V3.1".
+
+**M-03 — cinematic_orchestrator.py shlex safety**: `subprocess.run(cmd_str, shell=True)` replaced with `shlex.split()` + `shell=False`.
+
+**M-04 — wave_executors.py error propagation**: Two `sys.exit(1)` calls replaced with `raise RuntimeError(...)`. Orchestrator `execute()` now wraps entire pipeline in `try/except RuntimeError/finally: self.logger.close()` to guarantee log file flush on any exit.
+
+### 3.4 Verification Results (Post-fix)
+
+```
+🎉 All 6 automated tests passed successfully!
+✅ Ideogram JSON composition: 1/2/3-character layouts all produce valid JSON with correct bbox splits
+```

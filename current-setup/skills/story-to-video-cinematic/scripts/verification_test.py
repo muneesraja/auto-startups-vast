@@ -118,8 +118,9 @@ def test_v2_features(flux_template):
     # 4. Test chain resolution in BatchWaveOrchestrator
     from cinematic_orchestrator import BatchWaveOrchestrator
     
-    # Load example JSON
-    with open("current-setup/skills/story-to-video-cinematic/examples/06-full-story-dryrun-prompt.json") as f:
+    # Load example JSON — path resolved relative to this script's location
+    example_json = os.path.join(script_dir, "..", "examples", "06-full-story-dryrun-prompt.json")
+    with open(example_json) as f:
         prompts_data = json.load(f)
     
     # Mock class to construct orchestrator

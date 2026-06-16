@@ -55,7 +55,22 @@ def compose_character_sheet_prompt(character_name, character_desc, style_notes, 
 
 
 def compose_scene_prompt(prompt_text, global_style, characters_present, characters_cfg):
-    """Compose the structured JSON prompt for Ideogram 4 scene frames."""
+    """Compose the structured JSON prompt for Ideogram 4 scene frames.
+
+    Places up to 3 characters using split bounding boxes so the model renders
+    them in the correct left/centre/right positions.
+
+    Bbox coordinate system: [y1, x1, y2, x2] in range 0-1000.
+    - y: 0 = top, 1000 = bottom
+    - x: 0 = left, 1000 = right
+    """
+    # Character bbox layouts by count
+    CHAR_BBOXES = {
+        1: [[150, 250, 950, 750]],                        # centred
+        2: [[150, 50, 950, 480], [150, 520, 950, 950]],   # left | right
+        3: [[100, 30, 950, 333], [100, 350, 950, 640], [100, 660, 950, 970]],  # thirds
+    }
+
     prompt_dict = {
         "high_level_description": prompt_text,
         "style_description": {
@@ -68,21 +83,28 @@ def compose_scene_prompt(prompt_text, global_style, characters_present, characte
             "elements": []
         }
     }
-    
-    # Place character in center if present
-    if characters_present and characters_cfg:
-        # Use primary character or first character present
-        primary_char = characters_present[0]
-        char_info = characters_cfg.get(primary_char)
+
+    present = characters_present or []
+    n = min(len(present), 3)
+    bboxes = CHAR_BBOXES.get(n, CHAR_BBOXES[1])
+
+    for i, char_id in enumerate(present[:n]):
+        char_info = (characters_cfg or {}).get(char_id)
         if char_info:
-            desc = char_info.get("description", "")
-            prompt_dict["compositional_deconstruction"]["elements"].append({
-                "type": "obj",
-                "bbox": [200, 250, 900, 750], # Centered
-                "desc": f"{primary_char}, {desc}"
-            })
-            
+            desc = char_info.get("description", char_id)
+            name = char_info.get("display_name", char_id)
+        else:
+            desc = char_id
+            name = char_id
+
+        prompt_dict["compositional_deconstruction"]["elements"].append({
+            "type": "obj",
+            "bbox": bboxes[i],
+            "desc": f"{name}: {desc}"
+        })
+
     return json.dumps(prompt_dict)
+
 
 
 def generate_ideogram_image(prompt_text, filename, workflow_template, global_cfg, base_url, auth=None):

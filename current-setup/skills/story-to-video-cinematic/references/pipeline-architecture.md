@@ -12,7 +12,7 @@ The cinematic animation pipeline uses a 3-stage model chain orchestrated via the
 
 ## Batch-Wave Execution Model (GPU Swap Timeline)
 
-By batching calls to the same model together, the orchestrator performs a fixed set of GPU loads (max 7 loads) regardless of the number of scenes/shots in the story.
+By batching calls to the same model together, the orchestrator performs a fixed set of GPU loads (max **8 loads** for V3.1) regardless of the number of scenes/shots in the story.
 
 ```
 Wave 0 (GPU: Ideogram) 

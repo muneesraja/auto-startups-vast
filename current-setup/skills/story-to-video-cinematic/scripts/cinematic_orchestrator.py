@@ -14,6 +14,7 @@ quality gates (Image & Video) via Gemini/OpenRouter, and dynamic character cloni
 import argparse
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -235,67 +236,73 @@ class BatchWaveOrchestrator(WaveExecutorMixin):
         """Orchestrate the batch-wave pipeline execution."""
         self.print_plan()
 
-        # Wave 0: Generate all character sheets in batch
-        self.wave_0_character_sheets()
+        try:
+            # Wave 0: Generate all character sheets in batch
+            self.wave_0_character_sheets()
 
-        # Wave 1: Generate all raw FFs for depth 0 shots
-        self.wave_1_ideogram_ffs()
+            # Wave 1: Generate all raw FFs for depth 0 shots
+            self.wave_1_ideogram_ffs()
 
-        # Wave 2a/2b: Klein FF edits + LF derivations (depth 0)
-        self.wave_2a_klein_ff_edits()
-        self.wave_2b_klein_lf_derivations()
+            # Wave 2a/2b: Klein FF edits + LF derivations (depth 0)
+            self.wave_2a_klein_ff_edits()
+            self.wave_2b_klein_lf_derivations()
 
-        # Wave 3: FFLF Video Gen (depth 0) + Tail Frame Extraction
-        self.wave_3_fflf_batch_1()
+            # Wave 3: FFLF Video Gen (depth 0) + Tail Frame Extraction
+            self.wave_3_fflf_batch_1()
 
-        # Continuation Waves (Depth 1, 2, ...)
-        depth = 1
-        while self._has_pending_depth(depth):
-            self.logger.log(f"\n\n{'═'*80}\n  WAVES {4 + (depth-1)*2} & {5 + (depth-1)*2}: Continuation Depth {depth}\n{'═'*80}")
-            self.wave_n_klein_continuation(depth)
-            self.wave_n_fflf_continuation(depth)
-            depth += 1
+            # Continuation Waves (Depth 1, 2, ...)
+            depth = 1
+            while self._has_pending_depth(depth):
+                self.logger.log(f"\n\n{'═'*80}\n  WAVES {4 + (depth-1)*2} & {5 + (depth-1)*2}: Continuation Depth {depth}\n{'═'*80}")
+                self.wave_n_klein_continuation(depth)
+                self.wave_n_fflf_continuation(depth)
+                depth += 1
 
-        self.generate_stitch_metadata()
+            self.generate_stitch_metadata()
 
-        # Gate 5: Final Video Evaluation
-        gate_enabled = self.global_cfg.get("quality_gate", {}).get("gates", {}).get("final_video", True)
-        stitched_video_path = self.state.get("stitched_video")
-        if self.quality_gate_enabled and gate_enabled and stitched_video_path and os.path.exists(stitched_video_path):
-            self.logger.update_wave("wave_final_video_eval", "in_progress")
-            self.logger.log("════════════════════════════════════════", "INFO")
-            self.logger.log("  WAVE 8: Evaluating Stitched Final Video (Gate 5)", "INFO")
-            self.logger.log("════════════════════════════════════════", "INFO")
-            
-            story_summary = self.director_plan.get("story_summary", "")
-            char_list = [c["display_name"] for c in self.characters]
-            self.logger.update_item("wave_final_video_eval", "final_stitched_video", "running")
-            
-            try:
-                from quality_gates import evaluate_final_video
-                eval_res = evaluate_final_video(
-                    video_path=stitched_video_path,
-                    story_summary=story_summary,
-                    characters_list=char_list,
-                    provider=self.provider_name,
-                    api_key=self.api_key,
-                    model=self.global_cfg.get("quality_gate", {}).get("model_video")
-                )
-                if eval_res.get("rejected", False) or not eval_res.get("passed", True):
-                    self.logger.log(f"      ⚠️ Final video failed quality gate! Issues: {eval_res.get('issues', [])}", "WARN")
-                else:
-                    self.logger.log(f"      ✅ Final video passed quality gate! Score: {eval_res.get('overall') or eval_res.get('overall_score') or 0}/10", "INFO")
-                
-                score = eval_res.get("overall") or eval_res.get("overall_score") or 0
-                self.logger.update_item("wave_final_video_eval", "final_stitched_video", "completed", output=os.path.basename(stitched_video_path), eval_score=score, eval_result=eval_res)
-            except Exception as e:
-                err_msg = str(e)
-                self.logger.log(f"      ❌ Final video evaluation error: {err_msg}", "ERROR")
-                self.logger.update_item("wave_final_video_eval", "final_stitched_video", "failed", error=err_msg)
-            
-            self.logger.update_wave("wave_final_video_eval", "completed")
+            # Gate 5: Final Video Evaluation
+            gate_enabled = self.global_cfg.get("quality_gate", {}).get("gates", {}).get("final_video", True)
+            stitched_video_path = self.state.get("stitched_video")
+            if self.quality_gate_enabled and gate_enabled and stitched_video_path and os.path.exists(stitched_video_path):
+                self.logger.update_wave("wave_final_video_eval", "in_progress")
+                self.logger.log("════════════════════════════════════════", "INFO")
+                self.logger.log("  WAVE 8: Evaluating Stitched Final Video (Gate 5)", "INFO")
+                self.logger.log("════════════════════════════════════════", "INFO")
 
-        self.logger.close()
+                story_summary = self.director_plan.get("story_summary", "")
+                char_list = [c["display_name"] for c in self.characters]
+                self.logger.update_item("wave_final_video_eval", "final_stitched_video", "running")
+
+                try:
+                    from quality_gates import evaluate_final_video
+                    eval_res = evaluate_final_video(
+                        video_path=stitched_video_path,
+                        story_summary=story_summary,
+                        characters_list=char_list,
+                        provider=self.provider_name,
+                        api_key=self.api_key,
+                        model=self.global_cfg.get("quality_gate", {}).get("model_video")
+                    )
+                    if eval_res.get("rejected", False) or not eval_res.get("passed", True):
+                        self.logger.log(f"      ⚠️ Final video failed quality gate! Issues: {eval_res.get('issues', [])}", "WARN")
+                    else:
+                        self.logger.log(f"      ✅ Final video passed quality gate! Score: {eval_res.get('overall') or eval_res.get('overall_score') or 0}/10", "INFO")
+
+                    score = eval_res.get("overall") or eval_res.get("overall_score") or 0
+                    self.logger.update_item("wave_final_video_eval", "final_stitched_video", "completed", output=os.path.basename(stitched_video_path), eval_score=score, eval_result=eval_res)
+                except Exception as e:
+                    err_msg = str(e)
+                    self.logger.log(f"      ❌ Final video evaluation error: {err_msg}", "ERROR")
+                    self.logger.update_item("wave_final_video_eval", "final_stitched_video", "failed", error=err_msg)
+
+                self.logger.update_wave("wave_final_video_eval", "completed")
+
+        except RuntimeError as e:
+            self.logger.log(f"\n❌ Pipeline aborted due to critical error: {e}", "ERROR")
+            raise
+        finally:
+            self.logger.close()
+
 
     def _has_pending_depth(self, depth):
         """Check if any shot is registered at this continuation depth."""
@@ -347,7 +354,11 @@ class BatchWaveOrchestrator(WaveExecutorMixin):
                     cmd_str = cmd_str.replace("stitched_output.mp4", f'"{stitched_video_path}"')
                     
                     self.logger.log(f"Running ffmpeg stitch command: {cmd_str}", "INFO")
-                    res = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+                    try:
+                        cmd_tokens = shlex.split(cmd_str)
+                    except ValueError:
+                        cmd_tokens = cmd_str.split()
+                    res = subprocess.run(cmd_tokens, capture_output=True, text=True)
                     if res.returncode == 0 and os.path.exists(stitched_video_path):
                         self.logger.log(f"🎉 Successfully stitched video saved to: {stitched_video_path}", "INFO")
                         self.state["stitched_video"] = stitched_video_path
