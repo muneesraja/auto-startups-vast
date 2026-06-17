@@ -10,12 +10,7 @@ Supports multiple character references per shot.
 import os
 import sys
 
-# Append filmmaking scripts to import comfyui_api and workflow_builder
-filmmaking_scripts = os.path.abspath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "story-to-video-filmmaking", "scripts"
-))
-sys.path.append(filmmaking_scripts)
+# Import local modules directly
 
 from comfyui_api import curl_json, wait_for_prompt
 from workflow_builder import build_dynamic_workflow

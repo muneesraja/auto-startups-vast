@@ -68,6 +68,28 @@ The `quality_gate` object in global settings configures the automated evaluation
 > [!NOTE]
 > Model availability on OpenRouter can change. If `google/gemini-flash-1.5-8b` is unavailable, substitute `google/gemini-flash-1.5` or check [openrouter.ai/models](https://openrouter.ai/models) for current free-tier vision models.
 
+### 1.2 `global.prompt_enhancer` — Prompt Enhancer Configuration
+
+The `prompt_enhancer` object in global settings configures the automated LLM prompt generation:
+
+```json
+"prompt_enhancer": {
+  "enabled": true,
+  "provider": "openrouter",
+  "model": "google/gemini-3.1-flash-lite",
+  "fallback_model": "openai/gpt-4o-mini",
+  "cache_prompts": true,
+  "cache_dir": "enhanced_prompts"
+}
+```
+
+- `enabled` (bool): Toggle prompt enhancement on/off.
+- `provider` (string): API provider, e.g., `"openrouter"` or `"gemini"`.
+- `model` (string): Primary model to use for enhancement (default: `"google/gemini-3.1-flash-lite"`).
+- `fallback_model` (string): Model to use if the primary model fails or rate limits.
+- `cache_prompts` (bool): If true, save generated prompts to disk and reuse them if the files exist.
+- `cache_dir` (string): Directory relative to the output path where cache JSON files are stored (default: `"enhanced_prompts"`).
+
 ### 2. `characters[]` — Character Registry
 
 | Field | Type | Required | Description |

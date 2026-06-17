@@ -9,13 +9,8 @@ import sys
 import copy
 import shutil
 
-# Resolve filmmaking scripts path
+# Resolve scripts path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-filmmaking_scripts = os.path.abspath(os.path.join(
-    script_dir, "..", "..", "story-to-video-filmmaking", "scripts"
-))
-if filmmaking_scripts not in sys.path:
-    sys.path.append(filmmaking_scripts)
 
 # ComfyUI / filmmaking utilities
 from comfyui_api import (
@@ -24,7 +19,7 @@ from comfyui_api import (
     download_output,
 )
 from workflow_builder import build_dynamic_workflow
-from filmmaking_utils import upload_image_if_needed
+from filmmaking_utils import upload_image_if_needed, find_latest_file
 from continuation_pipeline import extract_continuation_frame
 from fflf_executor import execute_fflf_shot
 
@@ -69,21 +64,24 @@ class WaveExecutorMixin:
         
         for char in self.characters:
             char_id = char["id"]
-            sheet_filename = f"{char_id}_character_sheet.png"
+            sheet_filename = f"{self.story_name}_{char_id}_character_sheet.png"
             local_path = os.path.join(self.references_dir, sheet_filename)
             
             # Check if sheet exists or is pre-defined
+            prefix_check = f"{self.story_name}_{char_id}_character_sheet"
+            found_path, found_name = find_latest_file(self.references_dir, prefix_check, "png")
+            
             if char.get("character_sheet_path"):
                 shutil.copy(char["character_sheet_path"], local_path)
                 self.logger.log(f"   📋 Copied predefined character sheet for {char_id}", "INFO")
                 srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
                 self.state["character_sheets"][char_id] = srv_name
                 self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=sheet_filename)
-            elif os.path.exists(local_path) and os.path.getsize(local_path) > 1024:
-                self.logger.log(f"   📷 Character sheet for {char_id} already exists locally", "INFO")
-                srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+            elif self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                self.logger.log(f"   📷 Character sheet for {char_id} already exists locally: {found_name}", "INFO")
+                srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                 self.state["character_sheets"][char_id] = srv_name
-                self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=sheet_filename)
+                self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=found_name)
             else:
                 prompt_text = char["character_sheet_prompt"]
                 # Compose Ideogram JSON structured prompt for richer layout control
@@ -92,7 +90,10 @@ class WaveExecutorMixin:
                     character_name=char.get("display_name", char_id),
                     character_desc=char.get("description", prompt_text),
                     style_notes=style_notes,
-                    global_style=self.global_cfg.get("style", "")
+                    global_style=self.global_cfg.get("style", ""),
+                    global_cfg=self.global_cfg,
+                    output_dir=self.output_dir,
+                    filename_prefix=f"{char_id}_character_sheet"
                 )
                 pending_prompts.append((char_id, ideogram_prompt, local_path, sheet_filename))
                 self.logger.update_item("wave_0_character_sheets", char_id, "running")
@@ -128,11 +129,13 @@ class WaveExecutorMixin:
             try:
                 outputs = wait_for_prompt(prompt_id, self.base_url, auth=self.auth)
                 srv_name = None
+                actual_local_path = local_path
                 for nid, out in outputs.items():
                     for item in out.get("images", []):
                         srv_filename = item["filename"]
-                        download_output(srv_filename, local_path, self.base_url, auth=self.auth)
-                        srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+                        actual_local_path = os.path.join(os.path.dirname(local_path), srv_filename)
+                        download_output(srv_filename, actual_local_path, self.base_url, auth=self.auth)
+                        srv_name = upload_image_if_needed(actual_local_path, self.base_url, self.available_images, self.auth)
                         self.state["character_sheets"][char_id] = srv_name
                         self.logger.log(f"      ✅ Saved and cached: {char_id} ({srv_name})", "INFO")
                 
@@ -146,7 +149,7 @@ class WaveExecutorMixin:
                     self.logger.log(f"      🛡️ Gate 1: Reviewing character sheet visual quality...", "INFO")
                     char_info = self.char_lookup[char_id]
                     eval_res = evaluate_character_sheet(
-                        image_path=local_path,
+                        image_path=actual_local_path,
                         character_info=char_info,
                         global_style=self.global_cfg.get("style", "3D Pixar-style"),
                         provider=self.provider_name,
@@ -158,7 +161,7 @@ class WaveExecutorMixin:
                         self.logger.log(f"         ✅ Passed. Likeness: {eval_res.get('character_likeness')}/10, Style: {eval_res.get('style_match')}/10", "INFO")
                 
                 score = eval_res.get("overall") if eval_res else None
-                self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=sheet_filename, eval_score=score, eval_result=eval_res)
+                self.logger.update_item("wave_0_character_sheets", char_id, "completed", output=os.path.basename(actual_local_path), eval_score=score, eval_result=eval_res)
                 
             except Exception as e:
                 err_msg = str(e)
@@ -191,11 +194,14 @@ class WaveExecutorMixin:
                 ff_raw_path = os.path.join(self.scenes_dir, ff_raw_name)
                 item_id = f"{prefix}_ff_raw"
                 
-                if os.path.exists(ff_raw_path) and os.path.getsize(ff_raw_path) > 1024:
-                    self.logger.log(f"   📷 Raw FF already exists locally: {ff_raw_name}", "INFO")
-                    srv_name = upload_image_if_needed(ff_raw_path, self.base_url, self.available_images, self.auth)
+                target_prefix = f"{prefix}_ff_raw"
+                found_path, found_name = find_latest_file(self.scenes_dir, target_prefix, "png")
+                
+                if self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                    self.logger.log(f"   📷 Raw FF already exists locally: {found_name}", "INFO")
+                    srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                     self.state["ff_images"][prefix] = srv_name
-                    self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=ff_raw_name)
+                    self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=found_name)
                 else:
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "running")
                     # Compose Ideogram JSON structured prompt for layout control
@@ -204,7 +210,10 @@ class WaveExecutorMixin:
                         prompt_text=ff_prompt_text,
                         global_style=self.global_cfg.get("style", ""),
                         characters_present=shot.get("characters_present", []),
-                        characters_cfg=self.char_lookup
+                        characters_cfg=self.char_lookup,
+                        global_cfg=self.global_cfg,
+                        output_dir=self.output_dir,
+                        filename_prefix=f"{prefix}_ff"
                     )
                     pending_prompts.append((prefix, "ff", ideogram_ff_prompt, ff_raw_path, ff_raw_name, item_id, shot))
 
@@ -214,11 +223,14 @@ class WaveExecutorMixin:
                 lf_raw_path = os.path.join(self.scenes_dir, lf_raw_name)
                 item_id = f"{prefix}_lf_raw"
                 
-                if os.path.exists(lf_raw_path) and os.path.getsize(lf_raw_path) > 1024:
-                    self.logger.log(f"   📷 Raw LF already exists locally: {lf_raw_name}", "INFO")
-                    srv_name = upload_image_if_needed(lf_raw_path, self.base_url, self.available_images, self.auth)
+                target_prefix = f"{prefix}_lf_raw"
+                found_path, found_name = find_latest_file(self.scenes_dir, target_prefix, "png")
+                
+                if self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                    self.logger.log(f"   📷 Raw LF already exists locally: {found_name}", "INFO")
+                    srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                     self.state["lf_images"][prefix] = srv_name
-                    self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=lf_raw_name)
+                    self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=found_name)
                 else:
                     lf_prompt_text = shot.get("lf_prompt") or shot.get("narrative", "")
                     # Compose Ideogram JSON structured prompt for layout control
@@ -226,7 +238,10 @@ class WaveExecutorMixin:
                         prompt_text=lf_prompt_text,
                         global_style=self.global_cfg.get("style", ""),
                         characters_present=shot.get("characters_present", []),
-                        characters_cfg=self.char_lookup
+                        characters_cfg=self.char_lookup,
+                        global_cfg=self.global_cfg,
+                        output_dir=self.output_dir,
+                        filename_prefix=f"{prefix}_lf"
                     )
                     self.logger.update_item("wave_1_ideogram_ffs", item_id, "running")
                     pending_prompts.append((prefix, "lf", ideogram_lf_prompt, lf_raw_path, lf_raw_name, item_id, shot))
@@ -260,11 +275,13 @@ class WaveExecutorMixin:
             try:
                 outputs = wait_for_prompt(prompt_id, self.base_url, auth=self.auth)
                 srv_name = None
+                actual_local_path = local_path
                 for nid, out in outputs.items():
                     for item in out.get("images", []):
                         srv_filename = item["filename"]
-                        download_output(srv_filename, local_path, self.base_url, auth=self.auth)
-                        srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+                        actual_local_path = os.path.join(os.path.dirname(local_path), srv_filename)
+                        download_output(srv_filename, actual_local_path, self.base_url, auth=self.auth)
+                        srv_name = upload_image_if_needed(actual_local_path, self.base_url, self.available_images, self.auth)
                         
                         if role == "ff":
                             self.state["ff_images"][prefix] = srv_name
@@ -280,10 +297,15 @@ class WaveExecutorMixin:
                 gate_enabled = self.global_cfg.get("quality_gate", {}).get("gates", {}).get("scene_composition", True)
                 if self.quality_gate_enabled and gate_enabled and role == "ff":
                     self.logger.log(f"      🛡️ Gate 2: Reviewing FF scene composition quality...", "INFO")
-                    ref_paths = [os.path.join(self.references_dir, f"{cid}_character_sheet.png") for cid in shot.get("characters_present", [])]
+                    ref_paths = []
+                    for cid in shot.get("characters_present", []):
+                        pref = f"{self.story_name}_{cid}_character_sheet"
+                        f_path, f_name = find_latest_file(self.references_dir, pref, "png")
+                        if f_path:
+                            ref_paths.append(f_path)
                     char_desc = "; ".join(self.char_lookup[cid]["description"] for cid in shot.get("characters_present", []) if cid in self.char_lookup)
                     eval_res = evaluate_scene_composition(
-                        image_path=local_path,
+                        image_path=actual_local_path,
                         character_sheet_paths=[p for p in ref_paths if os.path.exists(p)],
                         ff_prompt=shot["ff_prompt"],
                         characters_desc=char_desc,
@@ -298,7 +320,7 @@ class WaveExecutorMixin:
                         self.logger.log(f"         ✅ Passed. Score: {eval_res.get('overall') or eval_res.get('overall_score') or 0}/10", "INFO")
                 
                 score = eval_res.get("overall") if eval_res else None
-                self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=raw_name, eval_score=score, eval_result=eval_res)
+                self.logger.update_item("wave_1_ideogram_ffs", item_id, "completed", output=os.path.basename(actual_local_path), eval_score=score, eval_result=eval_res)
 
             except Exception as e:
                 err_msg = str(e)
@@ -333,14 +355,22 @@ class WaveExecutorMixin:
                 edited_ff_name = f"{prefix}_ff_edited.png"
                 edited_ff_path = os.path.join(self.scenes_edited_dir, edited_ff_name)
 
-                if os.path.exists(edited_ff_path) and os.path.getsize(edited_ff_path) > 1024:
-                    self.logger.log(f"   📷 Edited FF already exists locally: {edited_ff_name}", "INFO")
-                    srv_name = upload_image_if_needed(edited_ff_path, self.base_url, self.available_images, self.auth)
+                target_prefix = f"{prefix}_ff_edited"
+                found_path, found_name = find_latest_file(self.scenes_edited_dir, target_prefix, "png")
+
+                if self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                    self.logger.log(f"   📷 Edited FF already exists locally: {found_name}", "INFO")
+                    srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                     self.state["ff_images"][prefix] = srv_name
-                    self.logger.update_item("wave_2a_klein_ff_edits", item_id, "completed", output=edited_ff_name)
+                    self.logger.update_item("wave_2a_klein_ff_edits", item_id, "completed", output=found_name)
                 elif not has_characters:
                     self.logger.log(f"   ⏭️  No character consistency needed for {prefix} FF — copying raw file.", "INFO")
-                    shutil.copy(raw_ff_path, edited_ff_path)
+                    # Resolve raw FF path with counter
+                    raw_ff_prefix = f"{prefix}_ff_raw"
+                    actual_raw_path, actual_raw_name = find_latest_file(self.scenes_dir, raw_ff_prefix, "png")
+                    if not actual_raw_path:
+                        actual_raw_path = raw_ff_path
+                    shutil.copy(actual_raw_path, edited_ff_path)
                     srv_name = upload_image_if_needed(edited_ff_path, self.base_url, self.available_images, self.auth)
                     self.state["ff_images"][prefix] = srv_name
                     self.logger.update_item("wave_2a_klein_ff_edits", item_id, "completed", output=edited_ff_name)
@@ -381,11 +411,13 @@ class WaveExecutorMixin:
             try:
                 outputs = wait_for_prompt(prompt_id, self.base_url, auth=self.auth)
                 srv_name = None
+                actual_local_path = local_path
                 for nid, out in outputs.items():
                     for item in out.get("images", []):
                         srv_filename = item["filename"]
-                        download_output(srv_filename, local_path, self.base_url, auth=self.auth)
-                        srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+                        actual_local_path = os.path.join(os.path.dirname(local_path), srv_filename)
+                        download_output(srv_filename, actual_local_path, self.base_url, auth=self.auth)
+                        srv_name = upload_image_if_needed(actual_local_path, self.base_url, self.available_images, self.auth)
                         self.state["ff_images"][prefix] = srv_name
                         self.logger.log(f"      ✅ Saved edited still: {prefix} ({srv_name})", "INFO")
                 
@@ -397,10 +429,18 @@ class WaveExecutorMixin:
                 gate_enabled = self.global_cfg.get("quality_gate", {}).get("gates", {}).get("klein_consistency", True)
                 if self.quality_gate_enabled and gate_enabled:
                     self.logger.log(f"      🛡️ Gate 3: Reviewing edited character consistency likeness/neutrality...", "INFO")
-                    ref_paths = [os.path.join(self.references_dir, f"{cid}_character_sheet.png") for cid in chars]
-                    raw_ff_path = os.path.join(self.scenes_dir, f"{prefix}_ff_raw.png")
+                    ref_paths = []
+                    for cid in chars:
+                        pref = f"{self.story_name}_{cid}_character_sheet"
+                        f_path, f_name = find_latest_file(self.references_dir, pref, "png")
+                        if f_path:
+                            ref_paths.append(f_path)
+                    raw_ff_prefix = f"{prefix}_ff_raw"
+                    raw_ff_path, raw_ff_name = find_latest_file(self.scenes_dir, raw_ff_prefix, "png")
+                    if not raw_ff_path:
+                        raw_ff_path = os.path.join(self.scenes_dir, f"{prefix}_ff_raw.png")
                     eval_res = evaluate_klein_consistency(
-                        edited_path=local_path,
+                        edited_path=actual_local_path,
                         raw_path=raw_ff_path,
                         character_sheet_paths=[p for p in ref_paths if os.path.exists(p)],
                         provider=self.provider_name,
@@ -413,7 +453,7 @@ class WaveExecutorMixin:
                         self.logger.log(f"         ✅ Passed. Likeness: {eval_res.get('character_likeness')}/10, background preservation: {eval_res.get('background_preservation')}/10", "INFO")
 
                 score = eval_res.get("overall") if eval_res else None
-                self.logger.update_item("wave_2a_klein_ff_edits", item_id, "completed", output=edited_name, eval_score=score, eval_result=eval_res)
+                self.logger.update_item("wave_2a_klein_ff_edits", item_id, "completed", output=os.path.basename(actual_local_path), eval_score=score, eval_result=eval_res)
 
             except Exception as e:
                 err_msg = str(e)
@@ -448,11 +488,14 @@ class WaveExecutorMixin:
                 edited_lf_name = f"{prefix}_lf_edited.png"
                 edited_lf_path = os.path.join(self.scenes_edited_dir, edited_lf_name)
 
-                if os.path.exists(edited_lf_path) and os.path.getsize(edited_lf_path) > 1024:
-                    self.logger.log(f"   📷 Derived LF already exists locally: {edited_lf_name}", "INFO")
-                    srv_name = upload_image_if_needed(edited_lf_path, self.base_url, self.available_images, self.auth)
+                target_prefix = f"{prefix}_lf_edited"
+                found_path, found_name = find_latest_file(self.scenes_edited_dir, target_prefix, "png")
+
+                if self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                    self.logger.log(f"   📷 Derived LF already exists locally: {found_name}", "INFO")
+                    srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                     self.state["lf_images"][prefix] = srv_name
-                    self.logger.update_item("wave_2b_klein_lf_derivations", item_id, "completed", output=edited_lf_name)
+                    self.logger.update_item("wave_2b_klein_lf_derivations", item_id, "completed", output=found_name)
                 else:
                     self.logger.update_item("wave_2b_klein_lf_derivations", item_id, "running")
                     edit_prompt = build_lf_derivation_prompt(shot, self.global_cfg.get("style", ""))
@@ -499,11 +542,13 @@ class WaveExecutorMixin:
             try:
                 outputs = wait_for_prompt(prompt_id, self.base_url, auth=self.auth)
                 srv_name = None
+                actual_local_path = local_path
                 for nid, out in outputs.items():
                     for item in out.get("images", []):
                         srv_filename = item["filename"]
-                        download_output(srv_filename, local_path, self.base_url, auth=self.auth)
-                        srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+                        actual_local_path = os.path.join(os.path.dirname(local_path), srv_filename)
+                        download_output(srv_filename, actual_local_path, self.base_url, auth=self.auth)
+                        srv_name = upload_image_if_needed(actual_local_path, self.base_url, self.available_images, self.auth)
                         self.state["lf_images"][prefix] = srv_name
                         self.logger.log(f"      ✅ Saved edited still: {prefix} ({srv_name})", "INFO")
 
@@ -515,10 +560,12 @@ class WaveExecutorMixin:
                 gate_enabled = self.global_cfg.get("quality_gate", {}).get("gates", {}).get("lf_delta", True)
                 if self.quality_gate_enabled and gate_enabled:
                     self.logger.log(f"      🛡️ Gate 4: Reviewing LF delta verification quality...", "INFO")
-                    ff_edited_path = os.path.join(self.scenes_edited_dir, f"{prefix}_ff_edited.png")
+                    ff_edited_path, ff_edited_name = find_latest_file(self.scenes_edited_dir, f"{prefix}_ff_edited", "png")
+                    if not ff_edited_path:
+                        ff_edited_path = os.path.join(self.scenes_edited_dir, f"{prefix}_ff_edited.png")
                     eval_res = evaluate_lf_delta(
                         ff_path=ff_edited_path,
-                        lf_path=local_path,
+                        lf_path=actual_local_path,
                         lf_edit_instruction=shot.get("lf_edit_instruction", ""),
                         provider=self.provider_name,
                         api_key=self.api_key,
@@ -530,7 +577,7 @@ class WaveExecutorMixin:
                         self.logger.log(f"         ✅ Passed. Delta accuracy: {eval_res.get('delta_accuracy')}/10, Identity preserved: {eval_res.get('identity_preserved')}/10", "INFO")
 
                 score = eval_res.get("overall") if eval_res else None
-                self.logger.update_item("wave_2b_klein_lf_derivations", item_id, "completed", output=edited_name, eval_score=score, eval_result=eval_res)
+                self.logger.update_item("wave_2b_klein_lf_derivations", item_id, "completed", output=os.path.basename(actual_local_path), eval_score=score, eval_result=eval_res)
 
             except Exception as e:
                 err_msg = str(e)
@@ -561,23 +608,26 @@ class WaveExecutorMixin:
 
             # Skip existing videos if requested
             if self.args.skip_existing:
-                existing = sorted(
-                    f for f in os.listdir(self.videos_dir)
-                    if f.startswith(prefix) and f.endswith(('.mp4', '.webm', '.gif'))
-                    and os.path.getsize(os.path.join(self.videos_dir, f)) > 1024 * 100
-                )
-                if existing:
-                    existing_path = os.path.join(self.videos_dir, existing[-1])
-                    self.logger.log(f"   ⏭️ Skipping video gen for {prefix} (exists: {existing[-1]})", "INFO")
-                    self.state["videos"][prefix] = existing_path
-                    self._extract_and_cache_tail(existing_path, shot, prefix)
-                    self.logger.update_item("wave_3_fflf_batch", item_id, "completed", output=existing[-1])
+                found_path, found_name = find_latest_file(self.videos_dir, prefix, "mp4")
+                if not found_path:
+                    for ext in ["webm", "gif"]:
+                        found_path, found_name = find_latest_file(self.videos_dir, prefix, ext)
+                        if found_path:
+                            break
+                if found_path and os.path.getsize(found_path) > 1024 * 100:
+                    self.logger.log(f"   ⏭️ Skipping video gen for {prefix} (exists: {found_name})", "INFO")
+                    self.state["videos"][prefix] = found_path
+                    self._extract_and_cache_tail(found_path, shot, prefix)
+                    self.logger.update_item("wave_3_fflf_batch", item_id, "completed", output=found_name)
                     continue
 
             # Run FFLF execution
+            ff_path, ff_name = find_latest_file(self.scenes_edited_dir, f"{prefix}_ff_edited", "png")
+            lf_path, lf_name = find_latest_file(self.scenes_edited_dir, f"{prefix}_lf_edited", "png")
+            
             shot_data_for_fflf = copy.deepcopy(shot)
-            shot_data_for_fflf["first_frame_image"] = f"{prefix}_ff_edited.png"
-            shot_data_for_fflf["last_frame_image"] = f"{prefix}_lf_edited.png"
+            shot_data_for_fflf["first_frame_image"] = ff_name or f"{prefix}_ff_edited.png"
+            shot_data_for_fflf["last_frame_image"] = lf_name or f"{prefix}_lf_edited.png"
 
             self.logger.log(f"   🎥 Running FFLF video generation for {prefix}...", "INFO")
             try:
@@ -634,11 +684,14 @@ class WaveExecutorMixin:
             edited_lf_name = f"{prefix}_lf_edited.png"
             edited_lf_path = os.path.join(self.scenes_edited_dir, edited_lf_name)
 
-            if os.path.exists(edited_lf_path) and os.path.getsize(edited_lf_path) > 1024:
-                self.logger.log(f"      📷 Continuation LF already exists locally: {edited_lf_name}", "INFO")
-                srv_name = upload_image_if_needed(edited_lf_path, self.base_url, self.available_images, self.auth)
+            target_prefix = f"{prefix}_lf_edited"
+            found_path, found_name = find_latest_file(self.scenes_edited_dir, target_prefix, "png")
+
+            if self.args.skip_existing and found_path and os.path.getsize(found_path) > 1024:
+                self.logger.log(f"      📷 Continuation LF already exists locally: {found_name}", "INFO")
+                srv_name = upload_image_if_needed(found_path, self.base_url, self.available_images, self.auth)
                 self.state["lf_images"][prefix] = srv_name
-                self.logger.update_item(wave_name, item_id, "completed", output=edited_lf_name)
+                self.logger.update_item(wave_name, item_id, "completed", output=found_name)
             else:
                 self.logger.update_item(wave_name, item_id, "running")
                 edit_prompt = build_lf_derivation_prompt(shot, self.global_cfg.get("style", ""))
@@ -676,11 +729,13 @@ class WaveExecutorMixin:
             try:
                 outputs = wait_for_prompt(prompt_id, self.base_url, auth=self.auth)
                 srv_name = None
+                actual_local_path = local_path
                 for nid, out in outputs.items():
                     for item in out.get("images", []):
                         srv_filename = item["filename"]
-                        download_output(srv_filename, local_path, self.base_url, auth=self.auth)
-                        srv_name = upload_image_if_needed(local_path, self.base_url, self.available_images, self.auth)
+                        actual_local_path = os.path.join(os.path.dirname(local_path), srv_filename)
+                        download_output(srv_filename, actual_local_path, self.base_url, auth=self.auth)
+                        srv_name = upload_image_if_needed(actual_local_path, self.base_url, self.available_images, self.auth)
                         self.state["lf_images"][prefix] = srv_name
                         self.logger.log(f"         ✅ Saved continuation LF: {prefix} ({srv_name})", "INFO")
 
@@ -696,7 +751,7 @@ class WaveExecutorMixin:
                     ff_path = os.path.join(self.scenes_edited_dir, f"{pred_prefix}_tail_frame.png")
                     eval_res = evaluate_lf_delta(
                         ff_path=ff_path,
-                        lf_path=local_path,
+                        lf_path=actual_local_path,
                         lf_edit_instruction=shot.get("lf_edit_instruction", ""),
                         provider=self.provider_name,
                         api_key=self.api_key,
@@ -708,7 +763,7 @@ class WaveExecutorMixin:
                         self.logger.log(f"            ✅ Passed. Delta accuracy: {eval_res.get('delta_accuracy')}/10, Identity preserved: {eval_res.get('identity_preserved')}/10", "INFO")
 
                 score = eval_res.get("overall") if eval_res else None
-                self.logger.update_item(wave_name, item_id, "completed", output=edited_name, eval_score=score, eval_result=eval_res)
+                self.logger.update_item(wave_name, item_id, "completed", output=os.path.basename(actual_local_path), eval_score=score, eval_result=eval_res)
 
             except Exception as e:
                 err_msg = str(e)
@@ -737,25 +792,26 @@ class WaveExecutorMixin:
 
             # Skip existing
             if self.args.skip_existing:
-                existing = sorted(
-                    f for f in os.listdir(self.videos_dir)
-                    if f.startswith(prefix) and f.endswith(('.mp4', '.webm', '.gif'))
-                    and os.path.getsize(os.path.join(self.videos_dir, f)) > 1024 * 100
-                )
-                if existing:
-                    existing_path = os.path.join(self.videos_dir, existing[-1])
+                found_path, found_name = find_latest_file(self.videos_dir, prefix, "mp4")
+                if not found_path:
+                    for ext in ["webm", "gif"]:
+                        found_path, found_name = find_latest_file(self.videos_dir, prefix, ext)
+                        if found_path:
+                            break
+                if found_path and os.path.getsize(found_path) > 1024 * 100:
                     self.logger.log(f"      Skip video gen for {prefix}", "INFO")
-                    self.state["videos"][prefix] = existing_path
-                    self._extract_and_cache_tail(existing_path, shot, prefix)
-                    self.logger.update_item(wave_name, item_id, "completed", output=existing[-1])
+                    self.state["videos"][prefix] = found_path
+                    self._extract_and_cache_tail(found_path, shot, prefix)
+                    self.logger.update_item(wave_name, item_id, "completed", output=found_name)
                     continue
 
-            # FF image is the local filename of the predecessor's tail frame
             pred_tail_local_name = f"{pred_prefix}_tail_frame.png"
             
+            lf_path, lf_name = find_latest_file(self.scenes_edited_dir, f"{prefix}_lf_edited", "png")
+
             shot_data_for_fflf = copy.deepcopy(shot)
             shot_data_for_fflf["first_frame_image"] = pred_tail_local_name
-            shot_data_for_fflf["last_frame_image"] = f"{prefix}_lf_edited.png"
+            shot_data_for_fflf["last_frame_image"] = lf_name or f"{prefix}_lf_edited.png"
 
             self.logger.log(f"      🎥 Running FFLF video generation for {prefix}...", "INFO")
             try:

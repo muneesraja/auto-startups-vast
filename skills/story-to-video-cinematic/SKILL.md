@@ -11,7 +11,7 @@ triggers:
 
 # v3.1.0 — Batch-Wave Cinematic Pipeline Release (2026-06-16)
 
-This skill implements the **Batch-Wave Execution Model** which groups ComfyUI prompts to minimize model swaps (max 8 swaps regardless of story length) and introduces **Dynamic Multi-Character Flux Klein Editing**, the **V3.1 cinematic prompt schema**, **automated quality evaluation gates** (Image & Video), and **Director Log** capture.
+This skill implements the **Batch-Wave Execution Model** which groups ComfyUI prompts to minimize model swaps (max 8 swaps regardless of story length) and introduces **Dynamic Multi-Character Flux Klein Editing**, the **V3.1 cinematic prompt schema**, **automated quality evaluation gates** (Image & Video), **Director Log** capture, and **LLM-Powered structured prompt enhancement** for Ideogram 4.
 
 ## Core Pipeline Architecture
 

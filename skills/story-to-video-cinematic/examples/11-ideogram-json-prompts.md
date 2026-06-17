@@ -198,3 +198,88 @@ Wave 2a: Flux Klein reads the positioned scene still + character sheet reference
 ```
 
 The bbox-based composition in Wave 1 makes Klein's job easier: if Ideogram consistently places character 1 on the left and character 2 on the right, Klein can more reliably swap character identities into the correct regions.
+
+---
+
+## LLM-Powered Prompt Enhancement (V3.1+)
+
+If `global.prompt_enhancer.enabled` is set to `true`, the pipeline uses an LLM (e.g. Gemini 3.1 Flash Lite) to transform the flat templates above into rich, composition-aware structured JSON prompts.
+
+### Character Sheet Enhancement
+
+**Natural Language Input:**
+- Name: Pippin the Panda
+- Description: A cheerful baby panda with round face, large dark circular eye patches, fluffy white-and-black fur, wearing a small red knitted scarf
+
+**LLM-Enhanced JSON Output:**
+```json
+{
+  "high_level_description": "Professional character model sheet showcasing Pippin the Panda from front, three-quarters, and side profile views.",
+  "style_description": {
+    "aesthetics": "Clean model-sheet presentation, stark white studio background, high visual consistency.",
+    "lighting": "Even, soft studio illumination, flat lighting to minimize shadow casting.",
+    "medium": "illustration",
+    "art_style": "3D animated CGI style with soft plush fur rendering and cute chibi proportions.",
+    "color_palette": ["#FFFFFF", "#000000", "#FF3B30", "#8E8E93"]
+  },
+  "compositional_deconstruction": {
+    "background": "Isolated flat white background, no casting shadows, neutral backdrop.",
+    "elements": [
+      {
+        "type": "obj",
+        "bbox": [50, 50, 950, 350],
+        "desc": "Pippin the Panda front view. Standing pose facing straight forward. Cute baby panda with a round face, large dark eye patches, fluffy black-and-white fur, wearing a vibrant red knitted scarf.",
+        "color_palette": ["#000000", "#FFFFFF", "#FF3B30"]
+      },
+      {
+        "type": "obj",
+        "bbox": [50, 380, 950, 650],
+        "desc": "Pippin the Panda 3/4 view. Turned slightly to the side. Demonstrating body depth, same cute panda features and fluffy fur texture, red scarf draped over the shoulder.",
+        "color_palette": ["#000000", "#FFFFFF", "#FF3B30"]
+      },
+      {
+        "type": "obj",
+        "bbox": [50, 680, 950, 950],
+        "desc": "Pippin the Panda side view profile. Standing in profile facing to the left, showing the snout shape, round back posture, and how the red scarf wraps around the neck.",
+        "color_palette": ["#000000", "#FFFFFF", "#FF3B30"]
+      }
+    ]
+  }
+}
+```
+
+### Scene Still Enhancement
+
+**Natural Language Input:**
+- Prompt: Wide establishing shot of a dense bamboo forest at golden hour. A baby panda with a red scarf walks along a mossy dirt path.
+- Characters: Pippin the Panda
+
+**LLM-Enhanced JSON Output:**
+```json
+{
+  "high_level_description": "Wide establishing cinematic shot of a baby panda walking on a mossy path within a dense, misty bamboo forest at sunset.",
+  "style_description": {
+    "aesthetics": "Cinematic 3D animation, soft volumetric textures, whimsical fantasy atmosphere.",
+    "lighting": "Golden hour lighting, bright shafts of sunlight filtering through the bamboo leaves, creating warm volumetric glow.",
+    "medium": "cinematic_still",
+    "art_style": "Lush 3D Pixar-style rendering, high fidelity materials.",
+    "color_palette": ["#F1C40F", "#27AE60", "#2ECC71", "#1E272C", "#FF3B30"]
+  },
+  "compositional_deconstruction": {
+    "background": "Dense bamboo forest under a golden sky, towering bamboo stalks, soft volumetric mist rising from the damp soil, warm dappled light.",
+    "elements": [
+      {
+        "type": "obj",
+        "bbox": [200, 250, 950, 750],
+        "desc": "Pippin the Panda walking forward, looking around in wonder. Chibi proportions, fluffy black-and-white fur, bright eyes, wearing a tiny red knitted scarf that flutters slightly.",
+        "color_palette": ["#000000", "#FFFFFF", "#FF3B30"]
+      }
+    ]
+  },
+  "additional_directives": [
+    "Volumetric fog",
+    "Rule of thirds composition",
+    "Shallow depth of field, soft background blur"
+  ]
+}
+```

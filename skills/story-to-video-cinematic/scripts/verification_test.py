@@ -7,12 +7,8 @@ import json
 import os
 import sys
 
-# Append filmmaking scripts path
+# Resolve scripts path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-filmmaking_scripts = os.path.abspath(os.path.join(
-    script_dir, "..", "..", "story-to-video-filmmaking", "scripts"
-))
-sys.path.append(filmmaking_scripts)
 
 from workflow_builder import build_dynamic_workflow, load_workflow_template
 

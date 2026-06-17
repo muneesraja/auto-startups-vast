@@ -10,19 +10,26 @@ import json
 import os
 import sys
 
-# Append filmmaking scripts to import comfyui_api and workflow_builder
-filmmaking_scripts = os.path.abspath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "story-to-video-filmmaking", "scripts"
-))
-sys.path.append(filmmaking_scripts)
-
 from comfyui_api import curl_json, wait_for_prompt, download_output
 from workflow_builder import build_dynamic_workflow
 
 
-def compose_character_sheet_prompt(character_name, character_desc, style_notes, global_style):
+def compose_character_sheet_prompt(character_name, character_desc, style_notes, global_style, global_cfg=None, output_dir=None, filename_prefix=None):
     """Compose the structured JSON prompt for Ideogram 4 character sheets."""
+    if global_cfg and global_cfg.get("prompt_enhancer", {}).get("enabled", False):
+        from llm_prompt_enhancer import enhance_character_sheet_prompt
+        enhanced = enhance_character_sheet_prompt(
+            character_name=character_name,
+            character_desc=character_desc,
+            style_notes=style_notes,
+            global_style=global_style,
+            global_cfg=global_cfg,
+            output_dir=output_dir,
+            filename_prefix=filename_prefix
+        )
+        if enhanced:
+            return enhanced
+
     prompt_dict = {
         "high_level_description": f"Professional character reference sheet showing {character_name} from front, 3/4, and side views.",
         "style_description": {
@@ -54,7 +61,7 @@ def compose_character_sheet_prompt(character_name, character_desc, style_notes, 
     return json.dumps(prompt_dict)
 
 
-def compose_scene_prompt(prompt_text, global_style, characters_present, characters_cfg):
+def compose_scene_prompt(prompt_text, global_style, characters_present, characters_cfg, global_cfg=None, output_dir=None, filename_prefix=None):
     """Compose the structured JSON prompt for Ideogram 4 scene frames.
 
     Places up to 3 characters using split bounding boxes so the model renders
@@ -64,6 +71,20 @@ def compose_scene_prompt(prompt_text, global_style, characters_present, characte
     - y: 0 = top, 1000 = bottom
     - x: 0 = left, 1000 = right
     """
+    if global_cfg and global_cfg.get("prompt_enhancer", {}).get("enabled", False):
+        from llm_prompt_enhancer import enhance_scene_prompt
+        enhanced = enhance_scene_prompt(
+            prompt_text=prompt_text,
+            global_style=global_style,
+            characters_present=characters_present,
+            characters_cfg=characters_cfg,
+            global_cfg=global_cfg,
+            output_dir=output_dir,
+            filename_prefix=filename_prefix
+        )
+        if enhanced:
+            return enhanced
+
     # Character bbox layouts by count
     CHAR_BBOXES = {
         1: [[150, 250, 950, 750]],                        # centred

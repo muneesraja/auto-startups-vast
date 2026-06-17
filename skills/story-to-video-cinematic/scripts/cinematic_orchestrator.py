@@ -22,12 +22,15 @@ import copy
 import datetime
 import subprocess
 
-# Resolve and append story-to-video-filmmaking scripts path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-filmmaking_scripts = os.path.abspath(os.path.join(
-    script_dir, "..", "..", "story-to-video-filmmaking", "scripts"
-))
-sys.path.append(filmmaking_scripts)
+# Load environment variables from workspace root .env
+env_path = os.path.abspath(os.path.join(script_dir, "..", "..", "..", ".env"))
+if os.path.exists(env_path):
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.strip().split("=", 1)
+                os.environ[k.strip()] = v.strip().strip('"').strip("'")
 
 # Import ComfyUI and filmmaking helper modules
 from comfyui_api import (
@@ -55,6 +58,7 @@ class BatchWaveOrchestrator(WaveExecutorMixin):
         self.base_url = base_url
         self.auth = comfyui_auth
         self.output_dir = output_dir
+        self.story_name = os.path.basename(os.path.abspath(output_dir))
         self.args = args
 
         # Establish folders
@@ -94,7 +98,7 @@ class BatchWaveOrchestrator(WaveExecutorMixin):
 
         self.ideogram_template = load_workflow_template("ideogram-4-t2i", templates_dir=cinematic_templates_dir)
         self.flux_edit_template = load_workflow_template("flux-2-klein-image-edit", templates_dir=cinematic_templates_dir)
-        self.ltx_fflf_template = load_workflow_template("ltx-23-fflf-seed-hunter", templates_dir=filmmaking_templates_dir)
+        self.ltx_fflf_template = load_workflow_template("ltx-23-fflf-seed-hunter", templates_dir=cinematic_templates_dir)
 
         # ── Initialize logger ──
         run_id = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -181,7 +185,13 @@ class BatchWaveOrchestrator(WaveExecutorMixin):
                 shot_copy["shot"] = shot["shot_id"]
                 shot_copy["_scene_id"] = scene["scene_id"]
                 shot_copy["_scene_title"] = scene.get("scene_title", "")
-                shot_copy["filename_prefix"] = f"s{scene['scene_id']:02d}_sh{shot['shot_id']:02d}"
+                shot_copy["filename_prefix"] = f"{self.story_name}_s{scene['scene_id']:02d}_sh{shot['shot_id']:02d}"
+                
+                cont_from = shot_copy.get("continues_from")
+                if cont_from:
+                    if not cont_from.startswith(f"{self.story_name}_"):
+                        shot_copy["continues_from"] = f"{self.story_name}_{cont_from}"
+                        
                 shots.append(shot_copy)
         return shots
 
@@ -397,6 +407,8 @@ def main():
                         help="Vision provider for quality gates")
     parser.add_argument("--references-dir", type=str, default=None,
                         help="Character reference sheets folder")
+    parser.add_argument("--random-seed", action="store_true",
+                        help="Use a random seed base on each run to avoid cached generations")
 
     args = parser.parse_args()
     base_url = args.url
@@ -409,13 +421,13 @@ def main():
 
     # Parse auth credentials
     comfyui_auth = None
-    if args.auth:
-        parts = args.auth.split(":", 1)
-        if len(parts) == 2:
+    auth_source = args.auth or os.environ.get("COMFYUI_AUTH", None)
+    if auth_source:
+        if ":" in auth_source:
+            parts = auth_source.split(":", 1)
             comfyui_auth = (parts[0], parts[1])
         else:
-            print("❌ Invalid auth format. Use username:password")
-            sys.exit(1)
+            comfyui_auth = auth_source
 
     # Load prompts
     if not os.path.exists(args.prompts):
@@ -430,6 +442,14 @@ def main():
     if version != "3.0":
         print(f"❌ Error: This orchestrator requires schema version '3.0' (found '{version}').")
         sys.exit(1)
+
+    if args.random_seed:
+        import random
+        new_seed = random.randint(1, 10000000)
+        if "global" not in prompts_data:
+            prompts_data["global"] = {}
+        prompts_data["global"]["seed_base"] = new_seed
+        print(f"🎲 Random seed base activated: {new_seed}")
 
     # Instantiate and execute orchestrator
     orchestrator = BatchWaveOrchestrator(

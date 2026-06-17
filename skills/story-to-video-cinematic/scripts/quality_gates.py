@@ -10,13 +10,7 @@ import urllib.request
 import json
 import re
 
-# Append story-to-video-filmmaking scripts path to resolve gemini_eval imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
-filmmaking_scripts = os.path.abspath(os.path.join(
-    script_dir, "..", "..", "story-to-video-filmmaking", "scripts"
-))
-if filmmaking_scripts not in sys.path:
-    sys.path.append(filmmaking_scripts)
 
 from gemini_eval import (
     evaluate_image_against_reference,
