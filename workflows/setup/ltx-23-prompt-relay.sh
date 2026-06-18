@@ -11,6 +11,22 @@
 # =============================================================================
 set -e
 
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 # Platform-aware base directory detection
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
   BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
@@ -47,7 +63,11 @@ pip install sageattention 2>&1 | tail -3
 echo "  ✅ sageattention installed"
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{diffusion_models,vae,text_encoders,loras}
+# Don't pre-create model subdirs here — hf_download uses
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo")
+# which creates the subdir from the filename prefix. Pre-creating the subdir
+# causes the double-nesting bug fixed 2026-06-18.
+mkdir -p "$BASE_DIR"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,27 +106,27 @@ echo "==> Starting downloads..."
 
 # UNET (LTX 2.3 Transformer, fp8 scaled) — ~24GB
 echo "[1/6] Transformer (fp8 scaled)..."
-hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR/models/diffusion_models"
 
 # Video VAE (bf16)
 echo "[2/6] Video VAE..."
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/models/vae"
 
 # Audio VAE (bf16)
 echo "[3/6] Audio VAE..."
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/models/vae"
 
 # Text Projection (bf16)
 echo "[4/6] Text Projection..."
-hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/models/text_encoders"
 
 # Gemma 3 CLIP (12B text encoder)
 echo "[5/6] Gemma 3 12B text encoder..."
-hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it.safetensors" "$BASE_DIR/models/text_encoders"
 
 # LoRA (384-1.1)
 echo "[6/6] LoRA (384-1.1)..."
-hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "$BASE_DIR/loras"
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "$BASE_DIR/models/loras"
 
 echo ""
 echo "==> All downloads completed!"

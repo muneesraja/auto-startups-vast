@@ -11,21 +11,22 @@
 # ---
 set -e
 
-# Platform-aware base directory detection
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
-  BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
-  COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
   echo "  Platform: RunPod (base: $BASE_DIR)"
 elif [ -d "/workspace/ComfyUI" ]; then
-  BASE_DIR="/workspace/ComfyUI/models"
-  COMFYUI_DIR="/workspace/ComfyUI"
+  BASE_DIR="/workspace/ComfyUI"
   echo "  Platform: Vast.ai (base: $BASE_DIR)"
 else
-  BASE_DIR="/workspace/ComfyUI/models"
-  COMFYUI_DIR="/workspace/ComfyUI"
+  BASE_DIR="/workspace/ComfyUI"
   echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
 fi
-
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
 echo "==> Setting up ComfyUI nodes..."
@@ -112,7 +113,9 @@ for repo in ComfyUI-KJNodes ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Im
 done
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{checkpoints,diffusion_models,loras,text_encoders,vae,latent_upscale_models}
+# Don't pre-create model subdirs here — hf_download uses hf_hub_download(local_dir=BASE_DIR, filename="<subdir>/foo")
+# which preserves the prefix. We just need the BASE_DIR itself.
+mkdir -p "$BASE_DIR"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -138,31 +141,120 @@ echo "==> Starting downloads..."
 
 # 1. Transformer (Distilled 1.1 FP8 Scaled — 25.2GB)
 echo "[1/7] Transformer (Distilled 1.1 FP8 Scaled)..."
-hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR/diffusion_models"
+# Comfy-Org / Kijai repo stores this file under diffusion_models/ (HF repo
+# browse-tree convention). If we pass local_dir=$BASE_DIR/models/diffusion_models
+# with the full blob path, the file lands at
+# $BASE_DIR/models/diffusion_models/diffusion_models/<file> (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (helper creates
+# $BASE_DIR/diffusion_models/<file>), then move to the final home.
+BLOB_PATH="$BASE_DIR/diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors"
+FINAL_PATH="$BASE_DIR/models/diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors"
+mkdir -p "$BASE_DIR/models/diffusion_models"
+hf_download "Kijai/LTX2.3_comfy" "diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/diffusion_models" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 2. Video VAE (~1.5GB)
 echo "[2/7] Video VAE (LTX23_video_vae_bf16)..."
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/vae"
+# Comfy-Org / Kijai repo stores this file under vae/ (HF repo
+# browse-tree convention). If we pass local_dir=$BASE_DIR/models/vae
+# with the full blob path, the file lands at
+# $BASE_DIR/models/vae/vae/<file> (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (helper creates
+# $BASE_DIR/vae/<file>), then move to the final home.
+BLOB_PATH="$BASE_DIR/vae/LTX23_video_vae_bf16.safetensors"
+FINAL_PATH="$BASE_DIR/models/vae/LTX23_video_vae_bf16.safetensors"
+mkdir -p "$BASE_DIR/models/vae"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/vae" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 3. Audio VAE (~365MB) — used by LTXVAudioVAEDecode for audio generation
 echo "[3/7] Audio VAE (LTX23_audio_vae_bf16)..."
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/vae"
+# Comfy-Org / Kijai repo stores this file under vae/ (HF repo
+# browse-tree convention). If we pass local_dir=$BASE_DIR/models/vae
+# with the full blob path, the file lands at
+# $BASE_DIR/models/vae/vae/<file> (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (helper creates
+# $BASE_DIR/vae/<file>), then move to the final home.
+BLOB_PATH="$BASE_DIR/vae/LTX23_audio_vae_bf16.safetensors"
+FINAL_PATH="$BASE_DIR/models/vae/LTX23_audio_vae_bf16.safetensors"
+mkdir -p "$BASE_DIR/models/vae"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/vae" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 4. Tiny VAE for sampling previews (taeltx2_3 — 23.5MB)
 echo "[4/7] Tiny VAE for sampling previews (taeltx2_3)..."
-hf_download "Kijai/LTX2.3_comfy" "vae/taeltx2_3.safetensors" "$BASE_DIR/vae"
+# Comfy-Org / Kijai repo stores this file under vae/ (HF repo
+# browse-tree convention). If we pass local_dir=$BASE_DIR/models/vae
+# with the full blob path, the file lands at
+# $BASE_DIR/models/vae/vae/<file> (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (helper creates
+# $BASE_DIR/vae/<file>), then move to the final home.
+BLOB_PATH="$BASE_DIR/vae/taeltx2_3.safetensors"
+FINAL_PATH="$BASE_DIR/models/vae/taeltx2_3.safetensors"
+mkdir -p "$BASE_DIR/models/vae"
+hf_download "Kijai/LTX2.3_comfy" "vae/taeltx2_3.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/vae" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 5. Text encoder: Gemma 3 12B FP8 e4m3fn (~13.2GB) — used as clip_name1 in DualCLIPLoader
 echo "[5/7] Text Encoder (Gemma 3 12B FP8 e4m3fn)..."
-hf_download "GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn" "gemma_3_12B_it_fp8_e4m3fn.safetensors" "$BASE_DIR/text_encoders"
+hf_download "GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn" "gemma_3_12B_it_fp8_e4m3fn.safetensors" "$BASE_DIR/models/text_encoders"
 
 # 6. LTX text projection (~2.3GB) — used as clip_name2 in DualCLIPLoader
 echo "[6/7] LTX text projection (clip_name2)..."
-hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR/text_encoders"
+# Comfy-Org / Kijai repo stores this file under text_encoders/ (HF repo
+# browse-tree convention). If we pass local_dir=$BASE_DIR/models/text_encoders
+# with the full blob path, the file lands at
+# $BASE_DIR/models/text_encoders/text_encoders/<file> (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (helper creates
+# $BASE_DIR/text_encoders/<file>), then move to the final home.
+BLOB_PATH="$BASE_DIR/text_encoders/ltx-2.3_text_projection_bf16.safetensors"
+FINAL_PATH="$BASE_DIR/models/text_encoders/ltx-2.3_text_projection_bf16.safetensors"
+mkdir -p "$BASE_DIR/models/text_encoders"
+hf_download "Kijai/LTX2.3_comfy" "text_encoders/ltx-2.3_text_projection_bf16.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/text_encoders" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 7. Spatial upscaler v1.1 (~996MB)
-echo "[7/7] Spatial upscaler (v1.1)..."
-hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/latent_upscale_models"
+echo "[7/8] Spatial upscaler (v1.1)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
+
+# 8. OmniNFT-RL LoRA (~617MB) — improves motion + visual fidelity.
+# Referenced by the workflow's Power Lora Loader (rgthree) node.
+# The HF blob path includes a "loras/" prefix (HF repo browse-tree convention).
+# If we pass local_dir=$BASE_DIR/models/loras and the full blob path, hf_hub_download
+# will create $BASE_DIR/models/loras/loras/foo.safetensors (double-nested).
+# Workaround: download with local_dir=$BASE_DIR (so the helper creates
+# $BASE_DIR/models/loras/foo.safetensors), then move the file to its final home at
+# $BASE_DIR/models/loras/. This mirrors the post-download move used by
+# flux-2-klein-image-edit.sh for the Qwen text encoder.
+echo "[8/8] OmniNFT-RL LoRA..."
+LORA_BLOB="loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors"
+LORA_FINAL="$BASE_DIR/models/loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors"
+hf_download "Kijai/LTX2.3_comfy" "$LORA_BLOB" "$BASE_DIR"
+if [ -f "$BASE_DIR/$LORA_BLOB" ] && [ "$BASE_DIR/$LORA_BLOB" != "$LORA_FINAL" ]; then
+  mv "$BASE_DIR/$LORA_BLOB" "$LORA_FINAL"
+  rmdir "$BASE_DIR/loras" 2>/dev/null || true
+  echo "  ✅ Moved LoRA to $LORA_FINAL"
+fi
 
 echo "==> All downloads completed!"
 

@@ -9,6 +9,22 @@
 # ---
 set -e
 
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 # Platform-aware base directory detection
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
   BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
@@ -22,7 +38,11 @@ else
 fi
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{checkpoints,loras,text_encoders,latent_upscale_models}
+# Don't pre-create model subdirs here — hf_download uses
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo")
+# which creates the subdir from the filename prefix. Pre-creating the subdir
+# causes the double-nesting bug fixed 2026-06-18.
+mkdir -p "$BASE_DIR"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,19 +68,19 @@ echo "==> Starting downloads..."
 
 # 1. Checkpoint (Lightricks official FP8 — 29.1GB)
 echo "[1/4] Transformer checkpoint (FP8)... "
-hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/checkpoints"
+hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/models/checkpoints"
 
 # 2. Distilled LoRA (dynamic rank 111, ~6GB)
 echo "[2/4] Distilled LoRA..."
-hf_download "Comfy-Org/ltx-2.3" "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" "$BASE_DIR/loras"
+hf_download "Comfy-Org/ltx-2.3" "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" "$BASE_DIR/models/loras"
 
 # 3. Text Encoder — Gemma 3 12B FP4 Mixed (9.4GB)
 echo "[3/4] Text encoder (Gemma FP4)..."
-hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/models/text_encoders"
 
 # 4. Spatial Upscale Model (~1GB)
 echo "[4/4] Spatial upscaler..."
-hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/latent_upscale_models"
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
 
 echo "==> All downloads completed!"
 echo "==> Done!"

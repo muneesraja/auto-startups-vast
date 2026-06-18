@@ -9,6 +9,22 @@
 # ---
 set -e
 
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 # Platform-aware base directory detection
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
   BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
@@ -22,8 +38,7 @@ else
 fi
 
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{diffusion_models,text_encoders,vae}
-
+mkdir -p "$BASE_DIR"
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _HF_HELPER=""
@@ -48,13 +63,12 @@ echo "==> Starting downloads..."
 
 # 1. Flux.2 Klein 9B FP8 diffusion model (~9.43GB)
 echo "[1/3] Flux.2 Klein 9B FP8 diffusion model..."
-hf_download "black-forest-labs/FLUX.2-klein-9b-fp8" "flux-2-klein-9b-fp8.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "black-forest-labs/FLUX.2-klein-9b-fp8" "flux-2-klein-9b-fp8.safetensors" "$BASE_DIR/models/diffusion_models"
 
 # 2. Qwen 3 8B FP8 text encoder (~8.7GB)
 # HF repo stores this under split_files/text_encoders/ prefix
 # Use local_dir_use_symlinks=False to get a real file (not a broken symlink)
 echo "[2/3] Qwen 3 8B FP8 text encoder..."
-mkdir -p "$BASE_DIR/text_encoders"
 python3 << 'PYEOF'
 import os, time, sys, shutil
 os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
@@ -93,7 +107,7 @@ PYEOF
 
 # 3. Full encoder + small decoder VAE (~249.5MB)
 echo "[3/3] Full encoder small decoder VAE..."
-hf_download "black-forest-labs/FLUX.2-small-decoder" "full_encoder_small_decoder.safetensors" "$BASE_DIR/vae"
+hf_download "black-forest-labs/FLUX.2-small-decoder" "full_encoder_small_decoder.safetensors" "$BASE_DIR/models/vae"
 
 echo "==> All downloads completed!"
 echo "==> Done!"

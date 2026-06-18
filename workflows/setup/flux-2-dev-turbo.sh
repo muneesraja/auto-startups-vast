@@ -9,21 +9,22 @@
 # ---
 set -e
 
-# ─── Platform-aware base directory detection ───
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
-  COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
-  BASE_DIR="$COMFYUI_DIR/models"
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
   echo "  Platform: RunPod (base: $BASE_DIR)"
 elif [ -d "/workspace/ComfyUI" ]; then
-  COMFYUI_DIR="/workspace/ComfyUI"
-  BASE_DIR="$COMFYUI_DIR/models"
+  BASE_DIR="/workspace/ComfyUI"
   echo "  Platform: Vast.ai (base: $BASE_DIR)"
 else
-  COMFYUI_DIR="/workspace/ComfyUI"
-  BASE_DIR="$COMFYUI_DIR/models"
+  BASE_DIR="/workspace/ComfyUI"
   echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
 fi
-
 export BASE_DIR
 export COMFYUI_DIR
 
@@ -108,7 +109,11 @@ fi
 # ─── Create model directories ───
 echo ""
 echo "==> Creating model directories..."
-mkdir -p "$BASE_DIR"/{diffusion_models,text_encoders,vae}
+# Don't pre-create model subdirs here — hf_download uses
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo") which
+# creates the subdir from the filename prefix. Pre-creating the subdir causes
+# the double-nesting bug fixed 2026-06-18.
+mkdir -p "$BASE_DIR/models"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -167,20 +172,26 @@ echo "==> [Phase 2] Starting model downloads..."
 
 # 1. Flux.2 Dev Turbo FP8 diffusion model (~32.2GB)
 echo "[1/3] Flux.2 Dev Turbo FP8 diffusion model..."
-hf_download "silveroxides/FLUX.2-dev-fp8_scaled" "flux2-dev-turbo-fp8mixed.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "silveroxides/FLUX.2-dev-fp8_scaled" "flux2-dev-turbo-fp8mixed.safetensors" "$BASE_DIR/models/diffusion_models"
 
 # 2. Mistral 3 Small FP8 text encoder (~18.5GB)
 echo "[2/3] Mistral 3 Small FP8 text encoder..."
-hf_download "silveroxides/FLUX.2-dev-fp8_scaled" "mistral_3_small_flux2_fp8mixed.safetensors" "$BASE_DIR/text_encoders"
+hf_download "silveroxides/FLUX.2-dev-fp8_scaled" "mistral_3_small_flux2_fp8mixed.safetensors" "$BASE_DIR/models/text_encoders"
 
-# 3. Flux2 VAE (~336.2MB)
+# 3. Flux2 VAE (~336.2MB) — Comfy-Org/flux2-dev stores it under split_files/vae/.
+# If we pass local_dir=$BASE_DIR/models/vae with the full blob path, the file
+# lands at $BASE_DIR/models/vae/split_files/vae/foo (double-nested). Workaround:
+# download with local_dir=$BASE_DIR (helper creates $BASE_DIR/split_files/vae/foo)
+# then move the file to its final home.
 echo "[3/3] Flux2 VAE..."
-hf_download "Comfy-Org/flux2-dev" "split_files/vae/flux2-vae.safetensors" "$BASE_DIR/vae"
-# Move from split_files/vae/ to vae/ directly (Comfy-Org pattern)
-if [ -f "$BASE_DIR/vae/split_files/vae/flux2-vae.safetensors" ]; then
-  mv "$BASE_DIR/vae/split_files/vae/flux2-vae.safetensors" "$BASE_DIR/vae/flux2-vae.safetensors"
-  rmdir "$BASE_DIR/vae/split_files/vae" 2>/dev/null || true
-  rmdir "$BASE_DIR/vae/split_files" 2>/dev/null || true
+VAE_BLOB="split_files/vae/flux2-vae.safetensors"
+VAE_FINAL="$BASE_DIR/models/vae/flux2-vae.safetensors"
+hf_download "Comfy-Org/flux2-dev" "$VAE_BLOB" "$BASE_DIR"
+if [ -f "$BASE_DIR/$VAE_BLOB" ] && [ "$BASE_DIR/$VAE_BLOB" != "$VAE_FINAL" ]; then
+  mv "$BASE_DIR/$VAE_BLOB" "$VAE_FINAL"
+  rmdir "$BASE_DIR/split_files/vae" 2>/dev/null || true
+  rmdir "$BASE_DIR/split_files" 2>/dev/null || true
+  echo "  ✅ Moved VAE to $VAE_FINAL"
 fi
 
 # ─── PHASE 3: Restart ComfyUI if nodes were installed ───
@@ -233,4 +244,4 @@ echo "==> All tasks completed!"
 echo "📊 Summary:"
 echo "  • ComfyUI version: $(cd "$COMFYUI_DIR" && $COMFYUI_PYTHON -c 'from comfyui_version import __version__; print(__version__)' 2>/dev/null || echo 'unknown')"
 echo "  • Custom nodes installed this run: $NODES_INSTALLED"
-echo "  • Models: 3 downloaded to $BASE_DIR"
+echo "  • Models: 3 downloaded to $BASE_DIR/models"

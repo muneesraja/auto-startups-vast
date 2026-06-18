@@ -9,6 +9,22 @@
 # ---
 set -e
 
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 # Platform-aware base directory detection (Vast.ai vs RunPod)
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
   BASE_DIR="/workspace/runpod-slim/ComfyUI/models"
@@ -99,8 +115,8 @@ cd "$COMFYUI_DIR"
 
 echo "==> Creating directories..."
 # NOTE: do NOT pre-create subdirs here — hf_download uses hf_hub_download(local_dir)
-# which preserves the filename's directory prefix. If we pre-create e.g. $BASE_DIR/vae/
-# and pass filename="vae/flux2-vae.safetensors", the file lands in $BASE_DIR/vae/vae/.
+# which preserves the filename's directory prefix. If we pre-create e.g. $BASE_DIR/models/vae/
+# and pass filename="vae/flux2-vae.safetensors", the file lands in $BASE_DIR/models/vae/vae/.
 # Passing $BASE_DIR as the local_dir and letting the helper create subdirs avoids that.
 mkdir -p "$BASE_DIR"
 
@@ -129,7 +145,7 @@ echo "==> Starting downloads..."
 # 1. Ideogram 4 conditional diffusion model — FP8 scaled (~9.3GB)
 # Used as the primary UNet in the workflow's DualModelGuider.
 # local_dir = $BASE_DIR (not $BASE_DIR/diffusion_models) — the helper creates the subdir
-# from the filename prefix, preventing double-nested $BASE_DIR/diffusion_models/diffusion_models/.
+# from the filename prefix, preventing double-nested $BASE_DIR/models/diffusion_models/diffusion_models/.
 echo "[1/4] Ideogram 4 diffusion model (FP8 scaled)..."
 hf_download "Comfy-Org/Ideogram-4" "diffusion_models/ideogram4_fp8_scaled.safetensors" "$BASE_DIR"
 
@@ -180,5 +196,5 @@ echo "==> All tasks completed!"
 echo "📊 Summary:"
 echo "  • ComfyUI version: $($COMFY_PYTHON -c 'from comfyui_version import __version__; print(__version__)' 2>/dev/null || echo 'unknown')"
 echo "  • Upgrades/installs this run: $NODES_INSTALLED"
-echo "  • Models: 4 downloaded to $BASE_DIR"
+echo "  • Models: 4 downloaded to $BASE_DIR/models"
 echo "👉 Refresh the ComfyUI UI to load the Ideogram 4 workflow."

@@ -10,11 +10,24 @@
 # ---
 set -e
 
-BASE_DIR="/workspace/ComfyUI/models"
-
+# Platform-aware base directory detection.
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
+# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
+# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
+# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
+# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
+  BASE_DIR="/workspace/runpod-slim/ComfyUI"
+  echo "  Platform: RunPod (base: $BASE_DIR)"
+elif [ -d "/workspace/ComfyUI" ]; then
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  Platform: Vast.ai (base: $BASE_DIR)"
+else
+  BASE_DIR="/workspace/ComfyUI"
+  echo "  ⚠️  No ComfyUI dir found, defaulting to $BASE_DIR"
+fi
 echo "==> Creating directories..."
-mkdir -p "$BASE_DIR"/{vae,text_encoders,diffusion_models,loras}
-
+mkdir -p "$BASE_DIR"
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _HF_HELPER=""
@@ -84,25 +97,25 @@ echo "==> Starting downloads..."
 # Comfy-Org/Qwen-Image_ComfyUI - shared with base Qwen Image workflows
 # Size: ~253.8M
 echo "[1/4] VAE..."
-hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/vae/qwen_image_vae.safetensors" "$BASE_DIR/vae"
+hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/vae/qwen_image_vae.safetensors" "$BASE_DIR/models/vae"
 
 # Text Encoder
 # Comfy-Org/Qwen-Image_ComfyUI - shared with base Qwen Image workflows
 # Size: ~9.4G
 echo "[2/4] Text Encoder..."
-hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors" "$BASE_DIR/text_encoders"
+hf_download "Comfy-Org/Qwen-Image_ComfyUI" "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors" "$BASE_DIR/models/text_encoders"
 
 # Diffusion Model
 # xms991/Qwen-Image-Edit-2511-fp8-e4m3fn - Qwen Image Edit 2511 fp8_e4m3fn variant
 # Size: 20.4G
 echo "[3/4] Diffusion Model..."
-hf_download "xms991/Qwen-Image-Edit-2511-fp8-e4m3fn" "qwen_image_edit_2511_fp8_e4m3fn.safetensors" "$BASE_DIR/diffusion_models"
+hf_download "xms991/Qwen-Image-Edit-2511-fp8-e4m3fn" "qwen_image_edit_2511_fp8_e4m3fn.safetensors" "$BASE_DIR/models/diffusion_models"
 
 # LoRA
 # lightx2v/Qwen-Image-Lightning - Qwen Image Lightning LoRA v2.0
 # Size: 1.7G
 echo "[4/4] LoRA..."
-hf_download "lightx2v/Qwen-Image-Lightning" "Qwen-Image-Lightning-4steps-V2.0.safetensors" "$BASE_DIR/loras"
+hf_download "lightx2v/Qwen-Image-Lightning" "Qwen-Image-Lightning-4steps-V2.0.safetensors" "$BASE_DIR/models/loras"
 
 echo "==> All downloads completed!"
 echo "👉 Restart ComfyUI or click Refresh in the UI."
