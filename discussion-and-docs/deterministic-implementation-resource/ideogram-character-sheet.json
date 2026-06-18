@@ -1,0 +1,167 @@
+{
+
+"compositional_deconstruction": {
+
+"background": "Completely transparent background. Pure void. No environment, no floor, no shadows. Each character view is a clean isolated cutout against nothing.",
+
+"elements": [
+
+{
+
+"bbox": [
+
+40,
+
+10,
+
+980,
+
+220
+
+],
+
+"desc": "FRONT VIEW — Full body orthographic front view. Lara Croft standing perfectly upright, facing directly forward, arms slightly away from sides in relaxed A-pose. Feet shoulder-width apart. Full outfit visible: dark olive fitted tank top, worn tactical cargo trousers, wide leather belt, fingerless leather gloves, knee pads, heavy laced boots. Recurve bow strapped diagonally across back, quiver over right shoulder. Tactical holster on right thigh. Hair in practical ponytail. Neutral expression. Flat even studio lighting, zero directional shadows.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+40,
+
+230,
+
+980,
+
+440
+
+],
+
+"desc": "THREE-QUARTER VIEW — Full body at 45 degree angle facing front-left. Lara Croft standing upright, body rotated to show depth and layering of the outfit. Quiver and bow visible over shoulder. Belt buckle, holster strap, knee pad depth and boot detail all readable. Same outfit as front view. Flat even studio lighting.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+40,
+
+450,
+
+980,
+
+660
+
+],
+
+"desc": "SIDE VIEW — Full body orthographic left profile. Lara Croft standing perfectly upright facing exactly left. Full side silhouette readable. Recurve bow and quiver on back are hero elements — full strap configuration across chest visible. Boot sole profile, knee pad side, holster tie-down all shown. Flat even studio lighting.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+40,
+
+670,
+
+980,
+
+800
+
+],
+
+"desc": "BACK VIEW — Full body orthographic rear view. Lara Croft standing upright facing directly away from viewer. Quiver full of arrows and recurve bow strapped across back — every strap, buckle and tie fully detailed. Ponytail from behind. Back of knee pads, boot heels, rear pockets, back of holster all visible. Flat even studio lighting.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+40,
+
+810,
+
+490,
+
+950
+
+],
+
+"desc": "FACE PORTRAIT — Large bust portrait, perfectly frontal view from shoulders up. Lara Croft's face fills this bbox. Highly detailed: sharp cheekbones, intense dark eyes looking directly at viewer. Skin has subtle dirt and a small cut on cheekbone. Hair pulled back with loose strands. Expression: fierce, composed, dangerous calm. Flat even reference lighting.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+500,
+
+810,
+
+980,
+
+950
+
+],
+
+"desc": "GEAR DETAIL — Clean isolated flat-lay of iconic equipment on transparent background. Recurve wooden bow, bundle of arrows, fingerless leather tactical gloves, tactical thigh holster. Each item carefully spaced and fully detailed. Flat even lighting, no shadows.",
+
+"type": "obj"
+
+},
+
+{
+
+"bbox": [
+
+0,
+
+0,
+
+35,
+
+1000
+
+],
+
+"desc": "Title Bar: Text reads 'LARA CROFT — CHARACTER SHEET' in wide-tracked condensed sans-serif capitals, dark charcoal color, centered across full width. Thin horizontal rule below.",
+
+"type": "text"
+
+}
+
+]
+
+},
+
+"high_level_description": "A professional character reference sheet for Lara Croft on a fully transparent PNG background, 16:9 landscape format. Four full-body views arranged as vertical columns side by side: front, three-quarter, side, back. Bottom-right split between face portrait and gear detail. Real studio photographs of a costumed actress, shot against seamless white backdrop then isolated. Flat even studio lighting throughout. Dark olive and tan color palette, worn tactical gear, recurve bow and quiver.",
+
+"style_description": {
+
+"aesthetics": "Character Reference Sheet, Studio Photography, Multi-View Turnaround, Production Reference",
+
+"lighting": "Professional studio photography lighting — large softbox from directly above, even fill from both sides, zero directional shadows. Clinical reference illumination so every surface and detail reads with complete clarity. White seamless studio backdrop, subject isolated.",
+
+"medium": "Real studio photograph, seamless white backdrop, professional costume photography, isolated cutout",
+
+"photo": "Full-frame DSLR studio shoot, 50mm lens, f/8 aperture for maximum depth of field keeping full body sharp head to toe, ISO 100, no motion blur, no grain, sharp clinical focus, transparent background after backdrop removal"
+
+}
+
+}
