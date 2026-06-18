@@ -3,8 +3,8 @@
 # name: LTX Official ComfyUI Workflow 2.3 I2V
 # workflow: video_ltx2_3_i2v
 # aliases: [ltx-23-i2v-official, ltx-official, ltx23-official, ltx-i2v-official]
-# description: Downloads all models for the official LTX 2.3 Image-to-Video workflow (Lightricks FP8 checkpoint + distilled LoRA + Gemma text encoder + spatial upscaler).
-# size: ~32GB (corrected: was 47GB — the original counted an unneeded Gemma FP4 the workflow doesn't load)
+# description: Downloads all models for the official LTX 2.3 Image-to-Video workflow (Lightricks FP8 checkpoint + Kijai dynamic-rank distilled LoRA + Lightricks 384-rank distilled LoRA + Gemma FP4 text encoder + Gemma abliterated LoRA + spatial upscaler).
+# size: ~47GB
 # min_vram: 24GB
 # ---
 set -e
@@ -53,44 +53,64 @@ unset _HF_HELPER
 echo "==> Starting downloads..."
 
 # 1. Checkpoint (Lightricks official FP8 — 29.1GB) — primary transformer for the workflow
-echo "[1/3] Transformer checkpoint (FP8)..."
+echo "[1/4] Transformer checkpoint (FP8)..."
 hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/models/checkpoints"
 
-# 2. Distilled LoRA (~1GB) — workflow's actual LoRA from Lightricks/LTX-2.3.
-# NOTE: the original script downloaded a different LoRA
-# (ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors
-#  from Comfy-Org/ltx-2.3) which is NOT what the workflow references. The
-# official video_ltx2_3_i2v.json workflow uses ltx-2.3-22b-distilled-lora-384.
-# 384 here is the rank preset from Lightricks' official release.
-echo "[2/3] Distilled LoRA (Lightricks official, 384-rank)..."
-hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/models/loras"
-
-# 3. Gemma 3 abliterated LoRA — workflow also references this for prompt quality.
-# Same split_files/loras/ filename-prefix issue we hit with OmniNFT-RL: the
-# blob is stored as split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors
-# on HF. If we pass $BASE_DIR/models/loras AND the full blob path, the file
-# lands at $BASE_DIR/models/loras/split_files/loras/foo (double-nested).
-# Workaround: download with local_dir=$BASE_DIR (helper creates
-# $BASE_DIR/split_files/loras/foo) and move to final home.
-echo "[3/3] Gemma-3 abliterated LoRA..."
-LORA_BLOB="split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
-LORA_FINAL="$BASE_DIR/models/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
-hf_download "Comfy-Org/ltx-2" "$LORA_BLOB" "$BASE_DIR"
+# 2. Distilled LoRA — Kijai dynamic-rank variant (~2.6GB).
+# The workflow references this LoRA in its Power Lora Loader nodes. The
+# filename's "split_files/loras/" prefix is HF's repo browse-tree convention.
+# Workaround for double-nest: download with local_dir=$BASE_DIR (helper
+# creates $BASE_DIR/split_files/loras/foo), then move to
+# $BASE_DIR/models/loras/.
+echo "[2/4] Kijai dynamic-rank distilled LoRA..."
+LORA_BLOB="split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"
+LORA_FINAL="$BASE_DIR/models/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"
+mkdir -p "$BASE_DIR/models/loras"
+hf_download "Comfy-Org/ltx-2.3" "$LORA_BLOB" "$BASE_DIR"
 if [ -f "$BASE_DIR/$LORA_BLOB" ] && [ "$BASE_DIR/$LORA_BLOB" != "$LORA_FINAL" ]; then
   mv "$BASE_DIR/$LORA_BLOB" "$LORA_FINAL"
-  # Best-effort cleanup of the now-empty split_files/loras chain
   rmdir "$BASE_DIR/split_files/loras" 2>/dev/null || true
   rmdir "$BASE_DIR/split_files" 2>/dev/null || true
   echo "  ✅ Moved LoRA to $LORA_FINAL"
 fi
 
-# NOTE on Gemma text encoder: the original script downloaded
-# gemma_3_12B_it_fp4_mixed.safetensors (9.4GB) separately, but the official
-# video_ltx2_3_i2v.json workflow's Model Storage Location block does NOT
-# list a text encoder. The text encoder is either bundled inside the FP8
-# checkpoint's ComfyUI loader reference, or loaded via a different path.
-# Verified against the workflow file: only checkpoints/, loras/, and
-# latent_upscale_models/ are needed. Skipped to save ~9.4 GB.
+# 3. Distilled LoRA — Lightricks 384-rank variant (~7.1GB).
+# Different from step 2: this is the rank-384 preset from Lightricks' official
+# release. Both LoRAs are needed (different rank/training method, applied
+# at different strengths in the workflow).
+echo "[3/4] Lightricks 384-rank distilled LoRA..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/models/loras"
+
+# 4. Text Encoder — Gemma 3 12B FP4 Mixed (~8.8GB).
+# Required by the workflow's DualCLIPLoader as clip_name1.
+# The HF blob path includes "split_files/text_encoders/" prefix.
+# Workaround for double-nest: download with local_dir=$BASE_DIR (helper
+# creates $BASE_DIR/split_files/text_encoders/foo), then move to
+# $BASE_DIR/models/text_encoders/.
+echo "[4/4] Gemma 3 12B FP4 text encoder..."
+TE_BLOB="split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
+TE_FINAL="$BASE_DIR/models/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
+mkdir -p "$BASE_DIR/models/text_encoders"
+hf_download "Comfy-Org/ltx-2" "$TE_BLOB" "$BASE_DIR"
+if [ -f "$BASE_DIR/$TE_BLOB" ] && [ "$BASE_DIR/$TE_BLOB" != "$TE_FINAL" ]; then
+  mv "$BASE_DIR/$TE_BLOB" "$TE_FINAL"
+  rmdir "$BASE_DIR/split_files/text_encoders" 2>/dev/null || true
+  rmdir "$BASE_DIR/split_files" 2>/dev/null || true
+  echo "  ✅ Moved text encoder to $TE_FINAL"
+fi
+
+# 5. Gemma 3 abliterated LoRA — workflow also references this for prompt quality.
+# Same split_files/loras/ filename-prefix double-nest as the Kijai LoRA in step 2.
+echo "[5/5] Gemma-3 abliterated LoRA..."
+ABLORA_BLOB="split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
+ABLORA_FINAL="$BASE_DIR/models/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
+hf_download "Comfy-Org/ltx-2" "$ABLORA_BLOB" "$BASE_DIR"
+if [ -f "$BASE_DIR/$ABLORA_BLOB" ] && [ "$BASE_DIR/$ABLORA_BLOB" != "$ABLORA_FINAL" ]; then
+  mv "$BASE_DIR/$ABLORA_BLOB" "$ABLORA_FINAL"
+  rmdir "$BASE_DIR/split_files/loras" 2>/dev/null || true
+  rmdir "$BASE_DIR/split_files" 2>/dev/null || true
+  echo "  ✅ Moved LoRA to $ABLORA_FINAL"
+fi
 
 # NOTE on spatial upscaler: ltx-2.3-spatial-upscaler-x2-1.1.safetensors was
 # already downloaded by ltx-23-fflf-seed-hunter.sh. hf_hub_download detects
