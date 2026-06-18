@@ -422,6 +422,9 @@ def build_dynamic_workflow(template, shot_data, global_cfg):
         # 1. Update first character ref placeholder if any
         if num_refs >= 1:
             workflow["121"]["inputs"]["image"] = character_refs[0]
+        else:
+            # Fallback: if no character references, use the scene image as a placeholder to prevent ComfyUI validation failure
+            workflow["121"]["inputs"]["image"] = shot_data.get("scene_image", "example.png")
             
         # 2. Clone reference chain for additional characters
         for i in range(2, num_refs + 1):

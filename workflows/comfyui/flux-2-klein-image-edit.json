@@ -322,7 +322,8 @@
   "92:151": {
     "inputs": {
       "aspect_ratio": "16:9 (Widescreen)",
-      "megapixels": 1
+      "megapixels": 1,
+      "multiple": 8
     },
     "class_type": "ResolutionSelector",
     "_meta": {

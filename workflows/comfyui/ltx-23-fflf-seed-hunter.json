@@ -55,11 +55,24 @@
         "5157",
         1
       ],
-      "batch_size": 1
+      "batch_size": 1,
+      "audio_vae": [
+        "5220",
+        0
+      ]
     },
     "class_type": "LTXVEmptyLatentAudio",
     "_meta": {
       "title": "LTXV Empty Latent Audio"
+    }
+  },
+  "5220": {
+    "inputs": {
+      "vae_name": "LTX23_audio_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load Audio VAE"
     }
   },
   "5052": {
@@ -769,6 +782,10 @@
   "5002:4828": {
     "inputs": {
       "cfg": 1,
+      "model": [
+        "5025:5153",
+        0
+      ],
       "positive": [
         "5013:5074",
         0

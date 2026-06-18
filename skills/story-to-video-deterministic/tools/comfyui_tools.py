@@ -57,7 +57,7 @@ def _auth_args(auth):
     return []
 
 def curl_json(method, endpoint, base_url=None, data=None, timeout=60, auth=None):
-    """Make ComfyUI API call via curl."""
+    """Make ComfyUI API call via curl with retries."""
     if base_url is None:
         base_url = config.COMFYUI_URL
     if auth is None:
@@ -69,8 +69,21 @@ def curl_json(method, endpoint, base_url=None, data=None, timeout=60, auth=None)
     cmd.extend(_auth_args(auth))
     if data is not None:
         cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    return json.loads(result.stdout) if result.stdout.strip() else {}
+        
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if result.returncode != 0:
+                raise RuntimeError(f"curl command failed with exit code {result.returncode}: {result.stderr}")
+            if result.stdout.strip():
+                return json.loads(result.stdout)
+            return {}
+        except (json.JSONDecodeError, Exception) as e:
+            if attempt == max_retries - 1:
+                raise
+            print(f"   ⚠️ curl_json attempt {attempt + 1} failed: {e}. Retrying in 3s...")
+            time.sleep(3)
 
 def wait_for_prompt(prompt_id, base_url=None, poll_interval=5, max_wait=2400, auth=None):
     """Poll /history/{prompt_id} until completion or error."""
@@ -149,7 +162,7 @@ def download_output(filename, output_path, base_url=None, subfolder="", auth=Non
     return saved
 
 def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type="input"):
-    """Upload an image to ComfyUI."""
+    """Upload an image to ComfyUI with retries."""
     if base_url is None:
         base_url = config.COMFYUI_URL
     if auth is None:
@@ -169,14 +182,19 @@ def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type=
         "-F", "overwrite=true"
     ])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        return None
-
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode != 0:
+                raise RuntimeError(f"curl upload failed with code {result.returncode}: {result.stderr}")
+            return json.loads(result.stdout)
+        except (json.JSONDecodeError, Exception) as e:
+            if attempt == max_retries - 1:
+                print(f"   ❌ upload_image failed after {max_retries} attempts: {e}")
+                return None
+            print(f"   ⚠️ upload_image attempt {attempt + 1} failed: {e}. Retrying in 3s...")
+            time.sleep(3)
 
 def get_video_frame_count(video_path):
     """Retrieve the number of frames in a video using ffprobe."""
