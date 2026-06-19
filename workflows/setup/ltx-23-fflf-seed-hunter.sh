@@ -85,6 +85,43 @@ else
     [ -d ComfyUI-Easy-Use ]             || git clone https://github.com/yolain/ComfyUI-Easy-Use              || true
     [ -d ComfyUI-mxToolkit ]            || git clone https://github.com/Smirnov75/ComfyUI-mxToolkit         || true
     cd "$COMFYUI_DIR"
+
+    # ─── Verify all expected nodes are present, self-heal if any are missing ───
+    # ComfyUI Manager's prestartup_script (or a mid-install supervisorctl restart
+    # race) can occasionally wipe freshly-cloned custom_nodes dirs. We re-clone
+    # any missing one before the deps-install loop, so pip install never runs
+    # against a half-emptied custom_nodes/ tree. This is idempotent: a second
+    # clone of an already-present dir is skipped, so re-runs are safe.
+    EXPECTED_NODES=(
+        "ComfyUI-KJNodes|kijai/ComfyUI-KJNodes"
+        "ComfyUI-LTXVideo|Lightricks/ComfyUI-LTXVideo"
+        "ComfyUI-VideoHelperSuite|Kosinkadink/ComfyUI-VideoHelperSuite"
+        "ComfyUI-Impact-Pack|ltdrdata/ComfyUI-Impact-Pack"
+        "rgthree-comfy|rgthree/rgthree-comfy"
+        "cg-use-everywhere|chrisgoringe/cg-use-everywhere"
+        "ComfyUI-Easy-Use|yolain/ComfyUI-Easy-Use"
+        "ComfyUI-mxToolkit|Smirnov75/ComfyUI-mxToolkit"
+    )
+    NEEDS_HEAL=0
+    for entry in "${EXPECTED_NODES[@]}"; do
+        dir="${entry%%|*}"
+        if [ ! -d "$CUSTOM_NODES_DIR/$dir" ]; then
+            NEEDS_HEAL=1
+        fi
+    done
+    if [ "$NEEDS_HEAL" -eq 1 ]; then
+        echo "  ⚠️  Some nodes missing after initial clone — re-cloning (self-heal)..."
+        cd "$CUSTOM_NODES_DIR"
+        for entry in "${EXPECTED_NODES[@]}"; do
+            dir="${entry%%|*}"
+            repo="${entry##*|}"
+            if [ ! -d "$dir" ]; then
+                echo "    📥 Re-cloning $dir..."
+                git clone "https://github.com/$repo.git" "$dir" 2>&1 | tail -1 || true
+            fi
+        done
+        cd "$COMFYUI_DIR"
+    fi
 fi
 
 # Patch known incompatible deps in the cloned nodes (Vast base image ships kornia 0.8.x,
