@@ -73,7 +73,7 @@ python3 << 'PYEOF'
 import os, time, sys, shutil
 os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
 token = os.environ.get('HF_TOKEN') or None
-local_dir = os.path.join(os.environ['BASE_DIR'], 'text_encoders')
+local_dir = os.path.join(os.environ['BASE_DIR'], 'models', 'text_encoders')
 start = time.time()
 try:
     from huggingface_hub import hf_hub_download
