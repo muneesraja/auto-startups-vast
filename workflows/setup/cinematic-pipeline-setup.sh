@@ -3,6 +3,15 @@
 # name: Cinematic Pipeline Setup
 # description: Copies the custom cinematic templates to ComfyUI workflows, and downloads all models for Ideogram 4, Flux Klein 9B Edit, and LTX 2.3 FFLF.
 # size: ~93GB
+# notes: |
+#   Sub-scripts must agree on the custom node dir naming convention.
+#   KJNodes is installed to `ComfyUI-KJNodes` (PascalCase, matches the
+#   GitHub repo name) — flux-2-klein-image-edit.sh and flux-2-dev-turbo.sh
+#   previously used `comfyui-kjnodes` (lowercase), which caused Phase 4
+#   to re-clone over the top of Phase 2's install on case-insensitive
+#   filesystems, wiping out the node and breaking workflows that depend
+#   on it (e.g. INTConstant). All three sub-scripts now use PascalCase
+#   and accept either casing as "already installed" for backwards compat.
 # ---
 set -e
 

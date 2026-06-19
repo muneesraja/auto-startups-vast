@@ -155,13 +155,15 @@ else
 fi
 
 # KJNodes
-if [ -d "$NODES_DIR/comfyui-kjnodes" ]; then
+# Use PascalCase (ComfyUI-KJNodes) to match the canonical GitHub repo name
+# and stay consistent with the LTX 2.3 FFLF + cinematic-pipeline scripts.
+if [ -d "$NODES_DIR/ComfyUI-KJNodes" ] || [ -d "$NODES_DIR/comfyui-kjnodes" ]; then
   echo "  ✅ KJNodes already installed"
 else
   echo "  📥 Installing KJNodes..."
-  git clone https://github.com/kijai/ComfyUI-KJNodes "$NODES_DIR/comfyui-kjnodes" || true
-  if [ -f "$NODES_DIR/comfyui-kjnodes/requirements.txt" ]; then
-    $COMFYUI_PYTHON -m pip install -r "$NODES_DIR/comfyui-kjnodes/requirements.txt" -q 2>/dev/null || true
+  git clone https://github.com/kijai/ComfyUI-KJNodes "$NODES_DIR/ComfyUI-KJNodes" || true
+  if [ -f "$NODES_DIR/ComfyUI-KJNodes/requirements.txt" ]; then
+    $COMFYUI_PYTHON -m pip install -r "$NODES_DIR/ComfyUI-KJNodes/requirements.txt" -q 2>/dev/null || true
   fi
   NODES_INSTALLED=$((NODES_INSTALLED + 1))
 fi

@@ -76,7 +76,7 @@ else
     echo "  comfy-cli not found, cloning node repositories manually..."
     mkdir -p "$CUSTOM_NODES_DIR"
     cd "$CUSTOM_NODES_DIR"
-    [ -d ComfyUI-KJNodes ]              || git clone https://github.com/kijai/ComfyUI-KJNodes                 || true
+    [ -d ComfyUI-KJNodes ] || [ -d comfyui-kjnodes ] || git clone https://github.com/kijai/ComfyUI-KJNodes ComfyUI-KJNodes || true
     [ -d ComfyUI-LTXVideo ]             || git clone https://github.com/Lightricks/ComfyUI-LTXVideo         || true
     [ -d ComfyUI-VideoHelperSuite ]     || git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite || true
     [ -d ComfyUI-Impact-Pack ]          || git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack         || true
@@ -104,11 +104,23 @@ fi
 
 # Install pip dependencies into ComfyUI's Python (not system Python)
 echo "==> Installing node dependencies..."
-for repo in ComfyUI-KJNodes ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Impact-Pack rgthree-comfy cg-use-everywhere ComfyUI-Easy-Use ComfyUI-mxToolkit; do
+for repo in ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Impact-Pack rgthree-comfy cg-use-everywhere ComfyUI-Easy-Use ComfyUI-mxToolkit; do
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
         echo "  Installing $repo deps..."
         $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -3 || true
+    fi
+done
+# KJNodes is installed by flux-2-klein-image-edit.sh (Phase 2) in the cinematic
+# pipeline; deps loop above only runs once per repo name. Install KJNodes deps
+# here too to cover runs of THIS script in isolation, and accept either casing
+# for backwards compat with prior installs.
+for kj_dir in ComfyUI-KJNodes comfyui-kjnodes; do
+    REQ="$CUSTOM_NODES_DIR/$kj_dir/requirements.txt"
+    if [ -f "$REQ" ]; then
+        echo "  Installing $kj_dir deps..."
+        $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -3 || true
+        break
     fi
 done
 
