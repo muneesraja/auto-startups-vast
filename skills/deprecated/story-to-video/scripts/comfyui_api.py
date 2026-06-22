@@ -13,6 +13,22 @@ DEFAULT_BASE_URL = "https://comfy-instance_mandi-qwen.muneesraja.com"
 DEFAULT_OUTPUT_DIR = "/root/Syncthing/obsidian-vault/growthlabs-docs/story-to-video"
 
 
+def _add_auth(cmd, auth):
+    """Add auth header to curl command. Supports two forms:
+    - tuple (user, pass) → Basic Auth
+    - str → Bearer token
+    Some Cloudflare-fronted ComfyUI tunnels (Vast, etc.) reject Basic Auth
+    on /upload/image and other POST endpoints with a 401, but accept a
+    raw Bearer token in the Authorization header. (Discovered 2026-06-17
+    on pencil-search episode 1 run.)
+    """
+    if isinstance(auth, tuple):
+        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    elif isinstance(auth, str):
+        cmd.extend(["-H", f"Authorization: Bearer {auth}"])
+    # else: no auth
+
+
 def curl_json(method, endpoint, base_url, data=None, timeout=30, auth=None):
     """Make ComfyUI API call via curl (avoids Cloudflare 403 on urllib).
 
@@ -22,15 +38,14 @@ def curl_json(method, endpoint, base_url, data=None, timeout=30, auth=None):
         base_url: ComfyUI base URL
         data: Optional JSON data for POST requests
         timeout: Request timeout in seconds
-        auth: Optional tuple of (username, password) for Basic Auth
+        auth: Optional Basic Auth (user, pass) tuple OR Bearer token string
     """
     # Strip trailing slash from base_url — otherwise Cloudflare responds to
     # /object_info/... with an HTML 301 "Moved Permanently" body, which
     # json.loads() blows up on. (Caught 2026-06-05, story-to-video t_beb4767d.)
     base_url = base_url.rstrip("/")
     cmd = ["curl", "-s", "-X", method, f"{base_url}{endpoint}"]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    _add_auth(cmd, auth)
     if data is not None:
         cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -74,8 +89,7 @@ def download_output(filename, output_path, base_url, subfolder="", auth=None, is
     # Without -L, the 109-byte "Moved Permanently" HTML body gets saved as the
     # image file.
     cmd = ["curl", "-sSL", "-w", "%{http_code}", "-o", output_path, url]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    _add_auth(cmd, auth)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     saved = os.path.exists(output_path)
     if saved:
@@ -142,8 +156,7 @@ def upload_image(image_path, base_url, auth=None, subfolder="", image_type="inpu
 
     # Build curl command for multipart upload
     cmd = ["curl", "-s", "-X", "POST", f"{base_url}/upload/image"]
-    if auth:
-        cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+    _add_auth(cmd, auth)
     cmd.extend([
         "-F", f"image=@{image_path};type={mime_type}",
         "-F", f"subfolder={subfolder}",

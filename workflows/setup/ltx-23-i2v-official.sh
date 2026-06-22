@@ -4,7 +4,7 @@
 # workflow: video_ltx2_3_i2v
 # aliases: [ltx-23-i2v-official, ltx-official, ltx23-official, ltx-i2v-official]
 # description: Downloads all models for the official LTX 2.3 Image-to-Video workflow (Lightricks FP8 checkpoint + Kijai dynamic-rank distilled LoRA + Lightricks 384-rank distilled LoRA + Gemma FP4 text encoder + Gemma abliterated LoRA + spatial upscaler).
-# size: ~47GB
+# size: ~48GB
 # min_vram: 24GB
 # ---
 set -e
@@ -112,9 +112,11 @@ if [ -f "$BASE_DIR/$ABLORA_BLOB" ] && [ "$BASE_DIR/$ABLORA_BLOB" != "$ABLORA_FIN
   echo "  ✅ Moved LoRA to $ABLORA_FINAL"
 fi
 
-# NOTE on spatial upscaler: ltx-2.3-spatial-upscaler-x2-1.1.safetensors was
-# already downloaded by ltx-23-fflf-seed-hunter.sh. hf_hub_download detects
-# the cached file via the local_dir and skips the re-download.
+# 6. Spatial upscaler v1.1 (~996MB) — required by the workflow's LatentUpscaleModelLoader.
+# Previously assumed to be cached by ltx-23-fflf-seed-hunter.sh, but on fresh
+# instances that assumption is wrong and the workflow silently fails to load.
+echo "[6/6] Spatial upscaler (v1.1)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
 
 echo "==> All downloads completed!"
 echo "==> Done!"

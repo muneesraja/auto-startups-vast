@@ -352,12 +352,22 @@ def main():
     # Parse auth
     comfyui_auth = None
     if args.auth:
-        parts = args.auth.split(":", 1)
-        if len(parts) == 2:
-            comfyui_auth = (parts[0], parts[1])
+        # Bearer token (recommended for Cloudflare-fronted ComfyUI):
+        #   --auth "user:bf3a..."     → string after first colon = bearer
+        # Basic auth (legacy):
+        #   --auth "user:pass"        → tuple (only if value is short)
+        if ":" in args.auth:
+            prefix, value = args.auth.split(":", 1)
+            # Bearer tokens are long hex strings (≥32 chars), passwords are short.
+            # This is the only reliable heuristic since the value can start with
+            # anything (e.g. "bf3a..." in the pencil-search case).
+            if len(value) >= 32 and " " not in value:
+                comfyui_auth = value  # Bearer
+            else:
+                comfyui_auth = (prefix, value)  # Basic
         else:
-            print("❌ Invalid auth format. Use username:password")
-            sys.exit(1)
+            # Raw bearer token (no "user:" prefix)
+            comfyui_auth = args.auth
 
     os.makedirs(videos_dir, exist_ok=True)
 
