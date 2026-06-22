@@ -1,3 +1,18 @@
+"""DEPRECATED — Legacy sequential Wave executor.
+
+This module is retained only for ad-hoc CLI debugging via
+
+    python -m scripts.wave_executor --dir /path/to/output --wave 1
+
+The pipeline itself (main.py) now uses the graph-native
+`scripts/nodes/wave_executor_workflow.py` which adds bounded parallelism
+(asyncio.Semaphore(4) via Workflow.max_concurrency), framework-level
+RetryConfig on transient ComfyUI failures, and atomic prompts.json writes
+guarded by an asyncio.Lock.
+
+Do not extend this module; new features go in
+`scripts/nodes/wave_executor_workflow.py` or `scripts/nodes/wave_nodes.py`.
+"""
 import os
 import json
 import re

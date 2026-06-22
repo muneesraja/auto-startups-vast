@@ -57,33 +57,44 @@ def _auth_args(auth):
     return []
 
 def curl_json(method, endpoint, base_url=None, data=None, timeout=60, auth=None):
-    """Make ComfyUI API call via curl with retries."""
+    """Make ComfyUI API call via curl. Raises on empty/non-JSON response (ISSUE-005 fix).
+
+    NOTE: The hand-rolled retry loop has been removed. Callers running inside a
+    Workflow FunctionNode should attach a `RetryConfig` to declare retry intent;
+    ad-hoc callers should wrap calls in their own try/except.
+    """
     if base_url is None:
         base_url = config.COMFYUI_URL
     if auth is None:
         auth = config.COMFYUI_AUTH
-        
+
     base_url = base_url.rstrip("/")
     cmd = ["curl", "-s", "-X", method, f"{base_url}{endpoint}"]
     cmd.extend(_resolve_args(base_url))
     cmd.extend(_auth_args(auth))
     if data is not None:
         cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
-        
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if result.returncode != 0:
-                raise RuntimeError(f"curl command failed with exit code {result.returncode}: {result.stderr}")
-            if result.stdout.strip():
-                return json.loads(result.stdout)
-            return {}
-        except (json.JSONDecodeError, Exception) as e:
-            if attempt == max_retries - 1:
-                raise
-            print(f"   ⚠️ curl_json attempt {attempt + 1} failed: {e}. Retrying in 3s...")
-            time.sleep(3)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"curl command failed with exit code {result.returncode}: {result.stderr}"
+        )
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(
+            f"curl_json({method} {endpoint}) got empty stdout body "
+            "(likely a ComfyUI tunnel outage — 5xx HTML or dropped connection)."
+        )
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as e:
+        # Cloudflare trycloudflare intermittently returns an HTML error page with HTTP 200
+        # and zero Content-Length; raise a clear error so Workflow RetryConfig can retry.
+        raise RuntimeError(
+            f"curl_json({method} {endpoint}) got non-JSON response: "
+            f"{stdout[:200]!r}. JSONDecodeError: {e}"
+        ) from e
 
 def wait_for_prompt(prompt_id, base_url=None, poll_interval=5, max_wait=2400, auth=None):
     """Poll /history/{prompt_id} until completion or error."""
