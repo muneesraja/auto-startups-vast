@@ -201,23 +201,36 @@ fi
 # The workflow widget references "LTX23_video_vae_bf16_KJ.safetensors" (with the _KJ suffix used by
 # KJNodes workflows), but the HF blob in Kijai/LTX2.3_comfy is "LTX23_video_vae_bf16.safetensors"
 # (no _KJ). We download the blob, then rename to the workflow-expected name so VAELoader can find it.
+#
+# Workaround for double-nest (fixed 2026-06-22 — discovered on RunPod instance mwisf01umbfaql
+# where the files landed at $BASE_DIR/models/vae/vae/<file> instead of
+# $BASE_DIR/models/vae/<file>):
+#   The HF blob path includes "vae/" prefix, and hf_hub_download(local_dir=$BASE_DIR/models/vae,
+#   filename="vae/<file>") preserves the prefix → files land at
+#   $BASE_DIR/models/vae/vae/<file>. Same fix as section 1: download with local_dir=$BASE_DIR
+#   (helper creates $BASE_DIR/vae/<file>), move to $BASE_DIR/models/vae/<file>, then rename to
+#   add the _KJ suffix ComfyUI's VAELoaderKJ widget expects.
 echo "[2/6] Video VAE (LTX23_video_vae_bf16_KJ)..."
 mkdir -p "$BASE_DIR/models/vae"
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR/models/vae"
-if [ -f "$BASE_DIR/models/vae/LTX23_video_vae_bf16.safetensors" ]; then
-  mv "$BASE_DIR/models/vae/LTX23_video_vae_bf16.safetensors" \
-     "$BASE_DIR/models/vae/LTX23_video_vae_bf16_KJ.safetensors"
-  echo "  ✅ Renamed to LTX23_video_vae_bf16_KJ.safetensors"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_video_vae_bf16.safetensors" "$BASE_DIR"
+BLOB_PATH="$BASE_DIR/vae/LTX23_video_vae_bf16.safetensors"
+FINAL_PATH="$BASE_DIR/models/vae/LTX23_video_vae_bf16_KJ.safetensors"
+if [ -f "$BLOB_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/vae" 2>/dev/null || true
+  echo "  ✅ Moved + renamed to $FINAL_PATH"
 fi
 
 # 3. Audio VAE (~365MB) — used by LTXVAudioVAEDecode for audio generation
-# Same _KJ suffix situation as the video VAE.
+# Same _KJ suffix + double-nest fix as the video VAE above.
 echo "[3/6] Audio VAE (LTX23_audio_vae_bf16_KJ)..."
-hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR/models/vae"
-if [ -f "$BASE_DIR/models/vae/LTX23_audio_vae_bf16.safetensors" ]; then
-  mv "$BASE_DIR/models/vae/LTX23_audio_vae_bf16.safetensors" \
-     "$BASE_DIR/models/vae/LTX23_audio_vae_bf16_KJ.safetensors"
-  echo "  ✅ Renamed to LTX23_audio_vae_bf16_KJ.safetensors"
+hf_download "Kijai/LTX2.3_comfy" "vae/LTX23_audio_vae_bf16.safetensors" "$BASE_DIR"
+BLOB_PATH="$BASE_DIR/vae/LTX23_audio_vae_bf16.safetensors"
+FINAL_PATH="$BASE_DIR/models/vae/LTX23_audio_vae_bf16_KJ.safetensors"
+if [ -f "$BLOB_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/vae" 2>/dev/null || true
+  echo "  ✅ Moved + renamed to $FINAL_PATH"
 fi
 
 # 4. Tiny VAE for sampling previews (taeltx2_3 — 23.5MB) — used by LTX2SamplingPreviewOverride
