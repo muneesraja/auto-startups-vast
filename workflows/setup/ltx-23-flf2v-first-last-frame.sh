@@ -134,6 +134,28 @@ if [ -f "$LTXVIDEO_PYRAMID" ] && grep -q "from kornia.geometry.transform.pyramid
     fi
 fi
 
+# Patch ComfyUI-VideoHelperSuite (VHS) for ComfyUI >=0.16:
+# VHS's videohelpersuite/utils.py does `import server` (line 14), which depends on ComfyUI
+# auto-adding CWD to sys.path. Newer ComfyUI versions no longer do that, so `import server`
+# fails with `ModuleNotFoundError: No module named 'server'`, which cascades into
+# `from app.frontend_management import FrontendManager` → `from utils.install_util import ...` →
+# `ModuleNotFoundError: No module named 'utils.install_util'; 'utils' is not a package`.
+# Result: zero VHS_VideoCombine nodes registered even though the dir is on disk.
+# Fix: prepend CWD to sys.path at the top of utils.py (idempotent).
+# This block is idempotent — re-running on an already-patched file is a no-op.
+# Discovered 2026-06-24 on RunPod pod epqe52lvxhpyso (ComfyUI v0.18.2).
+VHS_UTILS="$CUSTOM_NODES_DIR/ComfyUI-VideoHelperSuite/videohelpersuite/utils.py"
+if [ -f "$VHS_UTILS" ] && grep -q "^import server$" "$VHS_UTILS"; then
+    if grep -q "patched: ComfyUI v0.18+ no longer auto-adds CWD" "$VHS_UTILS"; then
+        echo "  ComfyUI-VideoHelperSuite sys.path patch already applied"
+    else
+        echo "  Patching ComfyUI-VideoHelperSuite utils.py for ComfyUI >=0.16 sys.path compat..."
+        # Prepend CWD-injection block before the first import
+        sed -i '1i import sys, os\n_cwd = os.getcwd()\nif _cwd not in sys.path:\n    sys.path.insert(0, _cwd)' "$VHS_UTILS"
+        sed -i 's|^import server$|import server  # patched: ComfyUI v0.18+ no longer auto-adds CWD to path|' "$VHS_UTILS"
+    fi
+fi
+
 # Install pip dependencies into ComfyUI's Python (not system Python)
 echo "==> Installing node dependencies..."
 for repo in ComfyUI-LTXVideo ComfyUI-VideoHelperSuite ComfyUI-Impact-Pack rgthree-comfy ComfyUI-Easy-Use; do
