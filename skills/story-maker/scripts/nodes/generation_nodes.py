@@ -95,15 +95,14 @@ async def _retry(fn, label: str):
 
 async def generation_router(ctx: Context) -> None:
     if bool(ctx.state.get("stop_before_generation", False)):
-        print("⏸️ [generation_router] stop_before_generation — skipping generation")
-        ctx.route = "stop"
-        return
+        print(
+            "⏸️ [generation_router] stop_before_generation — "
+            "images + vision motion prompts only (no LTX video)"
+        )
     ctx.route = "generate"
 
 
 async def generate_backgrounds(ctx: Context) -> None:
-    if bool(ctx.state.get("stop_before_generation", False)):
-        return
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
@@ -131,8 +130,6 @@ async def generate_backgrounds(ctx: Context) -> None:
 
 
 async def generate_character_sheets(ctx: Context) -> None:
-    if bool(ctx.state.get("stop_before_generation", False)):
-        return
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
@@ -161,8 +158,6 @@ async def generate_character_sheets(ctx: Context) -> None:
 
 
 async def generate_shot_images(ctx: Context) -> None:
-    if bool(ctx.state.get("stop_before_generation", False)):
-        return
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
@@ -189,10 +184,17 @@ async def generate_shot_images(ctx: Context) -> None:
             for ref in entry.get("reference_images", []):
                 ref_urls.append(_resolve_ref(ref, specs))
 
-            def _gen(p=prompt, urls=ref_urls, path=out_path):
-                return generate_grok_edit(p, urls, path)
+            if not ref_urls:
+                print(f"    No refs for {shot_id}; falling back to grok_t2i")
+                def _gen(p=prompt, path=out_path):
+                    return generate_grok_t2i(p, path)
 
-            result = await _retry(_gen, f"shot edit {shot_id}")
+                result = await _retry(_gen, f"shot t2i {shot_id}")
+            else:
+                def _gen(p=prompt, urls=ref_urls, path=out_path):
+                    return generate_grok_edit(p, urls, path)
+
+                result = await _retry(_gen, f"shot edit {shot_id}")
 
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
@@ -220,10 +222,15 @@ async def generate_videos(ctx: Context) -> None:
         if not image_path or not os.path.isfile(image_path):
             raise RuntimeError(f"Missing image for {shot_id}")
 
+        motion_prompt = (motion.get("motion_prompt") or "").strip()
+        if not motion_prompt:
+            raise RuntimeError(
+                f"Missing motion_prompt for {shot_id} — run vision_motion_prompter first"
+            )
+        duration = motion.get("duration_seconds", 8)
+
         async with sem:
             print(f"  Video I2V: {shot_id}")
-            motion_prompt = motion.get("motion_prompt", "")
-            duration = motion.get("duration_seconds", 8)
 
             def _gen():
                 return generate_ltx_i2v_video(

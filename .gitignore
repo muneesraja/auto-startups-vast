@@ -71,3 +71,4 @@ kanban/boards/
 # Upload manifests (per-story cache of ComfyUI uploads)
 .upload_manifest.json
 *.upload_manifest.json
+outputs/

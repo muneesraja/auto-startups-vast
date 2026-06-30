@@ -1,3 +1,4 @@
+import config
 from agents._base import make_json_agent
 
 _JSON_RULE = (
@@ -10,4 +11,5 @@ ltx_shot_director_agent = make_json_agent(
     prompt_name="ltx_shot_director",
     output_key="story_plan_content",
     extra_instruction=_JSON_RULE,
+    model_factory=config.get_story_plan_model,
 )

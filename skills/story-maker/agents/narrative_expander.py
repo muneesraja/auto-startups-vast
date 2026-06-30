@@ -1,3 +1,4 @@
+import config
 from agents._base import make_json_agent
 
 _JSON_RULE = (
@@ -12,4 +13,5 @@ narrative_expander_agent = make_json_agent(
     prompt_name="narrative_expander",
     output_key="narrative_outline_content",
     extra_instruction=_JSON_RULE,
+    model_factory=config.get_narrative_expander_model,
 )

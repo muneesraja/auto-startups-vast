@@ -120,7 +120,11 @@ async def reference_integrity(ctx: Context) -> None:
 
         entry["reference_images"] = refs
         entry["reference_strategy"] = strategy
-        entry["generation_mode"] = "grok_edit"
+        if not refs:
+            entry["generation_mode"] = "grok_t2i"
+            entry["reference_strategy"] = "no_references"
+        else:
+            entry["generation_mode"] = "grok_edit"
         repaired = True
 
     if repaired:

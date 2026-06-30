@@ -1,7 +1,7 @@
 ---
 name: story-maker
-version: 2.1.0
-description: "ADK multi-agent story-to-video: LTX-aware director, dynamic Grok refs, LTX 2.3 I2V with native audio."
+version: 2.2.0
+description: "ADK multi-agent story-to-video: vision-grounded LTX motion prompts, Grok refs, LTX 2.3 I2V."
 triggers:
   - story-maker
   - story-maker-v2
@@ -19,10 +19,12 @@ Turns a high-level story into an animated film using a Google ADK `Workflow` gra
 4. **Duration Budget Validator** — checks summed shot duration vs target ± tolerance
 5. **Audio Planner** → `audio_plan.json`
 6. **Scene Asset Planner** → `scene_assets.json`
-7. **Parallel prompters** → `generation_specs.json`
-8. **Generation** — backgrounds → char sheets → shot images → LTX I2V → `final_film.mp4`
+7. **Parallel prompters** (char sheets + shot images) → `generation_specs.json`
+8. **Generation** — backgrounds → char sheets → shot images → **vision motion prompter** → LTX I2V → `final_film.mp4`
 
-See [`assets/ltx-2.3-director-bible.md`](assets/ltx-2.3-director-bible.md) for LTX constraints fed to directors and motion prompter.
+Motion prompts are authored **after** shot PNGs exist: GPT-5-mini vision sees each starting frame plus full scene/shot/audio context and writes the LTX `motion_prompt`.
+
+See [`assets/ltx-2.3-director-bible.md`](assets/ltx-2.3-director-bible.md) for LTX constraints.
 
 ## Requirements
 
@@ -38,8 +40,8 @@ cd skills/story-maker
 pip install -r requirements.txt
 
 python3 main.py \
-  --story-file ../../stories/baby-dolphin/Story.md \
-  --name baby-dolphin \
+  --story-file ../../stories/baby-star/Story.md \
+  --name baby-star \
   --target-duration 5m \
   --stop-before-generation
 ```
@@ -51,9 +53,38 @@ python3 main.py \
 | `--target-duration` | Target runtime: `300`, `5m`, `5min` (default 120s if omitted) |
 | `--duration-tolerance` | Allowed deviation percent (default 15) |
 | `--fresh` | Wipe artifacts and replan from scratch |
-| `--stop-before-generation` | Run planning + specs only; skip fal/ComfyUI |
+| `--stop-before-generation` | Run through Grok images + vision motion prompts; skip LTX video |
 | `--only-scenes` | Generate only listed scene ids (e.g. `scene_01`) |
 | `--story-file` | Read story from file |
+| `--planning-model` | OpenRouter model for both planning agents (e.g. `z-ai/glm-5.2`) |
+| `--narrative-expander-model` | Model for `narrative_outline.json` only |
+| `--story-plan-model` | Model for `story_plan.json` only |
+
+### Planning model selection
+
+Swap LLMs for the narrative expander and LTX shot director without code changes.
+
+| Env var | Applies to | Fallback |
+|---------|------------|----------|
+| `PLANNING_MODEL` | Both planning agents | `openai/gpt-5-mini` |
+| `NARRATIVE_EXPANDER_MODEL` | `narrative_outline.json` | `PLANNING_MODEL` → default |
+| `STORY_PLAN_MODEL` | `story_plan.json` | `PLANNING_MODEL` → default |
+| `PLANNING_MODEL_TIMEOUT` | Planning agent timeout seconds | `600` |
+
+```bash
+# .env
+PLANNING_MODEL=z-ai/glm-5.2
+
+# or per-stage
+NARRATIVE_EXPANDER_MODEL=openai/gpt-5-mini
+STORY_PLAN_MODEL=z-ai/glm-5.2
+
+# CLI (applied before agents load)
+python3 main.py --story-file ../../stories/baby-star/Story.md \
+  --name baby-star-glm --planning-model z-ai/glm-5.2 --fresh
+```
+
+Saved artifacts include `_meta.narrative_model` and `_meta.story_plan_model` for A/B comparison.
 
 Resume is automatic: re-run the same `--name` and the `resume_router_node` picks up from the earliest missing artifact.
 
@@ -65,7 +96,7 @@ Resume is automatic: re-run the same `--name` and the `resume_router_node` picks
 | moderate | 7–10s | standard action beat |
 | complex | 11–15s | one camera beat, max 2–3 micro-beats |
 
-Motion prompts are I2V-native: animate from the still — no appearance re-description.
+Motion prompts are I2V-native: written from the actual starting frame — role + position referents, no appearance re-description.
 
 ## Background reference modes
 

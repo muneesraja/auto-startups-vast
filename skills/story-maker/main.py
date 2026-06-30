@@ -11,7 +11,26 @@ import sys
 import traceback
 from datetime import datetime, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SKILL_DIR)
+
+
+def _apply_model_cli_overrides(argv: list[str] | None = None) -> None:
+    """Set planning model env vars before agents bind models at import time."""
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--planning-model")
+    pre.add_argument("--narrative-expander-model")
+    pre.add_argument("--story-plan-model")
+    pre_args, _ = pre.parse_known_args(argv)
+    if pre_args.planning_model:
+        os.environ["PLANNING_MODEL"] = pre_args.planning_model
+    if pre_args.narrative_expander_model:
+        os.environ["NARRATIVE_EXPANDER_MODEL"] = pre_args.narrative_expander_model
+    if pre_args.story_plan_model:
+        os.environ["STORY_PLAN_MODEL"] = pre_args.story_plan_model
+
+
+_apply_model_cli_overrides()
 
 from google.adk import Workflow
 from google.adk.runners import Runner
@@ -26,7 +45,6 @@ from agents.audio_planner import audio_planner_agent
 from agents.scene_asset_planner import scene_asset_planner_agent
 from agents.character_sheet_prompter import character_sheet_prompter_agent
 from agents.shot_reference_strategist import shot_reference_strategist_agent
-from agents.motion_prompter import motion_prompter_agent
 
 from scripts.nodes.resume_router import resume_router_node, resume_prompters_entry_node
 from scripts.nodes.save_artifact_nodes import (
@@ -49,6 +67,7 @@ from scripts.nodes.generation_nodes import (
     video_generator_node,
     concat_videos_node,
 )
+from scripts.nodes.vision_motion_prompter_node import vision_motion_prompter_node
 
 join_prompters_node = JoinNode(name="join_prompters_node")
 
@@ -77,27 +96,22 @@ def _build_pipeline() -> Workflow:
         (scene_asset_planner_agent, save_scene_assets_node),
         (resume_prompters_entry_node, character_sheet_prompter_agent),
         (resume_prompters_entry_node, shot_reference_strategist_agent),
-        (resume_prompters_entry_node, motion_prompter_agent),
-        # Fan-out: three prompters in parallel
+        # Fan-out: two prompters in parallel (motion prompts come post-image via vision)
         (save_scene_assets_node, character_sheet_prompter_agent),
         (save_scene_assets_node, shot_reference_strategist_agent),
-        (save_scene_assets_node, motion_prompter_agent),
         (character_sheet_prompter_agent, join_prompters_node),
         (shot_reference_strategist_agent, join_prompters_node),
-        (motion_prompter_agent, join_prompters_node),
         # Fan-in + validate
         (join_prompters_node, merge_generation_specs_node),
         (merge_generation_specs_node, reference_integrity_node),
         (reference_integrity_node, validate_generation_specs_node),
         (validate_generation_specs_node, generation_router_node),
-        (generation_router_node, {
-            "generate": background_generator_node,
-            "stop": pipeline_complete_node,
-        }),
+        (generation_router_node, background_generator_node),
         # Generation chain
         (background_generator_node, character_sheet_generator_node),
         (character_sheet_generator_node, shot_image_generator_node),
-        (shot_image_generator_node, video_generator_node),
+        (shot_image_generator_node, vision_motion_prompter_node),
+        (vision_motion_prompter_node, video_generator_node),
         (video_generator_node, concat_videos_node),
     ]
     return Workflow(name="StoryMakerV2Pipeline", edges=edges)
@@ -144,12 +158,30 @@ async def main_async():
     parser.add_argument(
         "--stop-before-generation",
         action="store_true",
-        help="Run planning + specs only; skip fal/ComfyUI generation",
+        help="Run through vision motion prompts; skip LTX video generation",
     )
     parser.add_argument(
         "--only-scenes",
         default=None,
         help="Comma-separated scene ids for partial generation",
+    )
+    parser.add_argument(
+        "--planning-model",
+        type=str,
+        default=None,
+        help="OpenRouter model for both narrative expander and shot director (e.g. z-ai/glm-5.2)",
+    )
+    parser.add_argument(
+        "--narrative-expander-model",
+        type=str,
+        default=None,
+        help="Override model for narrative_outline.json only",
+    )
+    parser.add_argument(
+        "--story-plan-model",
+        type=str,
+        default=None,
+        help="Override model for story_plan.json only",
     )
     args = parser.parse_args()
 

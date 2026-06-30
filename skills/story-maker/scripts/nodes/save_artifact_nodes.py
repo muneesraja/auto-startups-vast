@@ -5,6 +5,7 @@ import os
 from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
+import config
 from ._json_util import clean_json_str
 
 
@@ -16,11 +17,26 @@ def _output_dir(ctx: Context) -> str:
     return out
 
 
+def _stamp_planning_meta(data: dict, **model_fields: str) -> dict:
+    if not isinstance(data, dict):
+        return data
+    meta = data.get("_meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.update(model_fields)
+    data["_meta"] = meta
+    return data
+
+
 async def save_narrative_outline(ctx: Context) -> None:
     raw = ctx.state.get("narrative_outline_content")
     if not raw:
         return
     parsed = clean_json_str(raw) if isinstance(raw, str) else raw
+    parsed = _stamp_planning_meta(
+        parsed,
+        narrative_model=config.get_narrative_expander_model_id(),
+    )
     path = os.path.join(_output_dir(ctx), "narrative_outline.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
@@ -32,6 +48,11 @@ async def save_story_plan(ctx: Context) -> None:
     if not raw:
         return
     parsed = clean_json_str(raw) if isinstance(raw, str) else raw
+    parsed = _stamp_planning_meta(
+        parsed,
+        narrative_model=config.get_narrative_expander_model_id(),
+        story_plan_model=config.get_story_plan_model_id(),
+    )
     path = os.path.join(_output_dir(ctx), "story_plan.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
@@ -67,7 +88,6 @@ async def merge_generation_specs(ctx: Context) -> None:
     """Fan-in: merge parallel prompter outputs into generation_specs.json."""
     char_raw = clean_json_str(ctx.state.get("character_sheet_prompts_content") or "{}")
     shot_raw = clean_json_str(ctx.state.get("shot_image_specs_content") or "{}")
-    motion_raw = clean_json_str(ctx.state.get("motion_prompts_content") or "{}")
     scene_assets_raw = clean_json_str(ctx.state.get("scene_assets_content") or "{}")
 
     character_sheets = {}
@@ -100,23 +120,21 @@ async def merge_generation_specs(ctx: Context) -> None:
             for shot in scene.get("shots", []):
                 story_shots[shot["shot_id"]] = shot
 
-    for sid, entry in motion_raw.items():
-        if isinstance(entry, dict):
-            entry = dict(entry)
-            entry.setdefault("shot_id", sid)
-            entry.setdefault("status", "pending")
-            plan_shot = story_shots.get(sid, {})
-            entry.setdefault(
-                "scene_time_offset_seconds",
-                plan_shot.get("scene_time_offset_seconds", 0),
-            )
-            entry.setdefault("pace", plan_shot.get("pace", "medium"))
-            entry.setdefault("motion_intent", plan_shot.get("motion_intent", ""))
-            entry.setdefault("camera_intent", plan_shot.get("camera_intent", ""))
-            entry.setdefault("audio_intent", plan_shot.get("audio_intent", ""))
-            if "duration_seconds" not in entry and plan_shot.get("duration_seconds"):
-                entry["duration_seconds"] = plan_shot["duration_seconds"]
-            motion[sid] = entry
+    for sid, plan_shot in story_shots.items():
+        motion[sid] = {
+            "shot_id": sid,
+            "motion_prompt": "",
+            "duration_seconds": plan_shot.get("duration_seconds", 8),
+            "scene_time_offset_seconds": plan_shot.get("scene_time_offset_seconds", 0),
+            "pace": plan_shot.get("pace", "medium"),
+            "motion_intent": plan_shot.get("motion_intent", ""),
+            "camera_intent": plan_shot.get("camera_intent", ""),
+            "audio_intent": plan_shot.get("audio_intent", ""),
+            "vision_confirmed": False,
+            "vision_source_image": None,
+            "output_path": None,
+            "status": "pending",
+        }
 
     backgrounds = {}
     for scene in scene_assets_raw.get("scenes", []):
