@@ -10,6 +10,8 @@ class PlanMeta(BaseModel):
     style: str
     aesthetic: str
     color_palette: str | None = None
+    target_duration_seconds: int | None = None
+    duration_tolerance_percent: int = 15
     total_duration_seconds: int = 0
     total_scenes: int = 0
     total_shots: int = 0
@@ -22,10 +24,16 @@ class StoryCharacter(BaseModel):
     voice_profile: str
 
 
+LtxShotType = Literal[
+    "establishing", "action", "reaction", "dialogue", "insert", "transition"
+]
+LtxComplexity = Literal["simple", "moderate", "complex"]
+
+
 class ShotBrief(BaseModel):
     shot_id: str
     scene_id: str
-    duration_seconds: int = Field(ge=6, le=12)
+    duration_seconds: int = Field(ge=4, le=15)
     characters_present: list[str] = Field(default_factory=list)
     director_notes: str = ""
     description: str
@@ -33,6 +41,11 @@ class ShotBrief(BaseModel):
     environment_state: str = ""
     pace: Literal["slow", "medium", "fast"] = "medium"
     continuity_from_previous: bool = False
+    ltx_shot_type: LtxShotType = "action"
+    ltx_complexity: LtxComplexity = "moderate"
+    motion_intent: str = ""
+    camera_intent: str = ""
+    audio_intent: str = ""
 
 
 class StoryScene(BaseModel):
@@ -134,3 +147,30 @@ class SceneAsset(BaseModel):
 
 class SceneAssetsPlan(BaseModel):
     scenes: list[SceneAsset]
+
+
+class NarrativeOutlineMeta(BaseModel):
+    story_title: str
+    target_duration_seconds: int
+    duration_tolerance_percent: int = 15
+    planned_act_count: int = 0
+
+
+class NarrativeSceneOutline(BaseModel):
+    scene_id: str
+    title: str
+    duration_budget_seconds: int = Field(ge=0)
+    beats: list[str] = Field(default_factory=list)
+
+
+class NarrativeAct(BaseModel):
+    act_id: str
+    title: str
+    duration_budget_seconds: int = Field(ge=0)
+    summary: str = ""
+    scenes: list[NarrativeSceneOutline] = Field(default_factory=list)
+
+
+class NarrativeOutline(BaseModel):
+    meta: NarrativeOutlineMeta
+    acts: list[NarrativeAct]

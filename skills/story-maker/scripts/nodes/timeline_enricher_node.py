@@ -6,6 +6,7 @@ from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
 from ._json_util import clean_json_str
+from .story_plan_normalize import normalize_story_plan
 
 
 def enrich_story_timeline(story: dict) -> dict:
@@ -28,6 +29,14 @@ def enrich_story_timeline(story: dict) -> dict:
     return story
 
 
+def enrich_story_timeline_with_target(story: dict, target_duration_seconds: int | None) -> dict:
+    story = normalize_story_plan(story)
+    story = enrich_story_timeline(story)
+    if target_duration_seconds is not None:
+        story.setdefault("meta", {})["target_duration_seconds"] = target_duration_seconds
+    return story
+
+
 async def timeline_enricher(ctx: Context) -> None:
     raw = ctx.state.get("story_plan_content")
     if not raw:
@@ -35,7 +44,8 @@ async def timeline_enricher(ctx: Context) -> None:
         return
 
     story = clean_json_str(raw) if isinstance(raw, str) else raw
-    enriched = enrich_story_timeline(story)
+    target = ctx.state.get("target_duration_seconds")
+    enriched = enrich_story_timeline_with_target(story, target)
     ctx.state["story_plan_content"] = json.dumps(enriched, indent=2, ensure_ascii=False)
 
     output_dir = ctx.state.get("output_dir")

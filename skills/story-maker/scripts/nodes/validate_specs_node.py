@@ -7,6 +7,7 @@ from google.adk.workflow import FunctionNode
 from schemas.generation import GenerationSpecs
 from schemas.plan import AudioPlan, SceneAssetsPlan, StoryPlan
 from ._json_util import clean_json_str
+from .story_plan_normalize import normalize_story_plan
 
 
 async def validate_generation_specs(ctx: Context) -> None:
@@ -19,6 +20,7 @@ async def validate_generation_specs(ctx: Context) -> None:
 
     specs_dict = clean_json_str(specs_raw) if isinstance(specs_raw, str) else specs_raw
     story_dict = clean_json_str(story_raw) if isinstance(story_raw, str) else story_raw
+    story_dict = normalize_story_plan(story_dict)
     audio_dict = clean_json_str(audio_raw) if audio_raw else {}
     scene_dict = clean_json_str(scene_raw) if scene_raw else {}
 
@@ -40,6 +42,9 @@ async def validate_generation_specs(ctx: Context) -> None:
                     )
 
     if scene_dict:
+        for scene in scene_dict.get("scenes", []):
+            if not scene.get("background_reference_mode"):
+                scene["background_reference_mode"] = "style_anchor"
         SceneAssetsPlan(**scene_dict)
 
     style_anchor_scenes = {

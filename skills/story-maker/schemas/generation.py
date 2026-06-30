@@ -28,9 +28,12 @@ class ShotImageSpec(BaseModel):
 class MotionSpec(BaseModel):
     shot_id: str
     motion_prompt: str
-    duration_seconds: int = Field(ge=6, le=12)
+    duration_seconds: int = Field(ge=4, le=15)
     scene_time_offset_seconds: int = Field(default=0, ge=0)
     pace: Literal["slow", "medium", "fast"] = "medium"
+    motion_intent: str = ""
+    camera_intent: str = ""
+    audio_intent: str = ""
     output_path: str | None = None
     status: str = "pending"
 

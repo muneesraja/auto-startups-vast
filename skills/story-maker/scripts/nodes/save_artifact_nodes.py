@@ -16,6 +16,17 @@ def _output_dir(ctx: Context) -> str:
     return out
 
 
+async def save_narrative_outline(ctx: Context) -> None:
+    raw = ctx.state.get("narrative_outline_content")
+    if not raw:
+        return
+    parsed = clean_json_str(raw) if isinstance(raw, str) else raw
+    path = os.path.join(_output_dir(ctx), "narrative_outline.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(parsed, f, indent=2, ensure_ascii=False)
+    print(f"📁 [save_narrative_outline] Wrote {path}")
+
+
 async def save_story_plan(ctx: Context) -> None:
     raw = ctx.state.get("story_plan_content")
     if not raw:
@@ -43,6 +54,9 @@ async def save_scene_assets(ctx: Context) -> None:
     if not raw:
         return
     parsed = clean_json_str(raw) if isinstance(raw, str) else raw
+    for scene in parsed.get("scenes", []):
+        if not scene.get("background_reference_mode"):
+            scene["background_reference_mode"] = "style_anchor"
     path = os.path.join(_output_dir(ctx), "scene_assets.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
@@ -97,6 +111,9 @@ async def merge_generation_specs(ctx: Context) -> None:
                 plan_shot.get("scene_time_offset_seconds", 0),
             )
             entry.setdefault("pace", plan_shot.get("pace", "medium"))
+            entry.setdefault("motion_intent", plan_shot.get("motion_intent", ""))
+            entry.setdefault("camera_intent", plan_shot.get("camera_intent", ""))
+            entry.setdefault("audio_intent", plan_shot.get("audio_intent", ""))
             if "duration_seconds" not in entry and plan_shot.get("duration_seconds"):
                 entry["duration_seconds"] = plan_shot["duration_seconds"]
             motion[sid] = entry
@@ -128,6 +145,9 @@ async def merge_generation_specs(ctx: Context) -> None:
     print(f"📁 [merge_generation_specs] Wrote {path}")
 
 
+save_narrative_outline_node = FunctionNode(
+    func=save_narrative_outline, name="save_narrative_outline_node"
+)
 save_story_plan_node = FunctionNode(func=save_story_plan, name="save_story_plan_node")
 save_audio_plan_node = FunctionNode(func=save_audio_plan, name="save_audio_plan_node")
 save_scene_assets_node = FunctionNode(func=save_scene_assets, name="save_scene_assets_node")

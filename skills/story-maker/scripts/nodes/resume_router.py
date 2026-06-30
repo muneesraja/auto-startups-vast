@@ -6,6 +6,7 @@ from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
 _RESUME_STEPS = [
+    ("narrative_outline", "narrative_outline_content", "narrative_outline.json", "json"),
     ("story_plan", "story_plan_content", "story_plan.json", "json"),
     ("audio_plan", "audio_plan_content", "audio_plan.json", "json"),
     ("scene_assets", "scene_assets_content", "scene_assets.json", "json"),
@@ -13,6 +14,7 @@ _RESUME_STEPS = [
 ]
 
 _FRESH_FILES = [
+    "narrative_outline.json",
     "story_plan.json",
     "audio_plan.json",
     "scene_assets.json",
@@ -37,10 +39,16 @@ async def resume_router(ctx: Context) -> None:
                     print(f"🧹 [resume_router] --fresh: removed {p}")
                 except OSError as e:
                     print(f"⚠️ [resume_router] could not remove {p}: {e}")
-        ctx.route = "story_plan"
+        ctx.route = "narrative_outline"
         return
 
+    story_plan_path = os.path.join(output_dir, "story_plan.json")
+    outline_path = os.path.join(output_dir, "narrative_outline.json")
+    legacy = os.path.exists(story_plan_path) and not os.path.exists(outline_path)
+
     for route_name, state_key, filename, parser in _RESUME_STEPS:
+        if legacy and route_name == "narrative_outline":
+            continue
         disk_path = os.path.join(output_dir, filename)
         if not os.path.exists(disk_path):
             print(f"🔄 [resume_router] {filename} missing → '{route_name}'")
@@ -49,6 +57,14 @@ async def resume_router(ctx: Context) -> None:
         if state_key and parser == "json":
             with open(disk_path, encoding="utf-8") as f:
                 data = json.load(f)
+            if state_key == "story_plan_content":
+                from scripts.nodes.story_plan_normalize import normalize_story_plan
+
+                data = normalize_story_plan(data)
+            if state_key == "scene_assets_content":
+                for scene in data.get("scenes", []):
+                    if not scene.get("background_reference_mode"):
+                        scene["background_reference_mode"] = "style_anchor"
             ctx.state[state_key] = json.dumps(data, indent=2, ensure_ascii=False)
             print(f"📂 [resume_router] Loaded {filename}")
 

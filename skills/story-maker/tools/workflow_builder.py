@@ -24,6 +24,15 @@ def load_workflow_template(template_name: str, templates_dir: str | None = None)
         return json.load(f)
 
 
+def snap_duration_seconds(requested: int, fps: int = 25) -> int:
+    """Snap to valid LTX frame count (8n+1) at given fps."""
+    requested = max(1, int(requested))
+    frames = requested * fps
+    n = max(0, round((frames - 1) / 8))
+    snapped_frames = n * 8 + 1
+    return max(1, round(snapped_frames / fps))
+
+
 def _apply_overrides(workflow: dict, overrides: dict, overrides_map: dict) -> dict:
     if not overrides or not overrides_map:
         return workflow
@@ -54,7 +63,10 @@ def build_ltx_i2v_workflow(template: dict, shot_data: dict, global_cfg: dict) ->
     seed = shot_data.get("seed", global_cfg.get("seed_base", 42))
     width = global_cfg.get("width", 1280)
     height = global_cfg.get("height", 720)
-    duration = int(shot_data.get("duration", global_cfg.get("duration", 8)))
+    duration = snap_duration_seconds(
+        int(shot_data.get("duration", global_cfg.get("duration", 8))),
+        fps=int(shot_data.get("fps", global_cfg.get("fps", 25))),
+    )
     fps = int(shot_data.get("fps", global_cfg.get("fps", 25)))
     motion_image = shot_data.get("motion_image") or "example.png"
     filename_prefix = shot_data["filename_prefix"]

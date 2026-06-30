@@ -20,7 +20,8 @@ from google.adk.workflow import START, JoinNode
 from google.genai import types
 
 import config
-from agents.story_planner import story_planner_agent
+from agents.narrative_expander import narrative_expander_agent
+from agents.ltx_shot_director import ltx_shot_director_agent
 from agents.audio_planner import audio_planner_agent
 from agents.scene_asset_planner import scene_asset_planner_agent
 from agents.character_sheet_prompter import character_sheet_prompter_agent
@@ -29,12 +30,14 @@ from agents.motion_prompter import motion_prompter_agent
 
 from scripts.nodes.resume_router import resume_router_node, resume_prompters_entry_node
 from scripts.nodes.save_artifact_nodes import (
+    save_narrative_outline_node,
     save_story_plan_node,
     save_audio_plan_node,
     save_scene_assets_node,
     merge_generation_specs_node,
 )
 from scripts.nodes.timeline_enricher_node import timeline_enricher_node
+from scripts.nodes.duration_budget_validator_node import duration_budget_validator_node
 from scripts.nodes.reference_integrity_node import reference_integrity_node
 from scripts.nodes.validate_specs_node import validate_generation_specs_node
 from scripts.nodes.noop_node import pipeline_complete_node
@@ -54,7 +57,8 @@ def _build_pipeline() -> Workflow:
     edges = [
         (START, resume_router_node),
         (resume_router_node, {
-            "story_plan": story_planner_agent,
+            "narrative_outline": narrative_expander_agent,
+            "story_plan": ltx_shot_director_agent,
             "audio_plan": audio_planner_agent,
             "scene_assets": scene_asset_planner_agent,
             "generation_specs": resume_prompters_entry_node,
@@ -62,9 +66,12 @@ def _build_pipeline() -> Workflow:
             "all_complete": pipeline_complete_node,
         }),
         # Planning chain
-        (story_planner_agent, save_story_plan_node),
+        (narrative_expander_agent, save_narrative_outline_node),
+        (save_narrative_outline_node, ltx_shot_director_agent),
+        (ltx_shot_director_agent, save_story_plan_node),
         (save_story_plan_node, timeline_enricher_node),
-        (timeline_enricher_node, audio_planner_agent),
+        (timeline_enricher_node, duration_budget_validator_node),
+        (duration_budget_validator_node, audio_planner_agent),
         (audio_planner_agent, save_audio_plan_node),
         (save_audio_plan_node, scene_asset_planner_agent),
         (scene_asset_planner_agent, save_scene_assets_node),
@@ -105,12 +112,35 @@ def _read_story(story_arg: str | None, story_file: str | None) -> str:
     raise ValueError("Provide --story or --story-file")
 
 
+def _parse_target_duration(value: str) -> int:
+    s = value.strip().lower().replace(" ", "")
+    if s.endswith("min"):
+        return int(float(s[:-3]) * 60)
+    if s.endswith("m") and not s.endswith("am") and not s.endswith("pm"):
+        return int(float(s[:-1]) * 60)
+    if s.endswith("s"):
+        return int(float(s[:-1]))
+    return int(float(s))
+
+
 async def main_async():
     parser = argparse.ArgumentParser(description="Story Maker V2 — ADK multi-agent pipeline")
     parser.add_argument("--story", type=str, help="Raw story text")
     parser.add_argument("--story-file", type=str, help="Path to story text file")
     parser.add_argument("--name", type=str, required=True, help="Output directory name")
     parser.add_argument("--fresh", action="store_true", help="Wipe artifacts and replan")
+    parser.add_argument(
+        "--target-duration",
+        type=str,
+        default=None,
+        help="Target film length: seconds (300), or 5m / 5min",
+    )
+    parser.add_argument(
+        "--duration-tolerance",
+        type=int,
+        default=15,
+        help="Allowed deviation from target duration percent (default 15)",
+    )
     parser.add_argument(
         "--stop-before-generation",
         action="store_true",
@@ -119,7 +149,7 @@ async def main_async():
     parser.add_argument(
         "--only-scenes",
         default=None,
-        help="Comma-separated scene ids (reserved for partial generation)",
+        help="Comma-separated scene ids for partial generation",
     )
     args = parser.parse_args()
 
@@ -135,12 +165,23 @@ async def main_async():
     if args.only_scenes:
         only_scenes = [s.strip() for s in args.only_scenes.split(",") if s.strip()]
 
+    target_duration_seconds = None
+    if args.target_duration:
+        try:
+            target_duration_seconds = _parse_target_duration(args.target_duration)
+        except ValueError as e:
+            parser.error(f"Invalid --target-duration: {e}")
+    else:
+        target_duration_seconds = 120
+
     initial_state = {
         "story_text": story_text,
         "output_dir": output_dir,
         "fresh": bool(args.fresh),
         "stop_before_generation": bool(args.stop_before_generation),
         "only_scenes": only_scenes,
+        "target_duration_seconds": target_duration_seconds,
+        "duration_tolerance_percent": args.duration_tolerance,
     }
 
     pipeline = _build_pipeline()
@@ -159,6 +200,8 @@ async def main_async():
     )
 
     print(f"\nStory Maker V2 output: {output_dir}")
+    if target_duration_seconds:
+        print(f"Target duration: {target_duration_seconds}s (±{args.duration_tolerance}%)")
     started = datetime.now(timezone.utc)
 
     try:

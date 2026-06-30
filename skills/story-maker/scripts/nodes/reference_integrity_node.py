@@ -76,7 +76,12 @@ async def reference_integrity(ctx: Context) -> None:
             if role == "character_sheet" and asset_id in present:
                 refs.append(f"{{{{character_sheets.{asset_id}.fal_image_url}}}}")
             elif role == "scene_background" and bg_mode == "full_plate":
-                refs.append(f"{{{{backgrounds.{asset_id}.fal_image_url}}}}")
+                backgrounds = specs.get("backgrounds", {})
+                bg_key = asset_id if asset_id in backgrounds else scene_id
+                if bg_key in backgrounds:
+                    if slot.get("asset_id") != bg_key:
+                        slot["asset_id"] = bg_key
+                    refs.append(f"{{{{backgrounds.{bg_key}.fal_image_url}}}}")
 
         if bg_mode == "style_anchor":
             strategy = "char_sheets_only" if present else "no_references"
@@ -99,6 +104,8 @@ async def reference_integrity(ctx: Context) -> None:
         elif strategy == "char_sheets_and_background":
             char_refs = [r for r in refs if r.startswith("{{character_sheets.")]
             bg_refs = [r for r in refs if r.startswith("{{backgrounds.")]
+            if not bg_refs and scene_id in specs.get("backgrounds", {}):
+                bg_refs = [f"{{{{backgrounds.{scene_id}.fal_image_url}}}}"]
             for cid in present:
                 expected = f"{{{{character_sheets.{cid}.fal_image_url}}}}"
                 if expected not in char_refs:
