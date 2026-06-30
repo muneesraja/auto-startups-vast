@@ -36,6 +36,18 @@ This still becomes the LTX starting frame. Downstream motion prompts will **not*
 - Do NOT say "first frame", "last frame", or "starting frame" in the prompt text.
 - **Never repeat identical environment geometry** across consecutive shots in the same scene — each shot's environment clause must reflect that shot's unique `environment_state`.
 - Weave `environment_state` from the story plan into the environment clause.
+- **No text in image:** no subtitles, captions, signage with words, labels, watermarks, or UI overlays.
+
+## frame_strategy (from story plan)
+
+Honor each shot's `frame_strategy` when composing the still:
+
+| frame_strategy | Still image must show |
+|----------------|----------------------|
+| `empty_then_enter` | Empty or quiet plate only — **do NOT** include the subject that will enter during motion. **Only when `characters_present` is `[]`.** Never use for named characters — they need a hero sheet reference via `at_rest_then_react` or `in_action_continuous`. Use `no_references` + `grok_t2i` when no characters on screen. |
+| `at_rest_then_react` | Subject visible in a **held rest pose** before the trigger (e.g. birds roosting on branches, calm expressions). |
+| `in_action_continuous` | Subject mid-activity in a holdable pose (not motion blur). |
+| (unset) | Default: held pose matching `description`. |
 
 ## Output schema per shot
 ```json

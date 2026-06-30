@@ -63,6 +63,7 @@ ltx_shot_type: {shot.get('ltx_shot_type')}
 ltx_complexity: {shot.get('ltx_complexity')}
 scene_time_offset_seconds: {shot.get('scene_time_offset_seconds', 0)}
 continuity_from_previous: {shot.get('continuity_from_previous', False)}
+frame_strategy: {shot.get('frame_strategy', 'unset')}
 characters_present: {shot.get('characters_present', [])}
 description: {shot.get('description', '')}
 environment_state: {shot.get('environment_state', '')}

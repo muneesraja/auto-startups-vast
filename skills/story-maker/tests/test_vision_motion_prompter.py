@@ -30,6 +30,7 @@ class TestVisionContextAssembly(unittest.TestCase):
                     "environment_state": "Sun on carpet",
                     "scene_time_offset_seconds": 0,
                     "continuity_from_previous": False,
+                    "frame_strategy": "at_rest_then_react",
                     "characters_present": ["char_01"],
                 },
                 {
@@ -49,6 +50,7 @@ class TestVisionContextAssembly(unittest.TestCase):
         self.assertIn("THIS SHOT", text)
         self.assertIn("scene_01_shot_01", text)
         self.assertIn("motion_intent: Dust drifts", text)
+        self.assertIn("frame_strategy: at_rest_then_react", text)
         self.assertIn("char_01: Leo", text)
 
     def test_find_shot_context(self):

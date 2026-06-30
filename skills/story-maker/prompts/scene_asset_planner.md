@@ -37,5 +37,6 @@ Return ONLY a valid JSON object. No markdown fences.
 - Environment-only T2I prompt. NO characters, NO named creatures.
 - Include lighting, time of day, atmosphere, style tag from story meta.
 - 30–60 words.
+- **No text in image:** no signage with words, captions, labels, or watermarks.
 
 Return ONLY the JSON object.

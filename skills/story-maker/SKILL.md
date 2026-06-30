@@ -60,31 +60,54 @@ python3 main.py \
 | `--narrative-expander-model` | Model for `narrative_outline.json` only |
 | `--story-plan-model` | Model for `story_plan.json` only |
 
-### Planning model selection
+### Model tiers (swappable via `.env`)
 
-Swap LLMs for the narrative expander and LTX shot director without code changes.
+Three LLM tiers — all use OpenRouter slugs unless noted:
 
-| Env var | Applies to | Fallback |
-|---------|------------|----------|
-| `PLANNING_MODEL` | Both planning agents | `openai/gpt-5-mini` |
-| `NARRATIVE_EXPANDER_MODEL` | `narrative_outline.json` | `PLANNING_MODEL` → default |
-| `STORY_PLAN_MODEL` | `story_plan.json` | `PLANNING_MODEL` → default |
-| `PLANNING_MODEL_TIMEOUT` | Planning agent timeout seconds | `600` |
+| Tier | Agents | Env var | Default |
+|------|--------|---------|---------|
+| **Planning** | narrative expander, LTX shot director | `PLANNING_MODEL` / `NARRATIVE_EXPANDER_MODEL` / `STORY_PLAN_MODEL` | `openai/gpt-5-mini` |
+| **Secondary** | audio, scene assets, char sheets, shot images | `SECONDARY_MODEL` (alias: `LIGHT_MODEL`) | `z-ai/glm-5.2` |
+| **Vision** | vision motion prompter (multimodal) | `VISION_MODEL` | `openai/gpt-5-mini` |
+
+| Env var | Description | Default |
+|---------|-------------|---------|
+| `PLANNING_MODEL_TIMEOUT` | Planning agent timeout (seconds) | `600` |
+| `SECONDARY_MODEL_TIMEOUT` | Secondary agent timeout (seconds) | `600` |
+| `GROK_IMAGE_RESOLUTION` | Grok T2I/Edit resolution (`1k`, etc.) | `1k` |
 
 ```bash
-# .env
-PLANNING_MODEL=z-ai/glm-5.2
+# .env — recommended production mix
+PLANNING_MODEL=anthropic/claude-sonnet-4.6
+SECONDARY_MODEL=z-ai/glm-5.2
+VISION_MODEL=openai/gpt-5-mini
 
-# or per-stage
-NARRATIVE_EXPANDER_MODEL=openai/gpt-5-mini
-STORY_PLAN_MODEL=z-ai/glm-5.2
+# or per planning stage
+NARRATIVE_EXPANDER_MODEL=anthropic/claude-sonnet-4.6
+STORY_PLAN_MODEL=anthropic/claude-sonnet-4.6
 
 # CLI (applied before agents load)
 python3 main.py --story-file ../../stories/baby-star/Story.md \
-  --name baby-star-glm --planning-model z-ai/glm-5.2 --fresh
+  --name baby-star-claude --planning-model anthropic/claude-sonnet-4.6 --fresh
 ```
 
-Saved artifacts include `_meta.narrative_model` and `_meta.story_plan_model` for A/B comparison.
+Saved artifacts include `_meta` with `narrative_model`, `story_plan_model`, `secondary_model`, and `vision_model` for A/B comparison.
+
+### Director: starting frame first
+
+Each shot in `story_plan.json` includes `frame_strategy`:
+
+| Value | Starting still | Motion |
+|-------|----------------|--------|
+| `empty_then_enter` | Empty/quiet plate | Subject enters frame |
+| `at_rest_then_react` | Subject at rest | Trigger → reaction |
+| `in_action_continuous` | Mid-activity hold | Motion continues |
+
+### Grok image quality
+
+- All Grok prompts append a no-text clause (no subtitles, labels, watermarks).
+- Images are 16:9 landscape (better LTX I2V motion than portrait).
+- Motion prompts open with `A cinematic scene of ...` and end with quality tags.
 
 Resume is automatic: re-run the same `--name` and the `resume_router_node` picks up from the earliest missing artifact.
 

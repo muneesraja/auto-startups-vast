@@ -6,7 +6,7 @@ from google.adk.workflow import FunctionNode
 
 from ._json_util import clean_json_str
 
-GROK_REF_LIMIT = 7
+GROK_REF_LIMIT = 3  # fal Grok Edit accepts max 3 reference image URLs
 
 
 def _scene_bg_modes(scene_assets: dict) -> dict[str, str]:

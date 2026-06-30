@@ -14,6 +14,8 @@ class TestModelConfig(unittest.TestCase):
             "PLANNING_MODEL",
             "NARRATIVE_EXPANDER_MODEL",
             "STORY_PLAN_MODEL",
+            "SECONDARY_MODEL",
+            "VISION_MODEL",
             "REASONING_MODEL",
             "LIGHT_MODEL",
             "OPENROUTER_API_KEY",
@@ -43,7 +45,11 @@ class TestModelConfig(unittest.TestCase):
         )
         self.assertEqual(
             self.config._normalize_openrouter_model("openai/gpt-5-mini"),
-            "openai/gpt-5-mini",
+            "openrouter/openai/gpt-5-mini",
+        )
+        self.assertEqual(
+            self.config._normalize_openrouter_model("anthropic/claude-sonnet-4.6"),
+            "openrouter/anthropic/claude-sonnet-4.6",
         )
 
     def test_resolve_role_specific_over_planning_model(self):
@@ -76,6 +82,21 @@ class TestModelConfig(unittest.TestCase):
         )
         self.assertEqual(
             self.config.get_story_plan_model_id(),
+            "openai/gpt-5-mini",
+        )
+        self.assertEqual(
+            self.config.get_secondary_model_id(),
+            "z-ai/glm-5.2",
+        )
+        self.assertEqual(
+            self.config.get_vision_model_id(),
+            "openai/gpt-5-mini",
+        )
+
+    def test_secondary_model_override(self):
+        os.environ["SECONDARY_MODEL"] = "openai/gpt-5-mini"
+        self.assertEqual(
+            self.config.get_secondary_model_id(),
             "openai/gpt-5-mini",
         )
 

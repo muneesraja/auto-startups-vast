@@ -2,19 +2,16 @@
 import asyncio
 import json
 import os
-import re
 
 from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
 from tools.comfyui_tools import generate_ltx_i2v_video
-from tools.fal_tools import generate_grok_edit, generate_grok_t2i
 from tools.video_concat import concat_videos
 from ._json_util import clean_json_str
+from ._shot_image_gen import generate_one_shot_image, retry_async
 
-_REF_PATTERN = re.compile(r"\{\{+([^}]+)\}\}+")
 _MAX_CONCURRENCY = 4
-_MAX_RETRIES = 3
 
 
 def _only_scenes(ctx: Context) -> list[str] | None:
@@ -65,34 +62,6 @@ def _save_specs(ctx: Context, specs: dict) -> None:
         json.dump(specs, f, indent=2, ensure_ascii=False)
 
 
-def _resolve_ref(ref_str: str, specs: dict) -> str:
-    if not isinstance(ref_str, str):
-        return ref_str
-    match = _REF_PATTERN.search(ref_str)
-    if not match:
-        return ref_str
-    parts = match.group(1).strip().split(".")
-    if len(parts) != 3:
-        return ref_str
-    namespace, key, field = parts
-    val = specs.get(namespace, {}).get(key, {}).get(field)
-    if not val:
-        raise KeyError(f"Unresolved reference: {ref_str}")
-    return val
-
-
-async def _retry(fn, label: str):
-    last_err = None
-    for attempt in range(1, _MAX_RETRIES + 1):
-        result = await asyncio.to_thread(fn)
-        if result.get("status") == "success":
-            return result
-        last_err = result.get("message", "unknown error")
-        print(f"   Retry {attempt}/{_MAX_RETRIES} {label}: {last_err}")
-        await asyncio.sleep(2 * attempt)
-    raise RuntimeError(f"{label} failed: {last_err}")
-
-
 async def generation_router(ctx: Context) -> None:
     if bool(ctx.state.get("stop_before_generation", False)):
         print(
@@ -103,6 +72,8 @@ async def generation_router(ctx: Context) -> None:
 
 
 async def generate_backgrounds(ctx: Context) -> None:
+    from tools.fal_tools import generate_grok_t2i
+
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
@@ -121,15 +92,19 @@ async def generate_backgrounds(ctx: Context) -> None:
         def _gen(p=prompt, path=out_path):
             return generate_grok_t2i(p, path)
 
-        result = await _retry(_gen, f"background {scene_id}")
+        result = await retry_async(_gen, f"background {scene_id}")
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
+        if result.get("revised_prompt"):
+            entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"
 
     _save_specs(ctx, specs)
 
 
 async def generate_character_sheets(ctx: Context) -> None:
+    from tools.fal_tools import generate_grok_t2i
+
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
@@ -149,9 +124,11 @@ async def generate_character_sheets(ctx: Context) -> None:
         def _gen(p=prompt, path=out_path):
             return generate_grok_t2i(p, path)
 
-        result = await _retry(_gen, f"char sheet {cid}")
+        result = await retry_async(_gen, f"char sheet {cid}")
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
+        if result.get("revised_prompt"):
+            entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"
 
     _save_specs(ctx, specs)
@@ -163,43 +140,29 @@ async def generate_shot_images(ctx: Context) -> None:
     only_scenes = _only_scenes(ctx)
     images_dir = os.path.join(output_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
+    sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
-    for shot_id, entry in specs.get("shot_images", {}).items():
+    async def _one(shot_id: str, entry: dict):
         if not _shot_in_scope(shot_id, only_scenes):
-            continue
+            return
         out_path = os.path.join(images_dir, f"{shot_id}.png")
-        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or ""):
-            continue
-        mode = entry.get("generation_mode", "grok_edit")
-        prompt = entry.get("image_prompt", "")
-        print(f"  Shot image: {shot_id} ({mode})")
+        if (
+            entry.get("image_qa_status") == "passed"
+            and entry.get("fal_image_url")
+            and os.path.isfile(entry.get("output_path") or out_path)
+        ):
+            return
+        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or out_path):
+            return
+        async with sem:
+            await generate_one_shot_image(shot_id, entry, specs, images_dir)
 
-        if mode == "grok_t2i":
-            def _gen(p=prompt, path=out_path):
-                return generate_grok_t2i(p, path)
-
-            result = await _retry(_gen, f"shot t2i {shot_id}")
-        else:
-            ref_urls = []
-            for ref in entry.get("reference_images", []):
-                ref_urls.append(_resolve_ref(ref, specs))
-
-            if not ref_urls:
-                print(f"    No refs for {shot_id}; falling back to grok_t2i")
-                def _gen(p=prompt, path=out_path):
-                    return generate_grok_t2i(p, path)
-
-                result = await _retry(_gen, f"shot t2i {shot_id}")
-            else:
-                def _gen(p=prompt, urls=ref_urls, path=out_path):
-                    return generate_grok_edit(p, urls, path)
-
-                result = await _retry(_gen, f"shot edit {shot_id}")
-
-        entry["output_path"] = result["generated_image_path"]
-        entry["fal_image_url"] = result["fal_image_url"]
-        entry["status"] = "completed"
-
+    tasks = [
+        _one(shot_id, entry)
+        for shot_id, entry in specs.get("shot_images", {}).items()
+        if isinstance(entry, dict)
+    ]
+    await asyncio.gather(*tasks)
     _save_specs(ctx, specs)
 
 
@@ -214,6 +177,12 @@ async def generate_videos(ctx: Context) -> None:
 
     async def _one(shot_id: str, entry: dict):
         out_path = os.path.join(videos_dir, f"{shot_id}.mp4")
+        if (
+            entry.get("motion_qa_status") == "passed"
+            and entry.get("output_path")
+            and os.path.isfile(entry["output_path"])
+        ):
+            return
         if entry.get("output_path") and os.path.isfile(entry["output_path"]):
             return
         motion = specs.get("motion", {}).get(shot_id, {})
@@ -237,7 +206,7 @@ async def generate_videos(ctx: Context) -> None:
                     image_path, motion_prompt, out_path, duration_seconds=duration
                 )
 
-            result = await _retry(_gen, f"video {shot_id}")
+            result = await retry_async(_gen, f"video {shot_id}")
             entry["output_path"] = result["video_path"]
             entry["status"] = "completed"
 

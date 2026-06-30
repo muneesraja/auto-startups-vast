@@ -68,6 +68,8 @@ from scripts.nodes.generation_nodes import (
     concat_videos_node,
 )
 from scripts.nodes.vision_motion_prompter_node import vision_motion_prompter_node
+from scripts.nodes.image_qa_node import image_qa_node
+from scripts.nodes.video_qa_node import video_qa_node
 
 join_prompters_node = JoinNode(name="join_prompters_node")
 
@@ -110,9 +112,11 @@ def _build_pipeline() -> Workflow:
         # Generation chain
         (background_generator_node, character_sheet_generator_node),
         (character_sheet_generator_node, shot_image_generator_node),
-        (shot_image_generator_node, vision_motion_prompter_node),
+        (shot_image_generator_node, image_qa_node),
+        (image_qa_node, vision_motion_prompter_node),
         (vision_motion_prompter_node, video_generator_node),
-        (video_generator_node, concat_videos_node),
+        (video_generator_node, video_qa_node),
+        (video_qa_node, concat_videos_node),
     ]
     return Workflow(name="StoryMakerV2Pipeline", edges=edges)
 

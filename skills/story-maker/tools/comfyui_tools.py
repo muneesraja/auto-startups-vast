@@ -112,6 +112,20 @@ def wait_for_prompt(prompt_id, base_url=None, poll_interval=5, max_wait=2400, au
     raise TimeoutError(f"Prompt {prompt_id} timed out after {max_wait}s")
 
 
+def _image_mime_type(image_path: str) -> str:
+    with open(image_path, "rb") as f:
+        magic = f.read(16)
+    if magic.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if magic.startswith(b"\x89PNG"):
+        return "image/png"
+    if magic.startswith(b"GIF8"):
+        return "image/gif"
+    if magic.startswith(b"RIFF") and magic[8:12] == b"WEBP":
+        return "image/webp"
+    return mimetypes.guess_type(image_path)[0] or "image/png"
+
+
 def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type="input"):
     if base_url is None:
         base_url = config.COMFYUI_URL
@@ -119,7 +133,7 @@ def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type=
         auth = config.COMFYUI_AUTH
 
     base_url = base_url.rstrip("/")
-    mime_type = mimetypes.guess_type(image_path)[0] or "image/png"
+    mime_type = _image_mime_type(image_path)
     cmd = ["curl", "-s", "-X", "POST", f"{base_url}/upload/image"]
     cmd.extend(_resolve_args(base_url))
     cmd.extend(_auth_args(auth))

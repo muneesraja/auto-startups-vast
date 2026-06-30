@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.nodes.timeline_enricher_node import enrich_story_timeline
+from scripts.nodes.story_timeline import enrich_story_timeline
 
 
 def _story_with_durations(durations: list[int]) -> dict:

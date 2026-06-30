@@ -52,6 +52,8 @@ async def save_story_plan(ctx: Context) -> None:
         parsed,
         narrative_model=config.get_narrative_expander_model_id(),
         story_plan_model=config.get_story_plan_model_id(),
+        secondary_model=config.get_secondary_model_id(),
+        vision_model=config.get_vision_model_id(),
     )
     path = os.path.join(_output_dir(ctx), "story_plan.json")
     with open(path, "w", encoding="utf-8") as f:

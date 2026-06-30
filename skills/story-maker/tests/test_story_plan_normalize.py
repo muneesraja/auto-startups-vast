@@ -1,7 +1,7 @@
 import unittest
 
 from scripts.nodes.story_plan_normalize import normalize_story_plan
-from scripts.nodes.timeline_enricher_node import enrich_story_timeline_with_target
+from scripts.nodes.story_timeline import enrich_story_timeline_with_target
 
 
 class TestStoryPlanNormalize(unittest.TestCase):

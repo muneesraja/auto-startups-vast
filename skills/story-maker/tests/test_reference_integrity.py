@@ -40,7 +40,7 @@ def _scene_assets_style_anchor():
 
 
 class TestReferenceIntegrityLogic(unittest.TestCase):
-    def test_truncates_to_seven_refs(self):
+    def test_truncates_to_three_refs(self):
         slots = [
             {"role": "character_sheet", "asset_id": f"char_{i:02d}", "priority": i}
             for i in range(10)
@@ -49,6 +49,7 @@ class TestReferenceIntegrityLogic(unittest.TestCase):
         char_refs = [f"char_{i:02d}" for i in range(10)]
         truncated = char_refs[: GROK_REF_LIMIT]
         self.assertEqual(len(truncated), GROK_REF_LIMIT)
+        self.assertEqual(GROK_REF_LIMIT, 3)
 
     def test_strips_background_for_style_anchor(self):
         specs = {

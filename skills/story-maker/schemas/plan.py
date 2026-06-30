@@ -28,6 +28,7 @@ LtxShotType = Literal[
     "establishing", "action", "reaction", "dialogue", "insert", "transition"
 ]
 LtxComplexity = Literal["simple", "moderate", "complex"]
+FrameStrategy = Literal["empty_then_enter", "at_rest_then_react", "in_action_continuous"]
 
 
 class ShotBrief(BaseModel):
@@ -43,6 +44,7 @@ class ShotBrief(BaseModel):
     continuity_from_previous: bool = False
     ltx_shot_type: LtxShotType = "action"
     ltx_complexity: LtxComplexity = "moderate"
+    frame_strategy: FrameStrategy | None = None
     motion_intent: str = ""
     camera_intent: str = ""
     audio_intent: str = ""
@@ -154,6 +156,9 @@ class NarrativeOutlineMeta(BaseModel):
     target_duration_seconds: int
     duration_tolerance_percent: int = 15
     planned_act_count: int = 0
+    logline: str | None = None
+    theme: str | None = None
+    protagonist_want: str | None = None
 
 
 class NarrativeSceneOutline(BaseModel):

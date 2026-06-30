@@ -28,15 +28,49 @@ Return ONLY a valid JSON object. No markdown fences.
    - `pace` — slow | medium | fast
    - `ltx_shot_type` — establishing | action | reaction | dialogue | insert | transition (never `montage` — split montage beats into separate action shots)
    - `ltx_complexity` — simple | moderate | complex
+   - `frame_strategy` — how the starting still relates to motion (see below)
    - `motion_intent` — one sentence: what LTX animates **from the starting still** (NO appearance, NO character names — use role labels: "the child", "the tall figure", "the parent")
    - `camera_intent` — e.g. "slow dolly in", "static wide"
    - `audio_intent` — dialogue lines in quotes, music shift, key SFX
 
 Do NOT set `scene_time_offset_seconds` or `continuity_from_previous` — computed downstream.
 
-## Starting-frame mindset
+## Starting-frame-first mindset (critical)
 
-Each shot = one Grok still → one LTX clip. Plan `description` as the **held pose at clip start** (what the still must show). Plan `motion_intent` as **what changes after** that pose (action, camera, environment motion). Split beats if the still would need two incompatible poses.
+For **every shot**, think in two steps before writing fields:
+
+### Step 1 — Compose the starting frame (the still image)
+`description` = the **held, animation-ready pose and layout** the Grok still must show at clip start. Ask: "What single frozen moment can LTX extend?"
+
+### Step 2 — Plan motion for the next N seconds
+`motion_intent` = what **changes after** that frozen moment over `duration_seconds`. Split the beat if the still would need two incompatible poses.
+
+### frame_strategy — pick one per shot
+
+| frame_strategy | Starting still shows | Motion animates |
+|----------------|---------------------|-----------------|
+| `empty_then_enter` | Empty or quiet plate — subject **not yet visible** | Subject enters frame and acts — **only when `characters_present` is `[]`** (unnamed background subjects / environment-only). Never use for named characters in `characters_present`. |
+| `at_rest_then_react` | Subject at rest in a holdable pose | Trigger → reaction (e.g. birds roosting on branches → startling roar → scared faces → burst into flight) |
+| `in_action_continuous` | Subject mid-activity, holdable pose | Motion continues the activity already begun |
+
+**Example — birds scared by a tiger:**
+- Shot A (`empty_then_enter`, `characters_present: []`): `description` = dense jungle canopy, no birds visible. `motion_intent` = small birds enter from the edges and flutter nervously through the frame.
+- Shot B (`at_rest_then_react`, birds not in `characters` roster): same as above for unnamed flock.
+- Named hero shots: use `at_rest_then_react` or `in_action_continuous` so Grok Edit can bind the hero character sheet.
+
+When `empty_then_enter`, `characters_present` MUST be `[]`. Named characters require `at_rest_then_react` or `in_action_continuous`.
+
+## Content-driven duration (compute, then snap)
+
+Assign `duration_seconds` from content, then downstream snaps to LTX **8n+1 @ 25fps**:
+
+| Shot type | Formula |
+|-----------|---------|
+| **dialogue** | Count spoken words in `audio_intent` (or implied lines); **~2.5 words/sec + 1s breath padding**; minimum 4s |
+| **action** | Count distinct motion beats in `motion_intent`; **simple=4–6s, moderate=7–10s, complex=11–15s** by `ltx_complexity` |
+| **establishing / insert** | 4–6s unless beat demands longer reaction |
+
+Cross-check dialogue shots against future audio plan line lengths when beats include quoted speech.
 
 ## Duration budget
 - Sum of all `duration_seconds` should land within target ± tolerance
@@ -79,6 +113,7 @@ Each shot = one Grok still → one LTX clip. Plan `description` as the **held po
           "pace": "medium",
           "ltx_shot_type": "action",
           "ltx_complexity": "moderate",
+          "frame_strategy": "at_rest_then_react",
           "motion_intent": "The child inches forward on hands and knees toward the mirror.",
           "camera_intent": "...",
           "audio_intent": "..."
