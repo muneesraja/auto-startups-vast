@@ -21,6 +21,7 @@ def _apply_model_cli_overrides(argv: list[str] | None = None) -> None:
     pre.add_argument("--planning-model")
     pre.add_argument("--narrative-expander-model")
     pre.add_argument("--story-plan-model")
+    pre.add_argument("--image-provider")
     pre_args, _ = pre.parse_known_args(argv)
     if pre_args.planning_model:
         os.environ["PLANNING_MODEL"] = pre_args.planning_model
@@ -28,6 +29,8 @@ def _apply_model_cli_overrides(argv: list[str] | None = None) -> None:
         os.environ["NARRATIVE_EXPANDER_MODEL"] = pre_args.narrative_expander_model
     if pre_args.story_plan_model:
         os.environ["STORY_PLAN_MODEL"] = pre_args.story_plan_model
+    if pre_args.image_provider:
+        os.environ["PROVIDER"] = pre_args.image_provider
 
 
 _apply_model_cli_overrides()
@@ -186,6 +189,13 @@ async def main_async():
         type=str,
         default=None,
         help="Override model for story_plan.json only",
+    )
+    parser.add_argument(
+        "--image-provider",
+        type=str,
+        default=None,
+        choices=("fal", "replicate"),
+        help="Grok image backend (sets PROVIDER env: fal or replicate)",
     )
     args = parser.parse_args()
 

@@ -10,6 +10,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
 COMFYUI_AUTH = os.getenv("COMFYUI_AUTH")
 FAL_KEY = os.getenv("FAL_KEY")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 
@@ -25,6 +26,10 @@ DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))
 DEFAULT_SECONDARY_MODEL = "z-ai/glm-5.2"
 SECONDARY_MODEL_TIMEOUT = int(os.getenv("SECONDARY_MODEL_TIMEOUT", "600"))
 DEFAULT_VISION_MODEL = "openai/gpt-5-mini"
+
+DEFAULT_IMAGE_PROVIDER = "fal"
+GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
+REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
 
 # LiteLLM + OpenRouter: always use openrouter/ prefix so api_base is not doubled
 # (e.g. anthropic/* with api_base=/api/v1 would hit /api/v1/v1/messages otherwise).
@@ -74,6 +79,20 @@ def get_secondary_model_id() -> str:
 
 def get_vision_model_id() -> str:
     return os.getenv("VISION_MODEL", DEFAULT_VISION_MODEL)
+
+
+def get_image_provider() -> str:
+    """Return active Grok image backend: fal | replicate."""
+    provider = (os.getenv("PROVIDER") or DEFAULT_IMAGE_PROVIDER).strip().lower()
+    if provider not in ("fal", "replicate"):
+        raise ValueError(f"Invalid PROVIDER={provider!r}; use 'fal' or 'replicate'")
+    if provider == "fal" and not (FAL_KEY or os.environ.get("FAL_KEY")):
+        raise ValueError("PROVIDER=fal requires FAL_KEY in .env")
+    if provider == "replicate" and not (
+        REPLICATE_API_TOKEN or os.environ.get("REPLICATE_API_TOKEN")
+    ):
+        raise ValueError("PROVIDER=replicate requires REPLICATE_API_TOKEN in .env")
+    return provider
 
 
 def get_llm(model_id: str, *, timeout: int = 300):

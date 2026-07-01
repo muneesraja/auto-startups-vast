@@ -29,7 +29,9 @@ See [`assets/ltx-2.3-director-bible.md`](assets/ltx-2.3-director-bible.md) for L
 ## Requirements
 
 - `OPENROUTER_API_KEY` (or `GEMINI_API_KEY` / `MINIMAX_API_KEY`)
-- `FAL_KEY` for Grok Imagine
+- Grok still images via **`PROVIDER`**:
+  - `PROVIDER=fal` → `FAL_KEY` (default)
+  - `PROVIDER=replicate` → `REPLICATE_API_TOKEN` (default: `openai/gpt-image-2`, quality `low`)
 - `COMFYUI_URL` for LTX 2.3 I2V
 - `ffmpeg` for final concat
 
@@ -59,6 +61,7 @@ python3 main.py \
 | `--planning-model` | OpenRouter model for both planning agents (e.g. `z-ai/glm-5.2`) |
 | `--narrative-expander-model` | Model for `narrative_outline.json` only |
 | `--story-plan-model` | Model for `story_plan.json` only |
+| `--image-provider` | Grok image backend: `fal` or `replicate` (sets `PROVIDER`) |
 
 ### Model tiers (swappable via `.env`)
 
@@ -75,6 +78,10 @@ Three LLM tiers — all use OpenRouter slugs unless noted:
 | `PLANNING_MODEL_TIMEOUT` | Planning agent timeout (seconds) | `600` |
 | `SECONDARY_MODEL_TIMEOUT` | Secondary agent timeout (seconds) | `600` |
 | `GROK_IMAGE_RESOLUTION` | Grok T2I/Edit resolution (`1k`, etc.) | `1k` |
+| `PROVIDER` | Grok image backend: `fal` or `replicate` | `fal` |
+| `REPLICATE_API_TOKEN` | Required when `PROVIDER=replicate` | — |
+| `GROK_REPLICATE_MODEL` | Replicate model slug | `openai/gpt-image-2` |
+| `REPLICATE_IMAGE_QUALITY` | GPT Image quality on Replicate (`low`, `medium`, `high`) | `low` |
 
 ```bash
 # .env — recommended production mix
@@ -90,6 +97,17 @@ STORY_PLAN_MODEL=anthropic/claude-sonnet-4.6
 python3 main.py --story-file ../../stories/baby-star/Story.md \
   --name baby-star-claude --planning-model anthropic/claude-sonnet-4.6 --fresh
 ```
+
+**Resume glider-and-rara (scenes 02+) when fal is locked** — set `PROVIDER=replicate` and `REPLICATE_API_TOKEN`, then:
+
+```bash
+cd skills/story-maker
+PROVIDER=replicate python3 main.py \
+  --story-file ../../stories/glider-and-rara/Story.md \
+  --name glider-and-rara --target-duration 5m
+```
+
+Or pass `--image-provider replicate` instead of setting `PROVIDER` in `.env`.
 
 Saved artifacts include `_meta` with `narrative_model`, `story_plan_model`, `secondary_model`, and `vision_model` for A/B comparison.
 

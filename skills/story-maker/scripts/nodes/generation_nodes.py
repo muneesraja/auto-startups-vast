@@ -11,7 +11,18 @@ from tools.video_concat import concat_videos
 from ._json_util import clean_json_str
 from ._shot_image_gen import generate_one_shot_image, retry_async
 
-_MAX_CONCURRENCY = 4
+_MAX_CONCURRENCY = int(os.getenv("GROK_IMAGE_CONCURRENCY", "1"))
+
+
+def _image_concurrency() -> int:
+    try:
+        import config
+
+        if config.get_image_provider() == "replicate":
+            return _MAX_CONCURRENCY
+    except Exception:
+        pass
+    return 4
 
 
 def _only_scenes(ctx: Context) -> list[str] | None:
@@ -84,7 +95,13 @@ async def generate_backgrounds(ctx: Context) -> None:
         if not _scene_in_scope(scene_id, only_scenes):
             continue
         out_path = os.path.join(bg_dir, f"{scene_id}.png")
-        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or ""):
+        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or out_path):
+            continue
+        if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+            entry["output_path"] = out_path
+            entry["status"] = "completed"
+            _save_specs(ctx, specs)
+            print(f"  Background skip (on disk): {scene_id}")
             continue
         prompt = entry.get("background_prompt", "")
         print(f"  Background T2I: {scene_id}")
@@ -98,6 +115,7 @@ async def generate_backgrounds(ctx: Context) -> None:
         if result.get("revised_prompt"):
             entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"
+        _save_specs(ctx, specs)
 
     _save_specs(ctx, specs)
 
@@ -130,6 +148,7 @@ async def generate_character_sheets(ctx: Context) -> None:
         if result.get("revised_prompt"):
             entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"
+        _save_specs(ctx, specs)
 
     _save_specs(ctx, specs)
 
@@ -140,7 +159,7 @@ async def generate_shot_images(ctx: Context) -> None:
     only_scenes = _only_scenes(ctx)
     images_dir = os.path.join(output_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
-    sem = asyncio.Semaphore(_MAX_CONCURRENCY)
+    sem = asyncio.Semaphore(_image_concurrency())
 
     async def _one(shot_id: str, entry: dict):
         if not _shot_in_scope(shot_id, only_scenes):
@@ -173,7 +192,7 @@ async def generate_videos(ctx: Context) -> None:
     specs = _load_specs(ctx)
     videos_dir = os.path.join(output_dir, "videos")
     os.makedirs(videos_dir, exist_ok=True)
-    sem = asyncio.Semaphore(_MAX_CONCURRENCY)
+    sem = asyncio.Semaphore(_image_concurrency())
 
     async def _one(shot_id: str, entry: dict):
         out_path = os.path.join(videos_dir, f"{shot_id}.mp4")

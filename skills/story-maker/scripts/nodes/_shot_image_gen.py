@@ -8,7 +8,16 @@ import re
 from tools.fal_tools import generate_grok_edit, generate_grok_t2i
 
 _REF_PATTERN = re.compile(r"\{\{+([^}]+)\}\}+")
-_MAX_RETRIES = 3
+_MAX_RETRIES = int(os.getenv("GROK_IMAGE_MAX_RETRIES", "6"))
+
+
+def _retry_delay(attempt: int, err_msg: str) -> float:
+    lower = (err_msg or "").lower()
+    if "429" in err_msg or "throttl" in lower or "rate limit" in lower:
+        return max(15.0, 12.0 * attempt)
+    if "try again later" in lower or "internal" in lower:
+        return max(8.0, 4.0 * attempt)
+    return 2.0 * attempt
 
 
 def resolve_ref(ref_str: str, specs: dict) -> str:
@@ -35,7 +44,7 @@ async def retry_async(fn, label: str):
             return result
         last_err = result.get("message", "unknown error")
         print(f"   Retry {attempt}/{_MAX_RETRIES} {label}: {last_err}")
-        await asyncio.sleep(2 * attempt)
+        await asyncio.sleep(_retry_delay(attempt, last_err))
     raise RuntimeError(f"{label} failed: {last_err}")
 
 
