@@ -120,20 +120,21 @@ The `motion_prompt.json` file controls the animation parameters. The v2 schema i
 
 ## 4. Models and Hugging Face Setup
 
-The `ltx-23-director` workflow requires a broader suite of models compared to standard I2V. These are managed and downloaded via the `ltx-23-director-subgraphs.sh` script:
+> **Note (deprecated 2026-07):** This section used to point to `ltx-23-director-subgraphs.sh`. That script was removed in favour of the slimmer `ltx-23-director-hotfix.sh` (single 25.2GB distilled-1.1 transformer instead of 29.1GB dev-FP8 + 2.6GB LoRA combo). ~6.5GB lighter.
 
-1. **Transformer Checkpoint (29.1GB):** `ltx-2.3-22b-dev-fp8.safetensors` (Downloaded from `Lightricks/LTX-2.3-fp8`)
-2. **Distilled LoRA (2.6GB):** `ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
-3. **Tiny VAE (23MB):** `taeltx2_3.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
-4. **Audio VAE (365MB):** `LTX23_audio_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
-5. **Video VAE (1.5GB):** `LTX23_video_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
-6. **CLIP Model 1 (9.4GB):** `gemma_3_12B_it_fp4_mixed.safetensors` (Downloaded from `Comfy-Org/ltx-2`)
-7. **CLIP Model 2 (2.3GB):** `ltx-2.3_text_projection_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy`)
-8. **Spatial Upscaler Model (1GB):** `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (Downloaded from `Lightricks/LTX-2.3`)
+The `ltx-23-director` workflow requires a broader suite of models compared to standard I2V. These are managed and downloaded via the `ltx-23-director-hotfix.sh` script:
+
+1. **Distilled-1.1 FP8 Transformer (25.2GB):** `ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors` (Downloaded from `Kijai/LTX2.3_comfy/diffusion_models/`)
+2. **Tiny VAE (23MB):** `taeltx2_3.safetensors` (Downloaded from `Kijai/LTX2.3_comfy/vae/`)
+3. **Audio VAE (365MB):** `LTX23_audio_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy/vae/`)
+4. **Video VAE (1.5GB):** `LTX23_video_vae_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy/vae/`)
+5. **CLIP Model 1 (9.4GB):** `gemma_3_12B_it_fp4_mixed.safetensors` (Downloaded from `Comfy-Org/ltx-2/split_files/text_encoders/`)
+6. **CLIP Model 2 (2.3GB):** `ltx-2.3_text_projection_bf16.safetensors` (Downloaded from `Kijai/LTX2.3_comfy/text_encoders/`)
+7. **Spatial Upscaler Model (1GB):** `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (Downloaded from `Lightricks/LTX-2.3`)
 
 Run the script on your worker instance to provision the environment:
 ```bash
-./workflows/setup/ltx-23-director-subgraphs.sh
+./workflows/setup/ltx-23-director-hotfix.sh
 ```
 
 ---

@@ -68,7 +68,7 @@ Resolve these **before** writing any code — they determine file paths and fron
 | `ltx-23-i2v-keyframe.sh` | `ltx-23-i2v-keyframe.json` | LTX 2.3 first/last-frame keyframing |
 | `ltx-23-prompt-relay.sh` | `ltx-23-prompt-relay.json` | LTX 2.3 PromptRelay multi-segment |
 | `ltx-23-fflf-seed-hunter.sh` | `ltx23FFLFSeedHunter_v10.json` | LTX 2.3 FFLF Seed Hunter (FFLF = First/Last Frame) |
-| `ltx-23-director-subgraphs.sh` | `ltx-23-director-subgraphs.json` | LTX 2.3 Director 2-stage subgraphs |
+| `ltx-23-director-hotfix.sh` | `LTX_Director_2_Workflow_Hotfix.json` | LTX 2.3 Director 2-stage (hotfix, distilled-1.1 FP8) |
 | `qwen-image-edit.sh` | `qwen-image-edit.json` | Qwen image editing |
 | `qwen-image-edit-2511-4steps.sh` | `qwen-image-edit-2511-4steps.json` | Qwen image edit 25.11, 4-step Lightning |
 | `wan-22-i2v-keyframe.sh` | *(no JSON yet)* | Wan 2.2 multi-keyframe I2V |
@@ -648,7 +648,7 @@ End-to-end worked examples for the two most common workflow shapes. Read these b
 
 | Reference | Use when |
 |---|---|
-| [`references/ltx-23-director.md`](references/ltx-23-director.md) | Canonical pattern. LTX 2.3 with 3 custom node packs, subgraphs, `LoraLoaderModelOnly` with `\<dirname>` prefix, `cnr_id`-based pack detection. |
+| [`references/ltx-23-director.md`](references/ltx-23-director.md) | Canonical pattern. LTX 2.3 with 3 custom node packs, flat nodes[] (no subgraphs in this variant), `UNETLoader` for distilled-1.1 FP8 transformer, `cnr_id`-based pack detection. |
 | [`references/ltx-23-fflf-seed-hunter.md`](references/ltx-23-fflf-seed-hunter.md) | **All loaders inside a subgraph**, **Power Lora Loader (rgthree)** nested-dict widget, **7-pack custom node install** (`rgthree` + `Impact` + `VHS` + `mxSlider` etc. in addition to KJNodes/LTXVideo), `GitMylo/LTX-2-comfy_gemma_fp8_e4m3fn` source. |
 
 ---
