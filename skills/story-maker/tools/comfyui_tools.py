@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import mimetypes
 import os
@@ -28,7 +29,23 @@ def _resolve_hostname(hostname: str) -> str | None:
     return None
 
 
+def _is_ip_literal(host: str) -> bool:
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
 def _resolve_args(url: str) -> list[str]:
+    """Pin DNS only when the URL points at a bare IP literal.
+
+    For hostnames (especially Cloudflare-fronted proxies like RunPod), anycast
+    edges can serve mismatched TLS certs when pinned via `--resolve`. Letting
+    curl resolve normally is correct for hostname URLs.
+    """
     if not url:
         return []
     try:
@@ -36,11 +53,12 @@ def _resolve_args(url: str) -> list[str]:
         hostname = parsed.hostname
         if not hostname or hostname in ("localhost", "127.0.0.1", "::1"):
             return []
-        ip = _resolve_hostname(hostname)
-        if not ip:
+        # Only pin DNS for IP-literal hosts (rare direct-IP setups).
+        if not _is_ip_literal(hostname):
             return []
+        # IP literal — pass through as-is; no DNS resolution needed.
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        return ["--resolve", f"{hostname}:{port}:{ip}"]
+        return []
     except Exception:
         return []
 
@@ -154,8 +172,15 @@ def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type=
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
-                raise RuntimeError(result.stderr)
-            return json.loads(result.stdout)
+                raise RuntimeError(
+                    f"curl exit {result.returncode}: stderr={result.stderr.strip()[:200]}"
+                )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError as je:
+                raise RuntimeError(
+                    f"non-JSON response (first 200 chars): {result.stdout[:200]!r}"
+                ) from je
         except Exception as e:
             if attempt == 2:
                 print(f"   upload_image failed: {e}")
