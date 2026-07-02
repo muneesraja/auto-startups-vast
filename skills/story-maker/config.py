@@ -1,10 +1,37 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 config_dir = os.path.dirname(os.path.abspath(__file__))
 workspace_root = os.path.dirname(os.path.dirname(config_dir))
-dotenv_path = os.path.join(workspace_root, ".env")
-load_dotenv(dotenv_path)
+# Shared credentials live in the home root (~/.hermes/.env). Load first
+# WITHOUT override so values exported into the shell by the user win.
+_shared_dotenv = os.path.join(workspace_root, ".env")
+load_dotenv(_shared_dotenv, override=False)
+
+
+def _load_project_dotenv() -> str | None:
+    """Walk up from CWD looking for a project .env to layer on top.
+
+    This lets a project repo (e.g. /root/repos/auto-startups-vast/.env)
+    override shared defaults from ~/.hermes/.env without forcing the
+    user to keep credentials in two places.
+
+    The project .env is loaded with override=True so values like
+    COMFYUI_URL in the repo take precedence over the shared root .env.
+    Returns the loaded path, or None if no project .env was found.
+    """
+    cwd = Path.cwd().resolve()
+    for parent in (cwd, *cwd.parents):
+        candidate = parent / ".env"
+        if candidate.is_file() and str(candidate) != _shared_dotenv:
+            load_dotenv(candidate, override=True)
+            return str(candidate)
+    return None
+
+
+_loaded_project_dotenv = _load_project_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
