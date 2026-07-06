@@ -25,7 +25,8 @@ Then derive scene beats from logline, theme, and escalation — not mechanical f
 2. Each act contains **1–4 scenes** with `duration_budget_seconds` summing to the target
 3. Each scene has **2–6 beats** — short action phrases, not full shot descriptions
 4. Budget more time for emotional peaks and action climaxes; less for quick inserts
-5. For a ~300s (5 min) target, plan roughly **30–45 shots** worth of story material across beats (do not list shots yet)
+5. For a ~300s (5 min) target, plan roughly **18–28 shots** worth of story material across beats (do not list shots yet; the shot director will assign fewer, longer clips per scene)
+6. **Tempo per act** — note energy in act `summary`: setup may be calm, but discovery/surprise/chase beats must escalate tempo. Tag high-energy scenes in beat text when relevant (e.g. "sudden whoosh — fast surprise", "sprint up the hill")
 
 ## Output schema
 ```json

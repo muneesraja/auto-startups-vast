@@ -32,6 +32,7 @@ async def duration_budget_validator(ctx: Context) -> None:
         return
 
     story = clean_json_str(raw) if isinstance(raw, str) else raw
+    meta_backup = story.get("_meta")
     meta = story.get("meta", {})
     target = meta.get("target_duration_seconds") or ctx.state.get("target_duration_seconds")
     tolerance = meta.get("duration_tolerance_percent", ctx.state.get("duration_tolerance_percent", 15))
@@ -39,6 +40,8 @@ async def duration_budget_validator(ctx: Context) -> None:
     outline = _load_outline(ctx)
     if outline:
         story = reconcile_scene_durations(story, outline, tolerance_percent=tolerance)
+        if meta_backup is not None:
+            story["_meta"] = meta_backup
         ctx.state["story_plan_content"] = json.dumps(story, indent=2, ensure_ascii=False)
 
     if not target:
@@ -73,6 +76,8 @@ async def duration_budget_validator(ctx: Context) -> None:
 
     output_dir = ctx.state.get("output_dir")
     if output_dir:
+        if meta_backup is not None:
+            story["_meta"] = meta_backup
         path = os.path.join(output_dir, "story_plan.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(story, f, indent=2, ensure_ascii=False)

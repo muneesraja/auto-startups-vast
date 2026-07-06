@@ -7,6 +7,7 @@ import fal_client
 
 import config
 from .grok_image_common import (
+    cap_ref_urls,
     download_url_to_path,
     ensure_no_text,
     error_result,
@@ -22,11 +23,17 @@ def _ensure_fal_key() -> str | None:
 
 
 def generate_grok_t2i(
-    prompt: str, output_path: str, resolution: str | None = None
+    prompt: str,
+    output_path: str,
+    resolution: str | None = None,
+    *,
+    size: str | None = None,
 ) -> dict:
     """Generate an image with xai/grok-imagine-image via fal.ai."""
     if not _ensure_fal_key():
         return error_result("FAL_KEY is not set in environment or config.")
+    # fal Grok T2I does not support custom WxH; panoramic backgrounds use Replicate.
+    _ = size
 
     resolution = resolution or grok_resolution()
     final_prompt = ensure_no_text(prompt)
@@ -69,13 +76,15 @@ def generate_grok_edit(
 
     resolution = resolution or grok_resolution()
     final_prompt = ensure_no_text(prompt)
+    ref_limit = config.get_image_ref_limit()
+    capped_urls = cap_ref_urls(image_urls, ref_limit)
 
     try:
         result = fal_client.subscribe(
             "xai/grok-imagine-image/edit",
             arguments={
                 "prompt": final_prompt,
-                "image_urls": image_urls,
+                "image_urls": capped_urls,
                 "num_images": 1,
                 "resolution": resolution,
                 "aspect_ratio": "16:9",

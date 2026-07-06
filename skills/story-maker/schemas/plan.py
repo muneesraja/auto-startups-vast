@@ -34,7 +34,7 @@ FrameStrategy = Literal["empty_then_enter", "at_rest_then_react", "in_action_con
 class ShotBrief(BaseModel):
     shot_id: str
     scene_id: str
-    duration_seconds: int = Field(ge=4, le=15)
+    duration_seconds: int = Field(ge=4, le=16)
     characters_present: list[str] = Field(default_factory=list)
     director_notes: str = ""
     description: str
@@ -56,6 +56,7 @@ class StoryScene(BaseModel):
     environment: str
     time_of_day: str
     lighting: str
+    background_population: str = ""
     shots: list[ShotBrief]
 
 

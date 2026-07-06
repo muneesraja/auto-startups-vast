@@ -12,8 +12,8 @@ Return ONLY a valid JSON object. No markdown fences.
       "scene_id": "scene_01",
       "generate_background": true,
       "background_reference_mode": "style_anchor",
-      "background_prompt": "Dense tropical forest clearing at late morning, warm dappled sunlight, colorful flowers, no characters, Pixar-style animated movie scene",
-      "rationale": "Multiple shots share this forest; plate documents palette and lighting only"
+      "background_prompt": "Wide panoramic establishing view of a sunlit elementary classroom, rows of desks receding into depth, colorful posters on walls, warm morning light through tall windows, ambient classmates as soft silhouettes at desks, no named heroes, Pixar-style animated movie scene",
+      "rationale": "Multiple shots share this classroom; plate documents palette, lighting, and ambient crowd"
     }
   ]
 }
@@ -34,9 +34,11 @@ Return ONLY a valid JSON object. No markdown fences.
 - Pure character close-up with bokeh (environment less critical).
 
 ## background_prompt rules
-- Environment-only T2I prompt. NO characters, NO named creatures.
+- Environment-only T2I prompt. NO named heroes, NO named creatures from the character roster.
+- Describe a **wide panoramic establishing view** (2:1 feel) — deep staging, lateral breadth, receding planes.
+- Include ambient crowd/extras from the scene's `background_population` when present (classmates, townspeople, etc.) as soft background figures — not foreground heroes.
 - Include lighting, time of day, atmosphere, style tag from story meta.
-- 30–60 words.
+- 30–70 words.
 - **No text in image:** no signage with words, captions, labels, or watermarks.
 
 Return ONLY the JSON object.

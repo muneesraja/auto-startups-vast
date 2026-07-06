@@ -27,9 +27,30 @@ Your job: write **one paragraph** of motion prompt text that animates forward fr
    - `empty_then_enter`: subject **enters** the frame and acts — **only when `characters_present` is empty** (unnamed subjects)
    - `at_rest_then_react`: subject at rest **then** reacts to trigger
    - `in_action_continuous`: continue activity already begun in the still
-3. **Camera** — movement from `camera_intent` (filmmaking terms)
+3. **Camera** — movement from `camera_intent`. For **dialogue** shots: hold camera **static / locked-off**; no dollies, pans, or orbits unless `camera_intent` explicitly requests movement.
 4. **Audio** — dialogue in quotes (no `Name says:`), music, SFX, ambience from audio plan
-5. **Closing quality line** (exact phrase): `Natural character animation. Smooth cinematic motion. Pixar-quality animation.`
+5. **Closing quality line** — pick **exactly one** based on `pace` from the shot brief:
+   - `slow`: `Deliberate emotional animation. Soft natural motion.`
+   - `medium`: `Natural character animation. Expressive animated motion.`
+   - `fast`: `Snappy energetic animation. Quick dynamic motion.`
+
+**Never use** `Smooth cinematic motion` — it biases LTX toward slow Ken-Burns drift.
+
+## Pace drives motion verbs (mandatory)
+
+Honor the shot's `pace` field. Match verb energy to the story beat:
+
+| pace | Motion character | Prefer verbs | Avoid unless pace=slow |
+|------|------------------|--------------|------------------------|
+| slow | deliberate, tender | settles, breathes, drifts, lingers | darts, sprints, snaps |
+| medium | lively, readable | turns, reaches, reacts, steps, lifts, leans | inches, hovers, holds still |
+| fast | urgent, playful | darts, scrambles, snaps, bursts, rushes, whips | slowly, gently, rests, hesitates |
+
+Every clip needs **at least two visible motion beats** before the closing line — body, face, prop, or environment (wind, dust, lights flicker, fabric sway).
+
+**Forbidden idle language** (unless `pace: slow` AND `at_rest_then_react` with an explicit trigger in the same sentence):
+- "holds still", "rests", "quiet beat", "hesitates" without follow-through
+- stacking three+ "slowly/gently" adverbs in one prompt
 
 ## Referring to subjects (no names)
 
@@ -52,25 +73,25 @@ Use **role + position** grounded in what you SEE in the image. If two figures ar
 
 | duration_seconds | Sentences | Beats |
 |------------------|-----------|-------|
-| 4–6 | 4–5 | opener + 1–2 motion beats + camera/audio + quality line |
-| 7–10 | 5–7 | opener + 2 motion beats + camera + audio + quality line |
-| 11–15 | 7–9 | opener + 2–3 beats + camera + audio + quality line |
+| 5–8 | 4–5 | opener + 1–2 motion beats + camera/audio + quality line |
+| 8–12 | 5–7 | opener + 2 motion beats + camera + audio + quality line |
+| 13–16 | 7–10 | opener + 2–3 beats + camera + audio + quality line; dialogue may span multiple quoted lines |
 
-Present tense. Single flowing paragraph. Animate environment motion (wind, particles, vines, water) when relevant — not only characters.
+**Dialogue shots:** camera stays static; emphasize lip sync, facial expression, and **active gestures** (lean, point, reach, react) — not a frozen portrait.
 
-## Example shape (do not copy verbatim)
+Present tense. Single flowing paragraph. Animate environment motion (wind, particles, lights, fabric, steam) when relevant — not only characters.
+
+## Example shape — medium pace (do not copy verbatim)
 
 ```
-A cinematic scene of a cute baby standing in a glowing magical jungle.
-The baby slowly turns its head toward colorful butterflies.
-It smiles warmly and raises one hand.
-The butterflies circle around the baby's face before flying upward.
-A friendly two-legged elephant enters from the left.
-The baby laughs and runs toward the elephant.
-The elephant waves happily.
-The camera slowly pushes forward while soft sunlight shines through the trees.
-Leaves gently move in the breeze.
-Natural character animation. Smooth cinematic motion. Pixar-quality animation.
+A cinematic scene of a small figure crouched before a glowing mirror in a sunlit room.
+The figure snaps their head up as wrapping paper rustles behind them.
+They scramble forward on hands and knees and press both palms to the glass.
+Reflected light ripples across the frame as they pull back with a startled gasp.
+The parent in the background turns sharply and takes two quick steps closer.
+Tree lights twinkle and dust motes swirl in the sunbeam.
+The camera holds static medium while dialogue carries the beat.
+Natural character animation. Expressive animated motion.
 ```
 
 ## Output

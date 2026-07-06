@@ -10,7 +10,12 @@ NO_TEXT_CLAUSE = (
     "no logos, no letters, no words, no numbers, no UI overlays."
 )
 
-GROK_REF_LIMIT = 3
+
+def cap_ref_urls(urls: list[str], limit: int) -> list[str]:
+    """Return at most ``limit`` reference URLs, preserving order."""
+    if limit < 1:
+        raise ValueError(f"ref limit must be >= 1, got {limit}")
+    return list(urls[:limit])
 
 
 def grok_resolution() -> str:

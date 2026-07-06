@@ -48,8 +48,9 @@ DEFAULT_OUTPUT_BASE_DIR = os.getenv(
 WORKFLOWS_DIR = os.path.join(config_dir, "assets", "workflow-templates")
 I2V_TEMPLATE_NAME = "ltx-i2v"
 
-DEFAULT_PLANNING_MODEL = "openai/gpt-5-mini"
+DEFAULT_PLANNING_MODEL = "openai/gpt-5.4-mini"
 DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))
+DEFAULT_PLANNING_REASONING_EFFORT = os.getenv("PLANNING_REASONING_EFFORT", "low")
 DEFAULT_SECONDARY_MODEL = "z-ai/glm-5.2"
 SECONDARY_MODEL_TIMEOUT = int(os.getenv("SECONDARY_MODEL_TIMEOUT", "600"))
 DEFAULT_VISION_MODEL = "openai/gpt-5-mini"
@@ -57,6 +58,13 @@ DEFAULT_VISION_MODEL = "openai/gpt-5-mini"
 DEFAULT_IMAGE_PROVIDER = "fal"
 GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
+BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "2048x1024")
+
+# Provider/model reference-image caps (shot still edit / composite)
+FAL_GROK_REF_LIMIT = 3
+REPLICATE_SEEDREAM_REF_LIMIT = 10
+REPLICATE_GPT_IMAGE_REF_LIMIT = 13  # safe cap for Replicate openai/gpt-image-2
+REPLICATE_LEGACY_GROK_REF_LIMIT = 1
 
 # LiteLLM + OpenRouter: always use openrouter/ prefix so api_base is not doubled
 # (e.g. anthropic/* with api_base=/api/v1 would hit /api/v1/v1/messages otherwise).
@@ -122,9 +130,37 @@ def get_image_provider() -> str:
     return provider
 
 
-def get_llm(model_id: str, *, timeout: int = 300):
+def get_image_ref_limit() -> int:
+    """Max reference image URLs per Grok edit call for the active provider/model."""
+    override = os.getenv("IMAGE_REF_LIMIT")
+    if override is not None and str(override).strip():
+        limit = int(override)
+        if limit < 1:
+            raise ValueError(f"IMAGE_REF_LIMIT must be >= 1, got {limit}")
+        return limit
+
+    provider = get_image_provider()
+    if provider == "fal":
+        return FAL_GROK_REF_LIMIT
+
+    model = (os.getenv("GROK_REPLICATE_MODEL") or GROK_REPLICATE_MODEL or "").lower()
+    if "seedream" in model:
+        return REPLICATE_SEEDREAM_REF_LIMIT
+    if "gpt-image" in model:
+        return REPLICATE_GPT_IMAGE_REF_LIMIT
+    if "grok-imagine" in model or model.startswith("xai/"):
+        return REPLICATE_LEGACY_GROK_REF_LIMIT
+    return REPLICATE_GPT_IMAGE_REF_LIMIT
+
+
+def get_planning_reasoning_effort() -> str | None:
+    effort = (os.getenv("PLANNING_REASONING_EFFORT") or DEFAULT_PLANNING_REASONING_EFFORT).strip()
+    return effort or None
+
+
+def get_llm(model_id: str, *, timeout: int = 300, reasoning_effort: str | None = None):
     """Return a cached LiteLlm instance for the given model id."""
-    key = (model_id, timeout)
+    key = (model_id, timeout, reasoning_effort)
     if key in _llm_cache:
         return _llm_cache[key]
 
@@ -133,13 +169,16 @@ def get_llm(model_id: str, *, timeout: int = 300):
     _require_api_key()
     if OPENROUTER_API_KEY:
         routed_model = _normalize_openrouter_model(model_id)
-        llm = LiteLlm(
-            model=routed_model,
-            api_key=OPENROUTER_API_KEY,
-            api_base="https://openrouter.ai/api/v1",
-            num_retries=3,
-            timeout=timeout,
-        )
+        llm_kwargs: dict = {
+            "model": routed_model,
+            "api_key": OPENROUTER_API_KEY,
+            "api_base": "https://openrouter.ai/api/v1",
+            "num_retries": 3,
+            "timeout": timeout,
+        }
+        if reasoning_effort:
+            llm_kwargs["reasoning_effort"] = reasoning_effort
+        llm = LiteLlm(**llm_kwargs)
     elif GEMINI_API_KEY:
         llm = LiteLlm(
             model=model_id,
@@ -171,11 +210,19 @@ def get_light_model():
 
 
 def get_narrative_expander_model():
-    return get_llm(get_narrative_expander_model_id(), timeout=DEFAULT_PLANNING_TIMEOUT)
+    return get_llm(
+        get_narrative_expander_model_id(),
+        timeout=DEFAULT_PLANNING_TIMEOUT,
+        reasoning_effort=get_planning_reasoning_effort(),
+    )
 
 
 def get_story_plan_model():
-    return get_llm(get_story_plan_model_id(), timeout=DEFAULT_PLANNING_TIMEOUT)
+    return get_llm(
+        get_story_plan_model_id(),
+        timeout=DEFAULT_PLANNING_TIMEOUT,
+        reasoning_effort=get_planning_reasoning_effort(),
+    )
 
 
 def get_vision_model_config() -> tuple[str, str | None, str | None]:

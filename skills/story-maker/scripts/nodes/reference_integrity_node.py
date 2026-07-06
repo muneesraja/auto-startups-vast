@@ -4,9 +4,8 @@ import json
 from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
+import config
 from ._json_util import clean_json_str
-
-GROK_REF_LIMIT = 3  # fal Grok Edit accepts max 3 reference image URLs
 
 
 def _scene_bg_modes(scene_assets: dict) -> dict[str, str]:
@@ -25,6 +24,50 @@ def _shot_scene_map(story: dict) -> dict[str, str]:
     return mapping
 
 
+def _char_priority(slots: list, asset_ref: str) -> int:
+    for slot in slots:
+        if not isinstance(slot, dict) or slot.get("role") != "character_sheet":
+            continue
+        aid = slot.get("asset_id", "")
+        if aid and aid in asset_ref:
+            return int(slot.get("priority", 0))
+    return 999
+
+
+def _truncate_refs(
+    refs: list[str],
+    slots: list,
+    *,
+    limit: int,
+    reserve_bg: bool,
+) -> tuple[list[str], list[str]]:
+    """Truncate refs by slot priority; optionally reserve one background slot."""
+    if len(refs) <= limit:
+        return refs, []
+
+    char_refs = [r for r in refs if "character_sheets" in r]
+    bg_refs = [r for r in refs if "backgrounds" in r]
+    char_refs.sort(key=lambda r: _char_priority(slots, r))
+
+    kept: list[str] = []
+    dropped: list[str] = []
+
+    bg_budget = 1 if reserve_bg and bg_refs else 0
+    char_budget = max(0, limit - bg_budget)
+    kept_chars = char_refs[:char_budget]
+    dropped_chars = char_refs[char_budget:]
+    kept.extend(kept_chars)
+    dropped.extend(dropped_chars)
+
+    if bg_budget and bg_refs:
+        kept.append(bg_refs[0])
+        dropped.extend(bg_refs[1:])
+    elif bg_refs:
+        dropped.extend(bg_refs)
+
+    return kept[:limit], dropped
+
+
 async def reference_integrity(ctx: Context) -> None:
     story_raw = ctx.state.get("story_plan_content")
     specs_raw = ctx.state.get("generation_specs_content")
@@ -39,6 +82,7 @@ async def reference_integrity(ctx: Context) -> None:
     if isinstance(scene_assets, str):
         scene_assets = clean_json_str(scene_assets)
 
+    ref_limit = config.get_image_ref_limit()
     bg_modes = _scene_bg_modes(scene_assets)
     shot_scenes = _shot_scene_map(story)
 
@@ -112,11 +156,15 @@ async def reference_integrity(ctx: Context) -> None:
                     char_refs.append(expected)
             refs = char_refs + bg_refs
 
-        if len(refs) > GROK_REF_LIMIT:
-            char_refs = [r for r in refs if "character_sheets" in r][: GROK_REF_LIMIT - 1]
-            bg_refs = [r for r in refs if "backgrounds" in r][:1]
-            refs = (char_refs + bg_refs)[:GROK_REF_LIMIT]
-            print(f"⚠️ [reference_integrity] Truncated {shot_id} to {GROK_REF_LIMIT} refs")
+        reserve_bg = strategy == "char_sheets_and_background" and bg_mode == "full_plate"
+        if len(refs) > ref_limit:
+            refs, dropped = _truncate_refs(
+                refs, slots, limit=ref_limit, reserve_bg=reserve_bg
+            )
+            print(
+                f"⚠️ [reference_integrity] Truncated {shot_id} to {len(refs)}/{ref_limit} refs"
+                + (f" (dropped {len(dropped)})" if dropped else "")
+            )
 
         entry["reference_images"] = refs
         entry["reference_strategy"] = strategy

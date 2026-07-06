@@ -19,6 +19,13 @@ No text, no labels, no annotations, no callouts, no view captions, no letters or
 
 Do NOT request front/side/back grids or multiple copies of the character in one image.
 
+## Infant / toddler characters (moderation-safe)
+
+GPT Image 2 often flags photoreal **baby/infant** language. For young children:
+- Prefer **"Pixar-style toddler character"**, **"animated toddler"**, or **"young cartoon child"** — never "tiny baby boy/girl" alone.
+- Emphasize **3D CGI / stylized cartoon / not photorealistic / family-friendly**.
+- Avoid clinical body detail (belly, limbs, skin texture); keep identity markers (outfit, mole, star, hair).
+
 ## Output schema
 ```json
 {

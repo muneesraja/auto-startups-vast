@@ -18,6 +18,7 @@ async def timeline_enricher(ctx: Context) -> None:
 
     story = clean_json_str(raw) if isinstance(raw, str) else raw
     target = ctx.state.get("target_duration_seconds")
+    meta_backup = story.get("_meta")
     enriched = enrich_story_timeline_with_target(story, target)
     ctx.state["story_plan_content"] = json.dumps(enriched, indent=2, ensure_ascii=False)
 

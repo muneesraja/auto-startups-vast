@@ -7,7 +7,7 @@ Return ONLY a valid JSON object mapping shot_id to shot image spec. No markdown 
 ## Decision rules
 - **Scene with `background_reference_mode: "style_anchor"`** (most exteriors): `char_sheets_only` + `grok_edit`. Do NOT include scene_background slots or background refs — the plate is style documentation only.
 - **Single character, new environment:** `char_sheets_only` + `grok_edit`
-- **Multi-character (2+):** `char_sheets_only` + ordered `reference_slots` by prominence (foreground first)
+- **Multi-character (2+):** `char_sheets_only` + ordered `reference_slots` by prominence (foreground first). Include **every** `characters_present` sheet — the pipeline allows up to the provider ref cap (fal: 3; Replicate GPT Image 2: 13; Seedream: 10).
 - **Establishing wide, no characters:** `no_references` + `grok_t2i` with env-only prompt
 - **Interior/static with `background_reference_mode: "full_plate"`:** `char_sheets_and_background` — character_sheet slots first, scene_background slot **last** with `asset_id` equal to the shot's `scene_id` (e.g. `scene_01`), never custom plate names
 
@@ -30,9 +30,12 @@ This still becomes the LTX starting frame. Downstream motion prompts will **not*
 **Multi-character layout:**
 - Always place subjects in frame: "Leo foreground left, Barnaby background right"
 - Foreground subject = primary actor for the next LTX motion beat
+- When using Replicate GPT Image 2 with multiple refs, label roles by image index in the prompt: "Image 1 (Leo sheet) foreground left; Image 2 (Ruby sheet) background right."
 
 **Other rules:**
 - 30–70 words. End with global style tag.
+- **Vary framing across consecutive shots** in the same scene: wide → medium → close → insert (hands, eyes, object). Do not repeat the same wide living-room master four times.
+- Match pose energy to shot `pace`: `fast` shots use mid-action holds (lunging, turning sharply); `slow` shots use settled poses with clear weight.
 - Do NOT say "first frame", "last frame", or "starting frame" in the prompt text.
 - **Never repeat identical environment geometry** across consecutive shots in the same scene — each shot's environment clause must reflect that shot's unique `environment_state`.
 - Weave `environment_state` from the story plan into the environment clause.

@@ -76,7 +76,10 @@ def _strip_wrapping_quotes(text: str) -> str:
 _IMAGE_QA_SYSTEM = """You are a strict QA reviewer for AI-generated animation still frames.
 Return ONLY valid JSON with keys: pass (boolean), reason (string), has_text (boolean),
 character_count_ok (boolean), pose_match_ok (boolean).
-Fail if ANY rendered text/letters/watermark, wrong character count vs brief, or gross pose/scene mismatch."""
+Fail if ANY rendered text/letters/watermark, wrong foreground named-character count vs brief,
+or gross pose/scene mismatch.
+Count ONLY the named foreground characters listed in characters_present. Ignore ambient
+background crowd, extras, or unnamed figures described in background_population."""
 
 
 async def vision_image_qa(image_path: str, shot_brief: dict) -> dict:
@@ -95,7 +98,8 @@ async def vision_image_qa(image_path: str, shot_brief: dict) -> dict:
         {
             "description": shot_brief.get("description", ""),
             "characters_present": present,
-            "expected_character_count": len(present),
+            "foreground_character_count": len(present),
+            "background_population": shot_brief.get("background_population", ""),
             "frame_strategy": shot_brief.get("frame_strategy"),
             "environment_state": shot_brief.get("environment_state", ""),
         },

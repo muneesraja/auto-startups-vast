@@ -28,8 +28,11 @@ def enrich_story_timeline(story: dict, *, fps: int = 25) -> dict:
 
 
 def enrich_story_timeline_with_target(story: dict, target_duration_seconds: int | None) -> dict:
+    meta_backup = story.get("_meta")
     story = normalize_story_plan(story)
     story = enrich_story_timeline(story)
     if target_duration_seconds is not None:
         story.setdefault("meta", {})["target_duration_seconds"] = target_duration_seconds
+    if meta_backup is not None:
+        story["_meta"] = meta_backup
     return story

@@ -9,7 +9,11 @@ from google.adk.workflow import FunctionNode
 from tools.comfyui_tools import generate_ltx_i2v_video
 from tools.video_concat import concat_videos
 from ._json_util import clean_json_str
-from ._shot_image_gen import generate_one_shot_image, retry_async
+from ._shot_image_gen import (
+    generate_one_shot_image,
+    retry_async,
+    soften_moderation_prompt,
+)
 
 _MAX_CONCURRENCY = int(os.getenv("GROK_IMAGE_CONCURRENCY", "1"))
 
@@ -83,7 +87,12 @@ async def generation_router(ctx: Context) -> None:
 
 
 async def generate_backgrounds(ctx: Context) -> None:
+    import config
     from tools.fal_tools import generate_grok_t2i
+    from .reference_integrity_node import reference_integrity
+
+    # Repair reference_images on resume (planning path already ran this node).
+    await reference_integrity(ctx)
 
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
@@ -91,25 +100,50 @@ async def generate_backgrounds(ctx: Context) -> None:
     bg_dir = os.path.join(output_dir, "backgrounds")
     os.makedirs(bg_dir, exist_ok=True)
 
+    from tools.grok_replicate import upload_local_image
+
     for scene_id, entry in specs.get("backgrounds", {}).items():
         if not _scene_in_scope(scene_id, only_scenes):
             continue
         out_path = os.path.join(bg_dir, f"{scene_id}.png")
-        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or out_path):
-            continue
-        if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
-            entry["output_path"] = out_path
+        local_path = entry.get("output_path") or out_path
+        if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
+            url = entry.get("fal_image_url") or ""
+            needs_upload = (
+                not url
+                or "replicate.delivery/" in url
+                or (
+                    "api.replicate.com/v1/files/" not in url
+                    and not _url_reachable(url)
+                )
+            )
+            if needs_upload:
+                print(f"  Re-uploading background: {scene_id}")
+                url = await asyncio.to_thread(upload_local_image, local_path)
+            entry["output_path"] = local_path
+            entry["fal_image_url"] = url
             entry["status"] = "completed"
             _save_specs(ctx, specs)
             print(f"  Background skip (on disk): {scene_id}")
             continue
-        prompt = entry.get("background_prompt", "")
+        prompt_box = [entry.get("background_prompt", "")]
         print(f"  Background T2I: {scene_id}")
 
-        def _gen(p=prompt, path=out_path):
-            return generate_grok_t2i(p, path)
+        def _gen(path=out_path):
+            return generate_grok_t2i(
+                prompt_box[0], path, size=config.BACKGROUND_IMAGE_SIZE
+            )
 
-        result = await retry_async(_gen, f"background {scene_id}")
+        def _soften(_err: str, attempt: int) -> None:
+            before = prompt_box[0]
+            prompt_box[0] = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            if prompt_box[0] != before:
+                entry["background_prompt"] = prompt_box[0]
+                print(f"   Softened background prompt for moderation: {scene_id}")
+
+        result = await retry_async(
+            _gen, f"background {scene_id}", on_sensitive=_soften
+        )
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
         if result.get("revised_prompt"):
@@ -120,8 +154,25 @@ async def generate_backgrounds(ctx: Context) -> None:
     _save_specs(ctx, specs)
 
 
+def _url_reachable(url: str) -> bool:
+    if not url or not str(url).startswith("http"):
+        return False
+    try:
+        import httpx
+
+        resp = httpx.head(url, timeout=15.0, follow_redirects=True)
+        if resp.status_code < 400:
+            return True
+        # Some CDNs reject HEAD; try a tiny GET range.
+        resp = httpx.get(url, timeout=15.0, follow_redirects=True, headers={"Range": "bytes=0-0"})
+        return resp.status_code < 400
+    except Exception:
+        return False
+
+
 async def generate_character_sheets(ctx: Context) -> None:
     from tools.fal_tools import generate_grok_t2i
+    from tools.grok_replicate import upload_local_image
 
     output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
@@ -134,15 +185,45 @@ async def generate_character_sheets(ctx: Context) -> None:
         if cid not in chars_in_scope:
             continue
         out_path = os.path.join(chars_dir, f"{cid}.png")
-        if entry.get("fal_image_url") and os.path.isfile(entry.get("output_path") or ""):
+        local_path = entry.get("output_path") or out_path
+        if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
+            url = entry.get("fal_image_url") or ""
+            # replicate.delivery URLs expire; prefer durable Files API URLs.
+            needs_upload = (
+                not url
+                or "replicate.delivery/" in url
+                or (
+                    "api.replicate.com/v1/files/" not in url
+                    and not _url_reachable(url)
+                )
+            )
+            if needs_upload:
+                print(f"  Re-uploading character sheet: {cid}")
+                url = await asyncio.to_thread(upload_local_image, local_path)
+            entry["output_path"] = local_path
+            entry["fal_image_url"] = url
+            entry["status"] = "completed"
+            _save_specs(ctx, specs)
             continue
-        prompt = entry.get("sheet_prompt", "")
+        prompt_box = [entry.get("sheet_prompt", "")]
+        # Pre-soften infant language — GPT Image 2 often flags "baby" sheets.
+        prompt_box[0] = soften_moderation_prompt(prompt_box[0])
+        entry["sheet_prompt"] = prompt_box[0]
         print(f"  Character sheet: {cid}")
 
-        def _gen(p=prompt, path=out_path):
-            return generate_grok_t2i(p, path)
+        def _gen(path=out_path):
+            return generate_grok_t2i(prompt_box[0], path)
 
-        result = await retry_async(_gen, f"char sheet {cid}")
+        def _soften(_err: str, attempt: int) -> None:
+            before = prompt_box[0]
+            prompt_box[0] = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            if prompt_box[0] != before:
+                entry["sheet_prompt"] = prompt_box[0]
+                print(f"   Softened sheet prompt for moderation: {cid}")
+
+        result = await retry_async(
+            _gen, f"char sheet {cid}", on_sensitive=_soften
+        )
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
         if result.get("revised_prompt"):

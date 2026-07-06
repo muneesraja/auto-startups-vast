@@ -11,6 +11,9 @@ class TestFrameSnap(unittest.TestCase):
     def test_snap_minimum_one_second(self):
         self.assertGreaterEqual(snap_duration_seconds(1, fps=25), 1)
 
+    def test_snap_sixteen_second_cap(self):
+        self.assertEqual(snap_duration_seconds(16, fps=25), 16)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ import replicate
 
 import config
 from .grok_image_common import (
-    GROK_REF_LIMIT,
+    cap_ref_urls,
     download_url_to_path,
     ensure_no_text,
     error_result,
@@ -42,6 +42,33 @@ def _replicate_client():
     return replicate.Client(api_token=token)
 
 
+def upload_local_image(image_path: str) -> str:
+    """Upload a local PNG to Replicate Files API; return a public URL for edit refs."""
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(image_path)
+    client = _replicate_client()
+    if not client:
+        raise RuntimeError("REPLICATE_API_TOKEN is not set")
+    _throttle()
+    with open(image_path, "rb") as fh:
+        uploaded = client.files.create(fh)
+    urls = getattr(uploaded, "urls", None) or {}
+    if isinstance(urls, dict):
+        url = urls.get("get") or urls.get("url")
+        if url:
+            return url
+    url = getattr(uploaded, "url", None)
+    if callable(url):
+        url = url()
+    if isinstance(url, str) and url.startswith("http"):
+        return url
+    # Newer SDKs expose .urls.get as a method-like object
+    get_url = urls.get("get") if urls else None
+    if callable(get_url):
+        return get_url()
+    raise RuntimeError(f"Could not resolve public URL for uploaded file: {uploaded!r}")
+
+
 def _model_id() -> str:
     return config.GROK_REPLICATE_MODEL
 
@@ -65,20 +92,29 @@ def _seedream_size(resolution: str | None) -> str:
     return "1K"
 
 
-def _gpt_image_input(prompt: str, image_urls: list[str] | None = None) -> dict:
+def _gpt_image_input(
+    prompt: str,
+    image_urls: list[str] | None = None,
+    *,
+    size: str | None = None,
+) -> dict:
     inp: dict = {
         "prompt": prompt,
-        "aspect_ratio": "16:9",
         "quality": _replicate_image_quality(),
         "number_of_images": 1,
         "output_format": "png",
         "background": "opaque",
     }
+    if size:
+        inp["size"] = size
+    else:
+        inp["aspect_ratio"] = "16:9"
     openai_key = os.getenv("OPENAI_API_KEY") or getattr(config, "OPENAI_API_KEY", None)
     if openai_key:
         inp["openai_api_key"] = openai_key
     if image_urls:
-        inp["input_images"] = image_urls[:GROK_REF_LIMIT]
+        limit = config.get_image_ref_limit()
+        inp["input_images"] = cap_ref_urls(image_urls, limit)
     return inp
 
 
@@ -94,7 +130,8 @@ def _seedream_input(
         "max_images": 1,
     }
     if image_urls:
-        inp["image_input"] = image_urls[:GROK_REF_LIMIT]
+        limit = config.get_image_ref_limit()
+        inp["image_input"] = cap_ref_urls(image_urls, limit)
     return inp
 
 
@@ -102,24 +139,25 @@ def _build_input(
     prompt: str,
     resolution: str | None,
     image_urls: list[str] | None = None,
+    *,
+    size: str | None = None,
 ) -> dict:
     model = _model_id()
+    ref_limit = config.get_image_ref_limit()
     if _is_gpt_image(model):
         if image_urls and len(image_urls) > 1:
-            print(
-                f"🖼️ [replicate] {model} edit with {len(image_urls[:GROK_REF_LIMIT])} ref(s)"
-            )
-        return _gpt_image_input(prompt, image_urls)
+            capped = cap_ref_urls(image_urls, ref_limit)
+            print(f"🖼️ [replicate] {model} edit with {len(capped)} ref(s)")
+        return _gpt_image_input(prompt, image_urls, size=size)
     if _is_seedream(model):
         if image_urls and len(image_urls) > 1:
-            print(
-                f"🖼️ [replicate] {model} edit with {len(image_urls[:GROK_REF_LIMIT])} ref(s)"
-            )
+            capped = cap_ref_urls(image_urls, ref_limit)
+            print(f"🖼️ [replicate] {model} edit with {len(capped)} ref(s)")
         return _seedream_input(prompt, resolution, image_urls)
     # Legacy Grok on Replicate — single image ref only
     if image_urls:
-        refs = image_urls[:GROK_REF_LIMIT]
-        if len(refs) > 1:
+        refs = cap_ref_urls(image_urls, ref_limit)
+        if len(image_urls) > 1:
             print(
                 f"⚠️ [replicate] {model} only supports single ref; using primary"
             )
@@ -151,7 +189,11 @@ def _save_replicate_output(output, output_path: str) -> str:
 
 
 def generate_grok_t2i(
-    prompt: str, output_path: str, resolution: str | None = None
+    prompt: str,
+    output_path: str,
+    resolution: str | None = None,
+    *,
+    size: str | None = None,
 ) -> dict:
     """Generate an image via Replicate."""
     client = _replicate_client()
@@ -163,7 +205,7 @@ def generate_grok_t2i(
     try:
         _throttle()
         output = client.run(
-            _model_id(), input=_build_input(final_prompt, resolution)
+            _model_id(), input=_build_input(final_prompt, resolution, size=size)
         )
         image_url = _save_replicate_output(output, output_path)
         return success_result(output_path, image_url)

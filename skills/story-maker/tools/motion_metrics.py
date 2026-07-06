@@ -77,6 +77,6 @@ def strengthen_motion_prompt(prompt: str) -> str:
         text = (
             f"{text} Strong continuous movement throughout the clip. "
             "No static hold or freeze frame. "
-            "Natural character animation. Smooth cinematic motion. Pixar-quality animation."
+            "Natural character animation. Expressive animated motion."
         )
     return text

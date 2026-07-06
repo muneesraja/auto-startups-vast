@@ -17,14 +17,18 @@ def clean_json_str(s):
         s = s[:-3]
     s = s.strip()
     start_idx = s.find("{")
-    end_idx = s.rfind("}")
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        s = s[start_idx : end_idx + 1]
+    if start_idx == -1:
+        start_idx = s.find("[")
+    if start_idx == -1:
+        raise json.JSONDecodeError("No JSON object found", s, 0)
+    payload = s[start_idx:]
     try:
-        return json.loads(s)
+        obj, _end = json.JSONDecoder().raw_decode(payload)
+        return obj
     except json.JSONDecodeError:
-        fixed = _TRAILING_COMMA.sub(r"\1", s)
-        return json.loads(fixed)
+        fixed = _TRAILING_COMMA.sub(r"\1", payload)
+        obj, _end = json.JSONDecoder().raw_decode(fixed)
+        return obj
 
 
 def get_namespace_dict(data, key):

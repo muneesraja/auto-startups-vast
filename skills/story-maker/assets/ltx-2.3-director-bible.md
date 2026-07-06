@@ -5,8 +5,8 @@ Single source of truth for LTX 2.3 I2V planning and motion prompting. Condensed 
 ## One clip = one beat
 
 - Each LTX generation is **one continuous clip** with native audio.
-- Plan **one primary action arc** per shot. Split complex story beats into multiple shots.
-- Prefer **more shorter shots** over fewer overloaded long shots.
+- Plan **one primary action arc** per shot. Prefer **fewer longer shots** over many short fragments.
+- Target **18–28 shots** for a ~5 min film (scene-first planning).
 
 ## Image-to-video prompt rules
 
@@ -21,13 +21,26 @@ The Grok still image is the visual anchor. The LTX motion prompt describes **wha
 | Present tense, single flowing paragraph | "First frame", "last frame", FFLF language |
 | Sequential beats: "does X, then Y, then Z" | Multiple unrelated simultaneous actions |
 
+### Dialogue = static camera
+
+For `ltx_shot_type: dialogue`, default **static / locked-off** camera. LTX native audio carries the performance; animate lips, expression, and **active gestures** (lean, reach, react) — not a frozen portrait. Assign **8–16s** for natural line delivery.
+
 ### Required paragraph structure (vision motion prompter)
 
 1. **Open:** `A cinematic scene of ...` — brief role + setting anchor of what is **already visible** (not full appearance re-description).
 2. **Sequential motion beats** — ordered actions matching `duration_seconds` and `frame_strategy`.
-3. **Camera** — movement from `camera_intent`.
+3. **Camera** — movement from `camera_intent` (static for dialogue only).
 4. **Audio** — dialogue in quotes, music, SFX, ambience.
-5. **Closing quality line (exact):** `Natural character animation. Smooth cinematic motion. Pixar-quality animation.`
+5. **Closing quality line** — pace-aware (see vision motion prompter):
+   - `slow`: `Deliberate emotional animation. Soft natural motion.`
+   - `medium`: `Natural character animation. Expressive animated motion.`
+   - `fast`: `Snappy energetic animation. Quick dynamic motion.`
+
+Do **not** use `Smooth cinematic motion` — it causes slow Ken-Burns drift on every clip.
+
+### Pace and energy
+
+Director assigns `pace: slow | medium | fast` per shot. Motion prompts must match — fast beats get snappy verbs; slow beats get deliberate ones. Every clip needs visible state change, not idle holding.
 
 **Multi-character:** one primary actor per clip; use spatial labels, not names.
 
@@ -35,27 +48,37 @@ The Grok still image is the visual anchor. The LTX motion prompt describes **wha
 
 | Duration | Sentences | Beats |
 |----------|-----------|-------|
-| 4–6s | 4–5 | opener + 1–2 motion + camera/audio + quality line |
-| 7–10s | 5–7 | opener + 2 motion + camera + audio + quality line |
-| 11–15s | 7–9 | opener + 2–3 motion + camera + audio + quality line |
+| 5–8s | 4–5 | opener + 1–2 motion + camera/audio + quality line |
+| 8–12s | 5–7 | opener + 2 motion + camera + audio + quality line |
+| 13–16s | 7–10 | opener + 2–3 motion + camera + audio + quality line |
 
 ## Shot duration (director)
 
-Director assigns **4–15 seconds** per shot, snapped to **8n+1 @ 25fps** at timeline enrich time:
+Director assigns **4–16 seconds** per shot, snapped to **8n+1 @ 25fps** at timeline enrich time:
 
 | Complexity | Duration | Example |
 |------------|----------|---------|
-| simple | 4–6s | picks up shell, single reaction |
-| moderate | 7–10s | chase + splash |
-| complex | 11–15s | one camera beat with 2–3 micro-beats |
+| simple | 5–8s | picks up shell, single reaction |
+| moderate | 8–12s | chase + splash, short dialogue |
+| complex | 12–16s | one camera beat with 2–3 micro-beats; extended dialogue |
 
 Compute from content when possible:
-- **Dialogue:** ~2.5 words/sec + 1s breath padding.
+- **Dialogue:** ~2.5 words/sec + 1–2s breath padding; prefer 8–16s.
 - **Action:** beats x complexity constant, then snap.
+
+## Crowds and extras
+
+- **`characters` roster** = named heroes only.
+- **`characters_present`** = named foreground heroes in this shot.
+- **`background_population`** (per scene) = ambient extras (classmates, crowd) — environment only, no char sheets, no `characters_present` entries.
 
 ## Grok still = LTX starting frame
 
 The Grok `image_prompt` must encode identity, pose, and layout. Use **animation-ready held poses**, **spatial placement**, and **16:9 landscape**. Mitigate Ken-Burns stillness with slight depth-of-field / film-still language (not documentary clarity).
+
+### Panoramic backgrounds
+
+Scene background plates are generated at **2:1** (`2048x1024` default) as style anchors. Shot stills and LTX clips remain **16:9**.
 
 ### frame_strategy
 
@@ -65,7 +88,16 @@ The Grok `image_prompt` must encode identity, pose, and layout. Use **animation-
 | `at_rest_then_react` | Subject at rest | Trigger then reaction |
 | `in_action_continuous` | Mid-activity hold | Motion continues |
 
-Grok Edit accepts **max 3** reference image URLs.
+Grok Edit reference limits (provider-aware — see `get_image_ref_limit()` in `config.py`):
+
+| Backend | Max refs per edit |
+|---------|-------------------|
+| fal `xai/grok-imagine-image/edit` | 3 |
+| Replicate `openai/gpt-image-2` | 13 |
+| Replicate `bytedance/seedream-4` | 10 |
+| Replicate `xai/grok-imagine-image` | 1 |
+
+Override with `IMAGE_REF_LIMIT` in `.env` if needed.
 
 ## Audio
 
@@ -76,8 +108,12 @@ LTX generates synced audio in-prose: `"Help!" she cries`, soft ukulele enters, s
 - Multiple unrelated simultaneous actions
 - Appearance re-description (conflicts with Grok still)
 - Abstract mood-only prompts with no physical motion
-- Overloading 15s with 4+ major story turns
+- Overloading 16s with 4+ major story turns
 - Ken-Burns / zero-motion clips (retry with stronger sequential motion)
+- Camera movement on dialogue shots (use static camera, but animate faces and gestures)
+- Uniform `pace: slow` across a whole scene — flatten story rhythm
+- Identical framing on consecutive shots (same wide master repeated)
+- Closing line `Smooth cinematic motion` on every clip
 
 ## Long-form films
 

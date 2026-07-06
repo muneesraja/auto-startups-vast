@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.nodes.story_timeline import enrich_story_timeline
+from scripts.nodes.story_timeline import enrich_story_timeline, enrich_story_timeline_with_target
 
 
 def _story_with_durations(durations: list[int]) -> dict:
@@ -30,6 +30,17 @@ class TestTimelineEnricher(unittest.TestCase):
         self.assertTrue(shots[2]["continuity_from_previous"])
         self.assertEqual(story["meta"]["total_duration_seconds"], 20)
         self.assertEqual(story["meta"]["total_shots"], 3)
+
+    def test_preserves_planning_meta(self):
+        story = _story_with_durations([8])
+        story["_meta"] = {
+            "narrative_model": "openai/gpt-5.4-mini",
+            "story_plan_model": "openai/gpt-5.4-mini",
+        }
+        enriched = enrich_story_timeline_with_target(story, target_duration_seconds=300)
+        self.assertEqual(enriched["_meta"]["narrative_model"], "openai/gpt-5.4-mini")
+        self.assertEqual(enriched["_meta"]["story_plan_model"], "openai/gpt-5.4-mini")
+        self.assertEqual(enriched["meta"]["target_duration_seconds"], 300)
 
 
 if __name__ == "__main__":

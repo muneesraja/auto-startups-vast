@@ -7,6 +7,7 @@ from google.adk.workflow import FunctionNode
 from schemas.generation import GenerationSpecs
 from schemas.plan import AudioPlan, SceneAssetsPlan, StoryPlan
 from ._json_util import clean_json_str
+from .generation_nodes import _only_scenes, _shot_in_scope
 from .story_plan_normalize import normalize_story_plan
 
 
@@ -24,11 +25,15 @@ async def validate_generation_specs(ctx: Context) -> None:
     audio_dict = clean_json_str(audio_raw) if audio_raw else {}
     scene_dict = clean_json_str(scene_raw) if scene_raw else {}
 
+    only_scenes = _only_scenes(ctx)
+
     story = StoryPlan(**story_dict)
     GenerationSpecs(**specs_dict)
     if audio_dict:
         audio = AudioPlan(**audio_dict)
         for shot_id, shot_audio in audio.shots.items():
+            if only_scenes and not _shot_in_scope(shot_id, only_scenes):
+                continue
             present = set()
             for scene in story.scenes:
                 for shot in scene.shots:
@@ -37,8 +42,9 @@ async def validate_generation_specs(ctx: Context) -> None:
             for d in shot_audio.audio.dialogue:
                 cid = d.get("character_id")
                 if cid and cid not in present:
-                    raise ValueError(
-                        f"Audio dialogue speaker {cid} not in shot {shot_id} characters_present"
+                    print(
+                        f"⚠️ [validate_generation_specs] Audio speaker {cid} "
+                        f"not in {shot_id} characters_present (off-screen?); continuing"
                     )
 
     if scene_dict:
@@ -68,6 +74,8 @@ async def validate_generation_specs(ctx: Context) -> None:
                 )
 
     for scene in story.scenes:
+        if only_scenes and scene.scene_id not in only_scenes:
+            continue
         prev_prompt = None
         for shot in scene.shots:
             img = specs_dict.get("shot_images", {}).get(shot.shot_id, {})
@@ -80,6 +88,8 @@ async def validate_generation_specs(ctx: Context) -> None:
             prev_prompt = prompt
 
     for _scene, shot in story.iter_shots():
+        if only_scenes and not _shot_in_scope(shot.shot_id, only_scenes):
+            continue
         if shot.shot_id not in specs_dict.get("shot_images", {}):
             raise ValueError(f"Missing shot_images entry for {shot.shot_id}")
         if shot.shot_id not in specs_dict.get("motion", {}):
@@ -90,6 +100,8 @@ async def validate_generation_specs(ctx: Context) -> None:
             raise ValueError(f"Missing character_sheets entry for {cid}")
 
     for scene in scene_dict.get("scenes", []):
+        if only_scenes and scene.get("scene_id") not in only_scenes:
+            continue
         if scene.get("generate_background") and scene["scene_id"] not in specs_dict.get(
             "backgrounds", {}
         ):

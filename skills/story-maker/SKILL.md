@@ -14,7 +14,7 @@ Turns a high-level story into an animated film using a Google ADK `Workflow` gra
 ## Pipeline
 
 1. **Narrative Expander** — sparse story + target duration → `narrative_outline.json` (acts, scene beats, budgets)
-2. **LTX Shot Director** — outline → `story_plan.json` (4–15s shots with `motion_intent`, `camera_intent`, `audio_intent`)
+2. **LTX Shot Director** — outline → `story_plan.json` (4–16s shots, scene-first, fewer longer clips)
 3. **Timeline Enricher** — `scene_time_offset_seconds`, continuity flags, meta totals
 4. **Duration Budget Validator** — checks summed shot duration vs target ± tolerance
 5. **Audio Planner** → `audio_plan.json`
@@ -69,29 +69,32 @@ Three LLM tiers — all use OpenRouter slugs unless noted:
 
 | Tier | Agents | Env var | Default |
 |------|--------|---------|---------|
-| **Planning** | narrative expander, LTX shot director | `PLANNING_MODEL` / `NARRATIVE_EXPANDER_MODEL` / `STORY_PLAN_MODEL` | `openai/gpt-5-mini` |
+| **Planning** | narrative expander, LTX shot director | `PLANNING_MODEL` / `NARRATIVE_EXPANDER_MODEL` / `STORY_PLAN_MODEL` | `openai/gpt-5.4-mini` |
 | **Secondary** | audio, scene assets, char sheets, shot images | `SECONDARY_MODEL` (alias: `LIGHT_MODEL`) | `z-ai/glm-5.2` |
 | **Vision** | vision motion prompter (multimodal) | `VISION_MODEL` | `openai/gpt-5-mini` |
 
 | Env var | Description | Default |
 |---------|-------------|---------|
 | `PLANNING_MODEL_TIMEOUT` | Planning agent timeout (seconds) | `600` |
+| `PLANNING_REASONING_EFFORT` | Reasoning effort for planning models (`low`, `medium`, `high`) | `low` |
 | `SECONDARY_MODEL_TIMEOUT` | Secondary agent timeout (seconds) | `600` |
 | `GROK_IMAGE_RESOLUTION` | Grok T2I/Edit resolution (`1k`, etc.) | `1k` |
+| `BACKGROUND_IMAGE_SIZE` | Panoramic background plate size (GPT Image 2 WxH) | `2048x1024` |
 | `PROVIDER` | Grok image backend: `fal` or `replicate` | `fal` |
 | `REPLICATE_API_TOKEN` | Required when `PROVIDER=replicate` | — |
 | `GROK_REPLICATE_MODEL` | Replicate model slug | `openai/gpt-image-2` |
 | `REPLICATE_IMAGE_QUALITY` | GPT Image quality on Replicate (`low`, `medium`, `high`) | `low` |
+| `IMAGE_REF_LIMIT` | Override max reference images per shot edit (optional) | provider default |
+
+Reference image caps per edit (when `IMAGE_REF_LIMIT` unset): fal Grok Edit **3**; Replicate GPT Image 2 **13**; Seedream 4 **10**; legacy Replicate Grok **1**. Probe script: `scripts/ref_limit_probe.py`.
 
 ```bash
-# .env — recommended production mix
-PLANNING_MODEL=anthropic/claude-sonnet-4.6
+# .env — recommended cost-optimized mix
+PLANNING_MODEL=openai/gpt-5.4-mini
+PLANNING_REASONING_EFFORT=low
 SECONDARY_MODEL=z-ai/glm-5.2
 VISION_MODEL=openai/gpt-5-mini
-
-# or per planning stage
-NARRATIVE_EXPANDER_MODEL=anthropic/claude-sonnet-4.6
-STORY_PLAN_MODEL=anthropic/claude-sonnet-4.6
+BACKGROUND_IMAGE_SIZE=2048x1024
 
 # CLI (applied before agents load)
 python3 main.py --story-file ../../stories/baby-star/Story.md \
@@ -133,9 +136,9 @@ Resume is automatic: re-run the same `--name` and the `resume_router_node` picks
 
 | Complexity | Duration | Use for |
 |------------|----------|---------|
-| simple | 4–6s | insert, reaction, single gesture |
-| moderate | 7–10s | standard action beat |
-| complex | 11–15s | one camera beat, max 2–3 micro-beats |
+| simple | 5–8s | insert, reaction, single gesture |
+| moderate | 8–12s | standard action beat |
+| complex | 12–16s | one camera beat, max 2–3 micro-beats |
 
 Motion prompts are I2V-native: written from the actual starting frame — role + position referents, no appearance re-description.
 

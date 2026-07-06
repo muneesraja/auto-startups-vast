@@ -64,7 +64,9 @@ def _shot_brief(story: dict, shot_id: str) -> dict:
     for scene in story.get("scenes", []):
         for shot in scene.get("shots", []):
             if shot.get("shot_id") == shot_id:
-                return shot
+                brief = dict(shot)
+                brief["background_population"] = scene.get("background_population", "")
+                return brief
     return {}
 
 

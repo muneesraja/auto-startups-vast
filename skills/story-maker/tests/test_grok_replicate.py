@@ -56,6 +56,82 @@ class TestGrokReplicate(unittest.TestCase):
 
     @patch("tools.grok_image_common.httpx.get")
     @patch("tools.grok_replicate.replicate.Client")
+    def test_gpt_image_edit_passes_thirteen_refs(self, mock_client_cls, mock_get):
+        mock_run = mock_client_cls.return_value.run
+        mock_run.return_value = ["https://replicate.delivery/edit13.png"]
+        mock_get.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"pngbytes",
+        )
+        refs = [f"https://example.com/r{i}.png" for i in range(13)]
+        with patch.dict(
+            "os.environ",
+            {
+                "REPLICATE_API_TOKEN": "r8_test",
+                "GROK_REPLICATE_MODEL": "openai/gpt-image-2",
+                "PROVIDER": "replicate",
+            },
+        ):
+            with patch("tools.grok_replicate.config.GROK_REPLICATE_MODEL", "openai/gpt-image-2"):
+                result = generate_grok_edit("scene", refs, "/tmp/edit13.png")
+        self.assertEqual(result["status"], "success")
+        inp = mock_run.call_args[1]["input"]
+        self.assertEqual(len(inp["input_images"]), 13)
+
+    @patch("tools.grok_image_common.httpx.get")
+    @patch("tools.grok_replicate.replicate.Client")
+    def test_gpt_image_edit_truncates_beyond_thirteen_refs(self, mock_client_cls, mock_get):
+        mock_run = mock_client_cls.return_value.run
+        mock_run.return_value = ["https://replicate.delivery/edit13c.png"]
+        mock_get.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"pngbytes",
+        )
+        refs = [f"https://example.com/r{i}.png" for i in range(15)]
+        with patch.dict(
+            "os.environ",
+            {
+                "REPLICATE_API_TOKEN": "r8_test",
+                "GROK_REPLICATE_MODEL": "openai/gpt-image-2",
+                "PROVIDER": "replicate",
+            },
+        ):
+            with patch("tools.grok_replicate.config.GROK_REPLICATE_MODEL", "openai/gpt-image-2"):
+                result = generate_grok_edit("scene", refs, "/tmp/edit13c.png")
+        self.assertEqual(result["status"], "success")
+        inp = mock_run.call_args[1]["input"]
+        self.assertEqual(len(inp["input_images"]), 13)
+
+    @patch("tools.grok_image_common.httpx.get")
+    @patch("tools.grok_replicate.replicate.Client")
+    def test_gpt_image_t2i_panoramic_size(self, mock_client_cls, mock_get):
+        mock_run = mock_client_cls.return_value.run
+        mock_run.return_value = ["https://replicate.delivery/bg.png"]
+        mock_get.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"pngbytes",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "REPLICATE_API_TOKEN": "r8_test",
+                "GROK_REPLICATE_MODEL": "openai/gpt-image-2",
+                "REPLICATE_IMAGE_QUALITY": "low",
+            },
+        ):
+            with patch("tools.grok_replicate.config.GROK_REPLICATE_MODEL", "openai/gpt-image-2"):
+                result = generate_grok_t2i(
+                    "wide classroom panorama",
+                    "/tmp/bg.png",
+                    size="2048x1024",
+                )
+        self.assertEqual(result["status"], "success")
+        inp = mock_run.call_args[1]["input"]
+        self.assertEqual(inp["size"], "2048x1024")
+        self.assertNotIn("aspect_ratio", inp)
+
+    @patch("tools.grok_image_common.httpx.get")
+    @patch("tools.grok_replicate.replicate.Client")
     def test_seedream_edit_uses_image_input(self, mock_client_cls, mock_get):
         mock_run = mock_client_cls.return_value.run
         mock_run.return_value = ["https://replicate.delivery/edit2.png"]

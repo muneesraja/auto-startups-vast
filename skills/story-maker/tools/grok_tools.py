@@ -20,9 +20,15 @@ def _backend():
 
 
 def generate_grok_t2i(
-    prompt: str, output_path: str, resolution: str | None = None
+    prompt: str,
+    output_path: str,
+    resolution: str | None = None,
+    *,
+    size: str | None = None,
 ) -> dict:
-    return _backend().generate_grok_t2i(prompt, output_path, resolution=resolution)
+    return _backend().generate_grok_t2i(
+        prompt, output_path, resolution=resolution, size=size
+    )
 
 
 def generate_grok_edit(

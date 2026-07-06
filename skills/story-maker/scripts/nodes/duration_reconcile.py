@@ -62,7 +62,7 @@ def reconcile_scene_durations(story: dict, outline: dict, *, tolerance_percent: 
         while total < low and guard < 500:
             guard += 1
             shortest = min(shots, key=lambda s: s["duration_seconds"])
-            if shortest["duration_seconds"] >= 15:
+            if shortest["duration_seconds"] >= 16:
                 break
             shortest["duration_seconds"] = snap_duration_seconds(shortest["duration_seconds"] + 1)
             total = sum(s["duration_seconds"] for s in shots)
