@@ -178,17 +178,19 @@ hf_download "Kijai/sam2-safetensors" "sam2.1_hiera_base_plus.safetensors" "$BASE
 [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && echo "  ✅ Moved to $FINAL_PATH"
 
 # 8. Pose detection — ViTPose-L wholebody ONNX (~1.18GB, in onnx/wholebody/)
+#    WanAnimatePreprocess nodes load from models/detection/, not models/onnx/
 echo "[8/9] Pose — ViTPose-L wholebody ONNX..."
 BLOB_PATH="$BASE_DIR/onnx/wholebody/vitpose-l-wholebody.onnx"
-FINAL_PATH="$BASE_DIR/models/onnx/vitpose-l-wholebody.onnx"
-mkdir -p "$BASE_DIR/models/onnx"
+FINAL_PATH="$BASE_DIR/models/detection/vitpose-l-wholebody.onnx"
+mkdir -p "$BASE_DIR/models/detection"
 hf_download "JunkyByte/easy_ViTPose" "onnx/wholebody/vitpose-l-wholebody.onnx" "$BASE_DIR"
 [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/onnx/wholebody" "$BASE_DIR/onnx" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
 # 9. Object detection — YOLOv10m ONNX (~58MB, in process_checkpoint/det/)
+#    Also goes to models/detection/ (same loader reads both vitpose + yolo)
 echo "[9/9] Detector — YOLOv10m ONNX..."
 BLOB_PATH="$BASE_DIR/process_checkpoint/det/yolov10m.onnx"
-FINAL_PATH="$BASE_DIR/models/onnx/yolov10m.onnx"
+FINAL_PATH="$BASE_DIR/models/detection/yolov10m.onnx"
 hf_download "Wan-AI/Wan2.2-Animate-14B" "process_checkpoint/det/yolov10m.onnx" "$BASE_DIR"
 [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/process_checkpoint/det" "$BASE_DIR/process_checkpoint" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
