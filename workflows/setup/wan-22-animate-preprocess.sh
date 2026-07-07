@@ -87,6 +87,12 @@ for repo in ComfyUI-WanVideoWrapper ComfyUI-WanAnimatePreprocess ComfyUI-KJNodes
     fi
 done
 
+# ⚠️  RunPod slim ships CUDA 12.8; onnxruntime-gpu>=1.21 expects CUDA 13.
+# Pin to 1.20.1 (last CUDA 12 build) to prevent libcudart.so.13 import error
+# that breaks ComfyUI-WanAnimatePreprocess. (Discovered 2026-07-07.)
+$COMFY_PIP install -q --upgrade-strategy only-if-needed \
+    onnxruntime-gpu==1.20.1 2>&1 | tail -3 || true
+
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
@@ -110,114 +116,81 @@ unset _HF_HELPER
 
 echo "==> Starting downloads..."
 
+# ⚠️  Download-then-move pattern fix (2026-07-07):
+# hf_hub_download(local_dir=$BASE_DIR, filename="X/Y/Z") preserves the full HF path,
+# landing the file at $BASE_DIR/X/Y/Z. We compute BLOB_PATH from the actual HF
+# filename, then move to the final models/<sub>/ location. The previous version
+# of this script assumed the first path component got stripped — that was wrong.
+
 # 1. Diffusion model — Wan2.2 Animate 14B FP8 (Kijai repackaged, ~17.5GB)
-#    Goes to diffusion_models/ (WanVideoModelLoader expects it there)
 echo "[1/9] Diffusion model — Wan2.2 Animate 14B FP8 (Kijai)..."
-BLOB_PATH="$BASE_DIR/diffusion_models/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors"
+BLOB_PATH="$BASE_DIR/Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors"
 FINAL_PATH="$BASE_DIR/models/diffusion_models/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors"
 mkdir -p "$BASE_DIR/models/diffusion_models"
 hf_download "Kijai/WanVideo_comfy_fp8_scaled" "Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/diffusion_models" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/Wan22Animate" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
 # 2. VAE — Wan 2.1 VAE (~242MB, lowercase filename in Comfy-Org repackaged)
 echo "[2/9] VAE — Wan 2.1 VAE..."
-BLOB_PATH="$BASE_DIR/vae/wan_2.1_vae.safetensors"
+BLOB_PATH="$BASE_DIR/split_files/vae/wan_2.1_vae.safetensors"
 FINAL_PATH="$BASE_DIR/models/vae/wan_2.1_vae.safetensors"
 mkdir -p "$BASE_DIR/models/vae"
 hf_download "Comfy-Org/Wan_2.1_ComfyUI_repackaged" "split_files/vae/wan_2.1_vae.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/vae" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/split_files/vae" "$BASE_DIR/split_files" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
 # 3. CLIP Vision — CLIP-ViT-H (laion2B s32B, ~1.2GB)
 echo "[3/9] CLIP Vision — CLIP-ViT-H laion2B s32B b79K..."
-BLOB_PATH="$BASE_DIR/clip_vision/clip_vision_h.safetensors"
+BLOB_PATH="$BASE_DIR/split_files/clip_vision/clip_vision_h.safetensors"
 FINAL_PATH="$BASE_DIR/models/clip_vision/clip_vision_h.safetensors"
 mkdir -p "$BASE_DIR/models/clip_vision"
 hf_download "Comfy-Org/Wan_2.1_ComfyUI_repackaged" "split_files/clip_vision/clip_vision_h.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/clip_vision" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && echo "  ✅ Moved to $FINAL_PATH"
 
-# 4. Text encoder — UMT5-XXL encoder bf16 (~10.8GB, Kijai repackaged)
+# 4. Text encoder — UMT5-XXL encoder bf16 (~10.8GB, Kijai repackaged, at root)
 echo "[4/9] Text encoder — UMT5-XXL encoder bf16..."
-BLOB_PATH="$BASE_DIR/text_encoders/umt5-xxl-enc-bf16.safetensors"
+BLOB_PATH="$BASE_DIR/umt5-xxl-enc-bf16.safetensors"
 FINAL_PATH="$BASE_DIR/models/text_encoders/umt5-xxl-enc-bf16.safetensors"
 mkdir -p "$BASE_DIR/models/text_encoders"
 hf_download "Kijai/WanVideo_comfy" "umt5-xxl-enc-bf16.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/text_encoders" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && echo "  ✅ Moved to $FINAL_PATH"
 
-# 5. LoRA — WanAnimate relight fp16 (~1.37GB)
+# 5. LoRA — WanAnimate relight fp16 (~1.37GB, in LoRAs/Wan22_relight/)
 echo "[5/9] LoRA — WanAnimate relight fp16..."
-BLOB_PATH="$BASE_DIR/loras/WanAnimate_relight_lora_fp16.safetensors"
+BLOB_PATH="$BASE_DIR/LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors"
 FINAL_PATH="$BASE_DIR/models/loras/WanAnimate_relight_lora_fp16.safetensors"
 mkdir -p "$BASE_DIR/models/loras"
 hf_download "Kijai/WanVideo_comfy" "LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/loras" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/LoRAs/Wan22_relight" "$BASE_DIR/LoRAs" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
-# 6. LoRA — Lightx2v I2V 14B 480p CFG step distill rank64 bf16 (~703MB)
+# 6. LoRA — Lightx2v I2V 14B 480p CFG step distill rank64 bf16 (~703MB, in Lightx2v/)
 echo "[6/9] LoRA — Lightx2v I2V 14B 480p cfg step distill rank64 bf16..."
-BLOB_PATH="$BASE_DIR/loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
+BLOB_PATH="$BASE_DIR/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
 FINAL_PATH="$BASE_DIR/models/loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
-mkdir -p "$BASE_DIR/models/loras"
 hf_download "Kijai/WanVideo_comfy" "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/loras" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/Lightx2v" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
-# 7. SAM2 model — sam2.1 hiera base plus (~308MB, Kijai safetensors port)
+# 7. SAM2 model — sam2.1 hiera base plus (~308MB, Kijai safetensors port, at root)
 echo "[7/9] SAM2 — sam2.1 hiera base plus (Kijai safetensors port)..."
-BLOB_PATH="$BASE_DIR/sam2/sam2.1_hiera_base_plus.safetensors"
+BLOB_PATH="$BASE_DIR/sam2.1_hiera_base_plus.safetensors"
 FINAL_PATH="$BASE_DIR/models/sam2/sam2.1_hiera_base_plus.safetensors"
 mkdir -p "$BASE_DIR/models/sam2"
 hf_download "Kijai/sam2-safetensors" "sam2.1_hiera_base_plus.safetensors" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/sam2" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && echo "  ✅ Moved to $FINAL_PATH"
 
-# 8. Pose detection — ViTPose-L wholebody ONNX (~1.18GB)
+# 8. Pose detection — ViTPose-L wholebody ONNX (~1.18GB, in onnx/wholebody/)
 echo "[8/9] Pose — ViTPose-L wholebody ONNX..."
-BLOB_PATH="$BASE_DIR/onnx/vitpose-l-wholebody.onnx"
+BLOB_PATH="$BASE_DIR/onnx/wholebody/vitpose-l-wholebody.onnx"
 FINAL_PATH="$BASE_DIR/models/onnx/vitpose-l-wholebody.onnx"
 mkdir -p "$BASE_DIR/models/onnx"
 hf_download "JunkyByte/easy_ViTPose" "onnx/wholebody/vitpose-l-wholebody.onnx" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/onnx" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/onnx/wholebody" "$BASE_DIR/onnx" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
-# 9. Object detection — YOLOv10m ONNX (~58MB, Wan 2.2 Animate official)
+# 9. Object detection — YOLOv10m ONNX (~58MB, in process_checkpoint/det/)
 echo "[9/9] Detector — YOLOv10m ONNX..."
-BLOB_PATH="$BASE_DIR/onnx/yolov10m.onnx"
+BLOB_PATH="$BASE_DIR/process_checkpoint/det/yolov10m.onnx"
 FINAL_PATH="$BASE_DIR/models/onnx/yolov10m.onnx"
-mkdir -p "$BASE_DIR/models/onnx"
 hf_download "Wan-AI/Wan2.2-Animate-14B" "process_checkpoint/det/yolov10m.onnx" "$BASE_DIR"
-if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
-  mv "$BLOB_PATH" "$FINAL_PATH"
-  rmdir "$BASE_DIR/onnx" 2>/dev/null || true
-  echo "  ✅ Moved to $FINAL_PATH"
-fi
+[ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ] && mv "$BLOB_PATH" "$FINAL_PATH" && rmdir "$BASE_DIR/process_checkpoint/det" "$BASE_DIR/process_checkpoint" 2>/dev/null && echo "  ✅ Moved to $FINAL_PATH"
 
 echo "==> All downloads completed!"
 
