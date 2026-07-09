@@ -18,6 +18,9 @@ from .plan import (
     StoryPlan,
     StoryPlanDraft,
     StoryScene,
+    VideoShot,
+    VideoShotPlan,
+    VideoShotScenePlan,
 )
 
 __all__ = [
@@ -38,4 +41,7 @@ __all__ = [
     "StoryPlan",
     "StoryPlanDraft",
     "StoryScene",
+    "VideoShot",
+    "VideoShotPlan",
+    "VideoShotScenePlan",
 ]

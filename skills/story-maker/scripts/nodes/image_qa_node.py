@@ -5,8 +5,17 @@ import asyncio
 import json
 import os
 
-from google.adk.agents.context import Context
-from google.adk.workflow import FunctionNode
+try:
+    from google.adk.agents.context import Context
+    from google.adk.workflow import FunctionNode
+except ImportError:  # pragma: no cover - test fallback without ADK installed
+    class Context:  # type: ignore[override]
+        pass
+
+    class FunctionNode:  # type: ignore[override]
+        def __init__(self, func, name: str):
+            self.func = func
+            self.name = name
 
 from tools.vision_llm import vision_image_qa
 from ._json_util import clean_json_str

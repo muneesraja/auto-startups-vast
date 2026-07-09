@@ -29,6 +29,36 @@ def ensure_no_text(prompt: str) -> str:
     return prompt.rstrip() + NO_TEXT_CLAUSE
 
 
+PRODUCTION_LABELS_CLAUSE = (
+    " Include clean professional model-sheet typography, section headers, and view labels only. "
+    "No watermarks, no logos, no subtitle captions, no dialogue text."
+)
+
+
+STORYBOARD_LABELS_CLAUSE = (
+    " Include clean professional storyboard typography, shot numbers, section headers, "
+    "and camera labels only. No watermarks, no logos, no subtitle captions, no dialogue text."
+)
+
+
+def apply_prompt_text_policy(prompt: str, text_policy: str = "default") -> str:
+    """Adjust prompt for text rendering policy before image generation."""
+    policy = (text_policy or "default").strip().lower()
+    if policy == "production_labels":
+        text = (prompt or "").rstrip()
+        lower = text.lower()
+        if (
+            "production-sheet typography" not in lower
+            and "storyboard typography" not in lower
+        ):
+            if "storyboard sheet" in lower:
+                text += STORYBOARD_LABELS_CLAUSE
+            else:
+                text += PRODUCTION_LABELS_CLAUSE
+        return text
+    return ensure_no_text(prompt)
+
+
 def success_result(
     output_path: str,
     image_url: str,

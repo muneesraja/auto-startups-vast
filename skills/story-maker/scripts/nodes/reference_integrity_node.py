@@ -1,8 +1,17 @@
 """Reference integrity for Grok Edit shot specs."""
 import json
 
-from google.adk.agents.context import Context
-from google.adk.workflow import FunctionNode
+try:
+    from google.adk.agents.context import Context
+    from google.adk.workflow import FunctionNode
+except ImportError:  # pragma: no cover - test fallback without ADK installed
+    class Context:  # type: ignore[override]
+        pass
+
+    class FunctionNode:  # type: ignore[override]
+        def __init__(self, func, name: str):
+            self.func = func
+            self.name = name
 
 import config
 from ._json_util import clean_json_str
@@ -47,6 +56,7 @@ def _truncate_refs(
 
     char_refs = [r for r in refs if "character_sheets" in r]
     bg_refs = [r for r in refs if "backgrounds" in r]
+    prior_refs = [r for r in refs if "shot_images" in r]
     char_refs.sort(key=lambda r: _char_priority(slots, r))
 
     kept: list[str] = []
@@ -64,6 +74,10 @@ def _truncate_refs(
         dropped.extend(bg_refs[1:])
     elif bg_refs:
         dropped.extend(bg_refs)
+
+    remaining = max(0, limit - len(kept))
+    kept.extend(prior_refs[:remaining])
+    dropped.extend(prior_refs[remaining:])
 
     return kept[:limit], dropped
 
@@ -126,6 +140,10 @@ async def reference_integrity(ctx: Context) -> None:
                     if slot.get("asset_id") != bg_key:
                         slot["asset_id"] = bg_key
                     refs.append(f"{{{{backgrounds.{bg_key}.fal_image_url}}}}")
+            elif role == "prior_shot":
+                prior_images = specs.get("shot_images", {})
+                if asset_id in prior_images:
+                    refs.append(f"{{{{shot_images.{asset_id}.fal_image_url}}}}")
 
         if bg_mode == "style_anchor":
             strategy = "char_sheets_only" if present else "no_references"

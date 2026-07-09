@@ -32,6 +32,12 @@ This still becomes the LTX starting frame. Downstream motion prompts will **not*
 - Foreground subject = primary actor for the next LTX motion beat
 - When using Replicate GPT Image 2 with multiple refs, label roles by image index in the prompt: "Image 1 (Leo sheet) foreground left; Image 2 (Ruby sheet) background right."
 
+**Scene geography / reverse-shot continuity:**
+- Read scene `staging` and `blocking` first. Respect the room layout and the 180-degree line.
+- Use the shot's `subject_position`, `facing_direction`, `eyeline`, and `background_region` literally when composing the still.
+- A solo reverse shot must still read as a conversation angle: if the subject is speaking to an off-screen partner, keep them on the correct frame side and facing the partner's off-screen position.
+- Do **not** reuse the identical backdrop from the prior speaker. Show the correct reverse-side background region from the staged geography.
+
 **Other rules:**
 - 30–70 words. End with global style tag.
 - **Vary framing across consecutive shots** in the same scene: wide → medium → close → insert (hands, eyes, object). Do not repeat the same wide living-room master four times.
@@ -39,6 +45,7 @@ This still becomes the LTX starting frame. Downstream motion prompts will **not*
 - Do NOT say "first frame", "last frame", or "starting frame" in the prompt text.
 - **Never repeat identical environment geometry** across consecutive shots in the same scene — each shot's environment clause must reflect that shot's unique `environment_state`.
 - Weave `environment_state` from the story plan into the environment clause.
+- For dialogue or reaction reverses, include off-screen partner awareness in the pose and eyeline ("looking off-screen left toward the parent") and anchor the backdrop to `background_region`.
 - **No text in image:** no subtitles, captions, signage with words, labels, watermarks, or UI overlays.
 
 ## frame_strategy (from story plan)

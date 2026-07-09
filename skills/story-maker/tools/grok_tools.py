@@ -25,9 +25,16 @@ def generate_grok_t2i(
     resolution: str | None = None,
     *,
     size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     return _backend().generate_grok_t2i(
-        prompt, output_path, resolution=resolution, size=size
+        prompt,
+        output_path,
+        resolution=resolution,
+        size=size,
+        quality=quality,
+        text_policy=text_policy,
     )
 
 
@@ -36,7 +43,17 @@ def generate_grok_edit(
     image_urls: list[str],
     output_path: str,
     resolution: str | None = None,
+    *,
+    size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     return _backend().generate_grok_edit(
-        prompt, image_urls, output_path, resolution=resolution
+        prompt,
+        image_urls,
+        output_path,
+        resolution=resolution,
+        size=size,
+        quality=quality,
+        text_policy=text_policy,
     )

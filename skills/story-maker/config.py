@@ -1,7 +1,11 @@
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - test fallback without python-dotenv
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 config_dir = os.path.dirname(os.path.abspath(__file__))
 workspace_root = os.path.dirname(os.path.dirname(config_dir))
@@ -51,14 +55,20 @@ I2V_TEMPLATE_NAME = "ltx-i2v"
 DEFAULT_PLANNING_MODEL = "openai/gpt-5.4-mini"
 DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))
 DEFAULT_PLANNING_REASONING_EFFORT = os.getenv("PLANNING_REASONING_EFFORT", "low")
-DEFAULT_SECONDARY_MODEL = "z-ai/glm-5.2"
+DEFAULT_SECONDARY_MODEL = "openai/gpt-5.4-mini"
 SECONDARY_MODEL_TIMEOUT = int(os.getenv("SECONDARY_MODEL_TIMEOUT", "600"))
+DEFAULT_SECONDARY_REASONING_EFFORT = os.getenv("SECONDARY_REASONING_EFFORT", "low")
 DEFAULT_VISION_MODEL = "openai/gpt-5-mini"
+DEFAULT_CROP_ANALYSIS_MODEL = "openai/gpt-5.4-mini"
 
 DEFAULT_IMAGE_PROVIDER = "fal"
 GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "2048x1024")
+STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "2048x1152")
+COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.04"))
+COST_OPENROUTER_CALL = float(os.getenv("COST_OPENROUTER_CALL", "0.002"))
+COST_LTX_VIDEO = float(os.getenv("COST_LTX_VIDEO", "0.0"))
 
 # Provider/model reference-image caps (shot still edit / composite)
 FAL_GROK_REF_LIMIT = 3
@@ -116,6 +126,20 @@ def get_vision_model_id() -> str:
     return os.getenv("VISION_MODEL", DEFAULT_VISION_MODEL)
 
 
+def get_crop_analysis_model_id() -> str:
+    return os.getenv("CROP_ANALYSIS_MODEL", DEFAULT_CROP_ANALYSIS_MODEL)
+
+
+def get_crop_analysis_model_config() -> tuple[str, str | None, str | None]:
+    """Model name, api_key, api_base for storyboard panel crop analysis."""
+    model_id = get_crop_analysis_model_id()
+    if OPENROUTER_API_KEY:
+        return _normalize_openrouter_model(model_id), OPENROUTER_API_KEY, "https://openrouter.ai/api/v1"
+    if GEMINI_API_KEY:
+        return model_id, GEMINI_API_KEY, None
+    raise ValueError("Set OPENROUTER_API_KEY or GEMINI_API_KEY for crop analysis")
+
+
 def get_image_provider() -> str:
     """Return active Grok image backend: fal | replicate."""
     provider = (os.getenv("PROVIDER") or DEFAULT_IMAGE_PROVIDER).strip().lower()
@@ -155,6 +179,11 @@ def get_image_ref_limit() -> int:
 
 def get_planning_reasoning_effort() -> str | None:
     effort = (os.getenv("PLANNING_REASONING_EFFORT") or DEFAULT_PLANNING_REASONING_EFFORT).strip()
+    return effort or None
+
+
+def get_secondary_reasoning_effort() -> str | None:
+    effort = (os.getenv("SECONDARY_REASONING_EFFORT") or DEFAULT_SECONDARY_REASONING_EFFORT).strip()
     return effort or None
 
 
@@ -206,7 +235,11 @@ def get_reasoning_model():
 
 
 def get_light_model():
-    return get_llm(get_secondary_model_id(), timeout=SECONDARY_MODEL_TIMEOUT)
+    return get_llm(
+        get_secondary_model_id(),
+        timeout=SECONDARY_MODEL_TIMEOUT,
+        reasoning_effort=get_secondary_reasoning_effort(),
+    )
 
 
 def get_narrative_expander_model():

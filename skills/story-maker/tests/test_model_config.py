@@ -19,6 +19,7 @@ class TestModelConfig(unittest.TestCase):
             "REASONING_MODEL",
             "LIGHT_MODEL",
             "PLANNING_REASONING_EFFORT",
+            "SECONDARY_REASONING_EFFORT",
             "OPENROUTER_API_KEY",
         )
         self._saved = {k: os.environ.get(k) for k in self._env_keys}
@@ -87,7 +88,7 @@ class TestModelConfig(unittest.TestCase):
         )
         self.assertEqual(
             self.config.get_secondary_model_id(),
-            "z-ai/glm-5.2",
+            "openai/gpt-5.4-mini",
         )
         self.assertEqual(
             self.config.get_vision_model_id(),
@@ -106,6 +107,14 @@ class TestModelConfig(unittest.TestCase):
         mock_lite_llm.side_effect = lambda **kwargs: MagicMock(model=kwargs.get("model"))
         os.environ["PLANNING_REASONING_EFFORT"] = "low"
         self.config.get_narrative_expander_model()
+        _, kwargs = mock_lite_llm.call_args
+        self.assertEqual(kwargs.get("reasoning_effort"), "low")
+
+    @patch("google.adk.models.lite_llm.LiteLlm")
+    def test_secondary_model_passes_reasoning_effort(self, mock_lite_llm):
+        mock_lite_llm.side_effect = lambda **kwargs: MagicMock(model=kwargs.get("model"))
+        os.environ["SECONDARY_REASONING_EFFORT"] = "low"
+        self.config.get_light_model()
         _, kwargs = mock_lite_llm.call_args
         self.assertEqual(kwargs.get("reasoning_effort"), "low")
 

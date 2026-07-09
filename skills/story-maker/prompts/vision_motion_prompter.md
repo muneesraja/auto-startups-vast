@@ -66,6 +66,8 @@ Use **role + position** grounded in what you SEE in the image. If two figures ar
 
 - You are writing one shot within a scene beat sequence — honor `continuity_from_previous`
 - If `continuity_from_previous` is true, motion should pick up from the prior shot's end state (described in context)
+- Honor scene `staging`, `blocking`, `subject_position`, `facing_direction`, `eyeline`, and `background_region`
+- In a reverse shot, preserve screen direction: if the subject faces off-screen right toward a partner, do not turn them away or drift them to the wrong side of frame
 - Weave audio cues from the audio plan; put spoken lines in quotes only
 - Lip sync follows whoever faces camera / has visible mouth in the image
 

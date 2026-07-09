@@ -76,6 +76,29 @@ Compute from content when possible:
 
 The Grok `image_prompt` must encode identity, pose, and layout. Use **animation-ready held poses**, **spatial placement**, and **16:9 landscape**. Mitigate Ken-Burns stillness with slight depth-of-field / film-still language (not documentary clarity).
 
+### Scene staging and shot-reverse-shot geography
+
+Before coverage, define a scene-wide geography:
+
+- **`staging`** = one prose map of the environment **left-to-right** with fixed landmarks and the action axis.
+- **`blocking`** = where each named hero stands and which way they face inside that staged space.
+- Per-shot spatial fields:
+  - `subject_position`
+  - `facing_direction`
+  - `eyeline`
+  - `background_region`
+
+These fields keep solo reverse shots coherent. If speaker A is frame-left facing screen-right with the stove wall behind, the reverse on speaker B should flip frame side/facing and show the opposite room region (window / island side), not the identical backdrop.
+
+### 180-degree rule
+
+Hold all dialogue / reaction coverage on one side of the scene axis unless there is an intentional axis-crossing beat. Reverse shots should preserve:
+
+- opposite frame side
+- consistent off-screen eyeline toward the partner
+- matching screen direction
+- non-identical reverse-side backdrop region
+
 ### Panoramic backgrounds
 
 Scene background plates are generated at **2:1** (`2048x1024` default) as style anchors. Shot stills and LTX clips remain **16:9**.

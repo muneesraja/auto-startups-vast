@@ -12,12 +12,14 @@ Grok Edit uses this image as the primary character reference. A clean **three-qu
 3D computer-animated CGI [TYPE], [FEATURES], full body three-quarter view hero render,
 [ACCESSORY] visible, neutral animation-ready standing pose facing slightly left,
 clean white background, professional 3D character asset, consistent proportions,
-3D CGI Pixar-style character render, clear digital sculpt, simple studio lighting,
+stylized 3D character render, clear digital sculpt, simple studio lighting,
 family-friendly, highly readable silhouette.
 No text, no labels, no annotations, no callouts, no view captions, no letters or numbers on the image.
 ```
 
 Do NOT request front/side/back grids or multiple copies of the character in one image.
+Use the character's exact species/type from the source story and plan; do not substitute nearby labels (e.g. keep "parrot", not "songbird").
+Do not append an extra global style tag at the end of the prompt; keep identity and pose details only.
 
 ## Infant / toddler characters (moderation-safe)
 

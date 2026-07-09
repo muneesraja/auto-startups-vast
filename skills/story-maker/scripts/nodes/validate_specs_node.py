@@ -77,10 +77,16 @@ async def validate_generation_specs(ctx: Context) -> None:
         if only_scenes and scene.scene_id not in only_scenes:
             continue
         prev_prompt = None
+        storyboard_mode = ctx.state.get("pipeline_mode") == "storyboard"
         for shot in scene.shots:
             img = specs_dict.get("shot_images", {}).get(shot.shot_id, {})
             prompt = img.get("image_prompt", "").strip()
-            if prev_prompt and prompt and prompt == prev_prompt:
+            if (
+                not storyboard_mode
+                and prev_prompt
+                and prompt
+                and prompt == prev_prompt
+            ):
                 raise ValueError(
                     f"Consecutive shots {shot.shot_id} shares identical image_prompt "
                     "with prior shot in scene"

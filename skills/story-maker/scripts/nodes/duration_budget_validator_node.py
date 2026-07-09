@@ -36,10 +36,18 @@ async def duration_budget_validator(ctx: Context) -> None:
     meta = story.get("meta", {})
     target = meta.get("target_duration_seconds") or ctx.state.get("target_duration_seconds")
     tolerance = meta.get("duration_tolerance_percent", ctx.state.get("duration_tolerance_percent", 15))
+    min_shot_seconds = int(ctx.state.get("min_shot_seconds", 4))
+    max_shot_seconds = int(ctx.state.get("max_shot_seconds", 16))
 
     outline = _load_outline(ctx)
     if outline:
-        story = reconcile_scene_durations(story, outline, tolerance_percent=tolerance)
+        story = reconcile_scene_durations(
+            story,
+            outline,
+            tolerance_percent=tolerance,
+            min_shot_seconds=min_shot_seconds,
+            max_shot_seconds=max_shot_seconds,
+        )
         if meta_backup is not None:
             story["_meta"] = meta_backup
         ctx.state["story_plan_content"] = json.dumps(story, indent=2, ensure_ascii=False)
@@ -47,6 +55,18 @@ async def duration_budget_validator(ctx: Context) -> None:
     if not target:
         print("ℹ️ [duration_budget_validator] No target duration — skipping global check")
         return
+
+    min_panels = int(ctx.state.get("min_panels_per_sheet") or 0)
+    pipeline_mode = (ctx.state.get("pipeline_mode") or "").strip().lower()
+    if min_panels > 0 and pipeline_mode == "storyboard":
+        for scene in story.get("scenes", []):
+            shot_count = len(scene.get("shots", []))
+            scene_id = scene.get("scene_id", "?")
+            if shot_count < min_panels:
+                print(
+                    f"⚠️ [duration_budget_validator] {scene_id} has {shot_count} shots "
+                    f"(minimum {min_panels} per storyboard sheet)"
+                )
 
     total = story.get("meta", {}).get("total_duration_seconds", 0)
     if not total:
@@ -65,9 +85,15 @@ async def duration_budget_validator(ctx: Context) -> None:
             f"(target {target}s ±{tolerance}%, need ≥{low}s)"
         )
     elif total > high:
-        raise ValueError(
-            f"Story plan {total}s exceeds target budget {target}s +{tolerance}% (max {high}s)"
-        )
+        if pipeline_mode == "storyboard":
+            print(
+                f"⚠️ [duration_budget_validator] Over budget: {total}s "
+                f"(target {target}s ±{tolerance}%, max {high}s) — continuing for storyboard mode"
+            )
+        else:
+            raise ValueError(
+                f"Story plan {total}s exceeds target budget {target}s +{tolerance}% (max {high}s)"
+            )
     else:
         print(
             f"✅ [duration_budget_validator] {total}s within target "

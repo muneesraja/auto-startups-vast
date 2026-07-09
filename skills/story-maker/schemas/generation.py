@@ -28,7 +28,7 @@ class ShotImageSpec(BaseModel):
 class MotionSpec(BaseModel):
     shot_id: str
     motion_prompt: str = ""
-    duration_seconds: int = Field(ge=4, le=16, default=8)
+    duration_seconds: int = Field(ge=1, le=16, default=8)
     scene_time_offset_seconds: int = Field(default=0, ge=0)
     pace: Literal["slow", "medium", "fast"] = "medium"
     motion_intent: str = ""

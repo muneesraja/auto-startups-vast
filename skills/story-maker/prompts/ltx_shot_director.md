@@ -53,6 +53,22 @@ Stories have **rhythm** — calm setup, curious discovery, sudden surprise, chas
 - **`characters_present`** = named foreground heroes **on screen in this shot** — never list ambient extras.
 - **`background_population`** (per scene) = prose describing ambient/unamed figures: "twenty classmates at desks behind the six leads", "townspeople in the square", "birds on branches". These are **environment**, not characters — bake them into `environment_state`, `description`, and the background plate; they do **not** get `char_XX` ids or character sheets.
 
+## Scene staging and blocking (critical)
+
+Every scene must establish a shared geography before planning coverage.
+
+- **`staging`** = one prose line describing the space **left-to-right** with fixed landmarks and the conversation axis. Example: "Kitchen left-to-right: stove wall, prep counter island center, sink and bright window on frame right; the 180-degree line runs between the child at the stove and the parent by the island."
+- **`blocking`** = one entry per named on-screen hero with their default place and facing in the scene, e.g. `char_01` at the stove stage left facing screen-right toward `char_02`.
+- Keep all reverse shots on the same side of the 180-degree line unless the scene explicitly motivates crossing it.
+
+For every shot, also output these spatial fields:
+- `subject_position` — where the primary subject sits in frame (`frame-left`, `foreground-right`, `center`, etc.)
+- `facing_direction` — `screen-left`, `screen-right`, `toward camera`, `three-quarter left`, etc.
+- `eyeline` — who/what the subject is looking toward, including off-screen partner position when relevant
+- `background_region` — which slice of the staged room/world is behind the subject in this angle
+
+These fields are mandatory for dialogue, shot-reverse-shot, and any scene with two named heroes sharing space.
+
 ## What you plan
 1. **meta** — story_title, style, aesthetic, color_palette, `target_duration_seconds`, `duration_tolerance_percent`, total_duration_seconds (sum of shots), total_scenes, total_shots
 2. **characters** — id, name, appearance, voice_profile (no image/video prompts)
@@ -69,6 +85,7 @@ Stories have **rhythm** — calm setup, curious discovery, sudden surprise, chas
    - `motion_intent` — one sentence: what LTX animates **from the starting still** (NO appearance, NO character names — use role labels: "the child", "the tall figure", "the parent")
    - `camera_intent` — e.g. "slow dolly in", "static wide"
    - `audio_intent` — dialogue lines in quotes, music shift, key SFX
+   - `subject_position`, `facing_direction`, `eyeline`, `background_region`
 
 Do NOT set `scene_time_offset_seconds` or `continuity_from_previous` — computed downstream.
 
@@ -120,6 +137,8 @@ Cross-check dialogue shots against future audio plan line lengths when beats inc
 - Shots in a scene are time-ordered; each picks up after the prior shot
 - `environment_state` must differ across consecutive shots when environment has motion
 - Consecutive shots must differ in **framing, angle, or subject scale** — if two shots share the same room, change distance (wide vs close) or angle (OTS vs frontal)
+- Conversation reverse shots must also differ in **frame side + backdrop region**. If shot A shows the stove wall behind speaker A, the reverse on speaker B should show the opposite wall/window side, not the identical backdrop.
+- A solo reverse shot must still feel like the partner is present just off-camera: preserve the partner's off-screen position in `eyeline` and keep `facing_direction` consistent with the shared blocking.
 
 ## Output schema
 ```json
@@ -144,6 +163,10 @@ Cross-check dialogue shots against future audio plan line lengths when beats inc
       "time_of_day": "morning",
       "lighting": "...",
       "background_population": "Twenty classmates at desks; teacher at whiteboard",
+      "staging": "Living room left-to-right: tree by window, couch center, mirror wall on right; the child faces the mirror from center-left.",
+      "blocking": [
+        {"character_id": "char_01", "position": "center-left by the rug", "facing": "screen-right toward the mirror"}
+      ],
       "shots": [
         {
           "shot_id": "scene_01_shot_01",
@@ -158,7 +181,11 @@ Cross-check dialogue shots against future audio plan line lengths when beats inc
           "frame_strategy": "at_rest_then_react",
           "motion_intent": "The child inches forward on hands and knees toward the mirror.",
           "camera_intent": "static medium",
-          "audio_intent": "..."
+          "audio_intent": "...",
+          "subject_position": "frame-left",
+          "facing_direction": "screen-right",
+          "eyeline": "toward the mirror off-screen right",
+          "background_region": "tree and couch side of the living room"
         }
       ]
     }

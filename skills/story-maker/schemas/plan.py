@@ -31,10 +31,16 @@ LtxComplexity = Literal["simple", "moderate", "complex"]
 FrameStrategy = Literal["empty_then_enter", "at_rest_then_react", "in_action_continuous"]
 
 
+class CharacterBlocking(BaseModel):
+    character_id: str
+    position: str = ""
+    facing: str = ""
+
+
 class ShotBrief(BaseModel):
     shot_id: str
     scene_id: str
-    duration_seconds: int = Field(ge=4, le=16)
+    duration_seconds: int = Field(ge=1, le=16)
     characters_present: list[str] = Field(default_factory=list)
     director_notes: str = ""
     description: str
@@ -48,6 +54,10 @@ class ShotBrief(BaseModel):
     motion_intent: str = ""
     camera_intent: str = ""
     audio_intent: str = ""
+    subject_position: str = ""
+    facing_direction: str = ""
+    eyeline: str = ""
+    background_region: str = ""
 
 
 class StoryScene(BaseModel):
@@ -57,6 +67,8 @@ class StoryScene(BaseModel):
     time_of_day: str
     lighting: str
     background_population: str = ""
+    staging: str = ""
+    blocking: list[CharacterBlocking] = Field(default_factory=list)
     shots: list[ShotBrief]
 
 
@@ -71,6 +83,11 @@ class StoryPlan(BaseModel):
         shot_count = 0
         duration_sum = 0
         for scene in self.scenes:
+            for block in scene.blocking:
+                if block.character_id not in char_ids:
+                    raise ValueError(
+                        f"Scene {scene.scene_id} blocking unknown character {block.character_id}"
+                    )
             for shot in scene.shots:
                 shot_count += 1
                 duration_sum += shot.duration_seconds
@@ -180,3 +197,43 @@ class NarrativeAct(BaseModel):
 class NarrativeOutline(BaseModel):
     meta: NarrativeOutlineMeta
     acts: list[NarrativeAct]
+
+
+class VideoShot(BaseModel):
+    video_shot_id: str
+    scene_id: str
+    panel_ids: list[str] = Field(default_factory=list)
+    anchor_panel_id: str
+    duration_seconds: int = Field(ge=1, le=16)
+    motion_arc: str = ""
+    pace: Literal["slow", "medium", "fast"] = "medium"
+
+    @model_validator(mode="after")
+    def validate_video_shot(self) -> "VideoShot":
+        if not self.panel_ids:
+            raise ValueError("panel_ids must not be empty")
+        if self.anchor_panel_id not in self.panel_ids:
+            raise ValueError("anchor_panel_id must be one of panel_ids")
+        return self
+
+
+class VideoShotScenePlan(BaseModel):
+    scene_id: str
+    video_shots: list[VideoShot] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_scene_plan(self) -> "VideoShotScenePlan":
+        seen: set[str] = set()
+        for shot in self.video_shots:
+            if shot.scene_id != self.scene_id:
+                raise ValueError(
+                    f"Video shot {shot.video_shot_id} scene_id mismatch for {self.scene_id}"
+                )
+            if shot.video_shot_id in seen:
+                raise ValueError(f"Duplicate video_shot_id {shot.video_shot_id}")
+            seen.add(shot.video_shot_id)
+        return self
+
+
+class VideoShotPlan(BaseModel):
+    scenes: list[VideoShotScenePlan] = Field(default_factory=list)

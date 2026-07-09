@@ -7,9 +7,9 @@ import fal_client
 
 import config
 from .grok_image_common import (
+    apply_prompt_text_policy,
     cap_ref_urls,
     download_url_to_path,
-    ensure_no_text,
     error_result,
     grok_resolution,
     success_result,
@@ -28,15 +28,18 @@ def generate_grok_t2i(
     resolution: str | None = None,
     *,
     size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     """Generate an image with xai/grok-imagine-image via fal.ai."""
     if not _ensure_fal_key():
         return error_result("FAL_KEY is not set in environment or config.")
     # fal Grok T2I does not support custom WxH; panoramic backgrounds use Replicate.
     _ = size
+    _ = quality
 
     resolution = resolution or grok_resolution()
-    final_prompt = ensure_no_text(prompt)
+    final_prompt = apply_prompt_text_policy(prompt, text_policy)
 
     try:
         result = fal_client.subscribe(
@@ -67,15 +70,21 @@ def generate_grok_edit(
     image_urls: list[str],
     output_path: str,
     resolution: str | None = None,
+    *,
+    size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     """Generate an edited image with xai/grok-imagine-image/edit via fal.ai."""
     if not _ensure_fal_key():
         return error_result("FAL_KEY is not set in environment or config.")
     if not image_urls:
         return error_result("Grok Edit requires at least one reference image URL.")
+    _ = size
+    _ = quality
 
     resolution = resolution or grok_resolution()
-    final_prompt = ensure_no_text(prompt)
+    final_prompt = apply_prompt_text_policy(prompt, text_policy)
     ref_limit = config.get_image_ref_limit()
     capped_urls = cap_ref_urls(image_urls, ref_limit)
 

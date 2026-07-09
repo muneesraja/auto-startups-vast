@@ -1,7 +1,14 @@
+import os
+import sys
 import unittest
+
+_SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SKILL_DIR not in sys.path:
+    sys.path.insert(0, _SKILL_DIR)
 
 from scripts.nodes.vision_motion_prompter_node import (
     build_vision_user_context,
+    build_video_shot_vision_context,
     _find_shot_context,
     _needs_vision_prompt,
 )
@@ -16,6 +23,14 @@ class TestVisionContextAssembly(unittest.TestCase):
             "environment": "Living room",
             "time_of_day": "morning",
             "lighting": "Warm sun",
+            "staging": "Living room left-to-right: sofa, coffee table, TV wall.",
+            "blocking": [
+                {
+                    "character_id": "char_01",
+                    "position": "beside the sofa frame-left",
+                    "facing": "screen-right toward char_02",
+                }
+            ],
             "shots": [
                 {
                     "shot_id": "scene_01_shot_01",
@@ -32,6 +47,10 @@ class TestVisionContextAssembly(unittest.TestCase):
                     "continuity_from_previous": False,
                     "frame_strategy": "at_rest_then_react",
                     "characters_present": ["char_01"],
+                    "subject_position": "frame-left",
+                    "facing_direction": "screen-right",
+                    "eyeline": "toward char_02 off-screen right",
+                    "background_region": "sofa and TV wall",
                 },
                 {
                     "shot_id": "scene_01_shot_02",
@@ -52,6 +71,38 @@ class TestVisionContextAssembly(unittest.TestCase):
         self.assertIn("motion_intent: Dust drifts", text)
         self.assertIn("frame_strategy: at_rest_then_react", text)
         self.assertIn("char_01: Leo", text)
+        self.assertIn("staging: Living room left-to-right", text)
+        self.assertIn("subject_position: frame-left", text)
+        self.assertIn("facing_direction: screen-right", text)
+        self.assertIn("eyeline: toward char_02 off-screen right", text)
+
+    def test_build_video_shot_context(self):
+        scene = {
+            "scene_id": "scene_01",
+            "title": "Sanctuary",
+            "environment": "forest",
+            "time_of_day": "morning",
+            "lighting": "warm",
+            "staging": "path center",
+        }
+        member_shots = [
+            {"shot_id": "scene_01_shot_01", "description": "Naila runs", "motion_intent": "dashes"},
+            {"shot_id": "scene_01_shot_02", "description": "Father follows", "motion_intent": "catches up"},
+        ]
+        text = build_video_shot_vision_context(
+            video_shot_id="scene_01_vshot_01",
+            scene=scene,
+            member_shots=member_shots,
+            duration_seconds=4,
+            pace="fast",
+            motion_arc="Naila runs then father catches up.",
+            audio_shots={},
+            characters=[{"id": "naila", "name": "Naila", "appearance": "green dress"}],
+        )
+        self.assertIn("video_shot_id: scene_01_vshot_01", text)
+        self.assertIn("duration_seconds: 4", text)
+        self.assertIn("scene_01_shot_01", text)
+        self.assertIn("motion_arc: Naila runs then father catches up.", text)
 
     def test_find_shot_context(self):
         story = {

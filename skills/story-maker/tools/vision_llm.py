@@ -17,7 +17,7 @@ def get_vision_api_config() -> tuple[str, str | None, str | None]:
     return config.get_vision_model_config()
 
 
-async def vision_motion_prompt(
+async def vision_text_from_image(
     image_path: str,
     system_prompt: str,
     user_text: str,
@@ -26,7 +26,7 @@ async def vision_motion_prompt(
     api_key: str | None = None,
     api_base: str | None = None,
 ) -> str:
-    """Return motion_prompt plain text from a vision LLM call."""
+    """Return plain text authored from a single attached image."""
     from litellm import acompletion
 
     if not os.path.isfile(image_path):
@@ -63,8 +63,92 @@ async def vision_motion_prompt(
     resp = await acompletion(**kwargs)
     content = resp.choices[0].message.content
     if not content or not str(content).strip():
-        raise RuntimeError("Vision model returned empty motion prompt")
+        raise RuntimeError("Vision model returned empty text response")
     return _strip_wrapping_quotes(str(content).strip())
+
+
+async def vision_motion_prompt(
+    image_path: str,
+    system_prompt: str,
+    user_text: str,
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Return motion_prompt plain text from a vision LLM call."""
+    return await vision_text_from_image(
+        image_path,
+        system_prompt,
+        user_text,
+        model=model,
+        api_key=api_key,
+        api_base=api_base,
+    )
+
+
+async def vision_json_from_image(
+    image_path: str,
+    system_prompt: str,
+    user_text: str,
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> dict:
+    """Return parsed JSON from a vision LLM call."""
+    import json as _json
+
+    from litellm import acompletion
+
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
+    default_model, default_key, default_base = get_vision_api_config()
+    model = model or default_model
+    api_key = api_key if api_key is not None else default_key
+    api_base = api_base if api_base is not None else default_base
+
+    prompt = system_prompt
+    if "{expected_panels}" in prompt and isinstance(user_text, str):
+        try:
+            payload = _json.loads(user_text)
+            expected = payload.get("expected_panels")
+            if expected is not None:
+                prompt = prompt.replace("{expected_panels}", str(expected))
+        except _json.JSONDecodeError:
+            pass
+
+    b64 = encode_image_base64(image_path)
+    kwargs: dict = {
+        "model": model,
+        "api_key": api_key,
+        "num_retries": 3,
+        "timeout": 300,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    },
+                    {"type": "text", "text": user_text},
+                ],
+            },
+        ],
+    }
+    if api_base:
+        kwargs["api_base"] = api_base
+
+    resp = await acompletion(**kwargs)
+    raw = str(resp.choices[0].message.content or "").strip()
+    try:
+        return _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        raise RuntimeError(f"Vision model returned invalid JSON: {raw[:200]}") from exc
 
 
 def _strip_wrapping_quotes(text: str) -> str:

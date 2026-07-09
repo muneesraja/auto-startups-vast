@@ -9,6 +9,7 @@ import replicate
 
 import config
 from .grok_image_common import (
+    apply_prompt_text_policy,
     cap_ref_urls,
     download_url_to_path,
     ensure_no_text,
@@ -97,10 +98,11 @@ def _gpt_image_input(
     image_urls: list[str] | None = None,
     *,
     size: str | None = None,
+    quality: str | None = None,
 ) -> dict:
     inp: dict = {
         "prompt": prompt,
-        "quality": _replicate_image_quality(),
+        "quality": quality or _replicate_image_quality(),
         "number_of_images": 1,
         "output_format": "png",
         "background": "opaque",
@@ -141,6 +143,7 @@ def _build_input(
     image_urls: list[str] | None = None,
     *,
     size: str | None = None,
+    quality: str | None = None,
 ) -> dict:
     model = _model_id()
     ref_limit = config.get_image_ref_limit()
@@ -148,7 +151,7 @@ def _build_input(
         if image_urls and len(image_urls) > 1:
             capped = cap_ref_urls(image_urls, ref_limit)
             print(f"🖼️ [replicate] {model} edit with {len(capped)} ref(s)")
-        return _gpt_image_input(prompt, image_urls, size=size)
+        return _gpt_image_input(prompt, image_urls, size=size, quality=quality)
     if _is_seedream(model):
         if image_urls and len(image_urls) > 1:
             capped = cap_ref_urls(image_urls, ref_limit)
@@ -194,18 +197,21 @@ def generate_grok_t2i(
     resolution: str | None = None,
     *,
     size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     """Generate an image via Replicate."""
     client = _replicate_client()
     if not client:
         return error_result("REPLICATE_API_TOKEN is not set in environment or config.")
 
-    final_prompt = ensure_no_text(prompt)
+    final_prompt = apply_prompt_text_policy(prompt, text_policy)
 
     try:
         _throttle()
         output = client.run(
-            _model_id(), input=_build_input(final_prompt, resolution, size=size)
+            _model_id(),
+            input=_build_input(final_prompt, resolution, size=size, quality=quality),
         )
         image_url = _save_replicate_output(output, output_path)
         return success_result(output_path, image_url)
@@ -218,6 +224,10 @@ def generate_grok_edit(
     image_urls: list[str],
     output_path: str,
     resolution: str | None = None,
+    *,
+    size: str | None = None,
+    quality: str | None = None,
+    text_policy: str = "default",
 ) -> dict:
     """Edit/composite with reference images via Replicate."""
     client = _replicate_client()
@@ -226,13 +236,20 @@ def generate_grok_edit(
     if not image_urls:
         return error_result("Edit requires at least one reference image URL.")
 
-    final_prompt = ensure_no_text(prompt)
+    model = _model_id()
+    final_prompt = apply_prompt_text_policy(prompt, text_policy)
 
     try:
         _throttle()
         output = client.run(
-            _model_id(),
-            input=_build_input(final_prompt, resolution, image_urls),
+            model,
+            input=_build_input(
+                final_prompt,
+                resolution,
+                image_urls,
+                size=size,
+                quality=quality,
+            ),
         )
         image_url = _save_replicate_output(output, output_path)
         return success_result(output_path, image_url)

@@ -27,6 +27,7 @@ Return ONLY a valid JSON object. No markdown fences.
 - Scene has 2+ shots in the same environment.
 - Interior or location-heavy dialogue scenes needing consistent walls/props.
 - Exterior establishing sequences with returning to same locale.
+- **Bias `background_reference_mode: "full_plate"`** for interior multi-shot dialogue or shot-reverse-shot scenes where shared room geometry matters.
 
 ## When false
 - Single-shot scene.
@@ -36,6 +37,8 @@ Return ONLY a valid JSON object. No markdown fences.
 ## background_prompt rules
 - Environment-only T2I prompt. NO named heroes, NO named creatures from the character roster.
 - Describe a **wide panoramic establishing view** (2:1 feel) — deep staging, lateral breadth, receding planes.
+- Document the room/world **left-to-right** so reverse angles are derivable later: major landmarks, furniture, doors, windows, counters, TV wall, stove wall, etc.
+- If the story plan includes scene `staging`, preserve that exact geography in the background prompt.
 - Include ambient crowd/extras from the scene's `background_population` when present (classmates, townspeople, etc.) as soft background figures — not foreground heroes.
 - Include lighting, time of day, atmosphere, style tag from story meta.
 - 30–70 words.

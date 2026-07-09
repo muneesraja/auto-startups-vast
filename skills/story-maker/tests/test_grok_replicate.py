@@ -156,6 +156,33 @@ class TestGrokReplicate(unittest.TestCase):
         inp = mock_run.call_args[1]["input"]
         self.assertEqual(inp["image_input"], ["https://example.com/ref.png"])
 
+    @patch("tools.grok_image_common.httpx.get")
+    @patch("tools.grok_replicate.replicate.Client")
+    def test_gpt_image_edit_accepts_custom_size(self, mock_client_cls, mock_get):
+        mock_run = mock_client_cls.return_value.run
+        mock_run.return_value = ["https://replicate.delivery/edit-size.png"]
+        mock_get.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"pngbytes",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "REPLICATE_API_TOKEN": "r8_test",
+                "GROK_REPLICATE_MODEL": "openai/gpt-image-2",
+            },
+        ):
+            with patch("tools.grok_replicate.config.GROK_REPLICATE_MODEL", "openai/gpt-image-2"):
+                result = generate_grok_edit(
+                    "storyboard sheet",
+                    ["https://example.com/ref.png"],
+                    "/tmp/edit-size.png",
+                    size="2048x1152",
+                )
+        self.assertEqual(result["status"], "success")
+        inp = mock_run.call_args[1]["input"]
+        self.assertEqual(inp["size"], "2048x1152")
+
 
 if __name__ == "__main__":
     unittest.main()

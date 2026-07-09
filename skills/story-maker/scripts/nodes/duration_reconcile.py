@@ -27,7 +27,14 @@ def recompute_meta(story: dict) -> None:
     meta["total_duration_seconds"] = total
 
 
-def reconcile_scene_durations(story: dict, outline: dict, *, tolerance_percent: int = 15) -> dict:
+def reconcile_scene_durations(
+    story: dict,
+    outline: dict,
+    *,
+    tolerance_percent: int = 15,
+    min_shot_seconds: int = 4,
+    max_shot_seconds: int = 16,
+) -> dict:
     """Rebalance shot durations within each scene toward outline scene budgets."""
     budgets = scene_budgets(outline)
     if not budgets:
@@ -43,7 +50,8 @@ def reconcile_scene_durations(story: dict, outline: dict, *, tolerance_percent: 
             continue
 
         for shot in shots:
-            shot["duration_seconds"] = snap_duration_seconds(shot.get("duration_seconds", 8))
+            snapped = snap_duration_seconds(shot.get("duration_seconds", 8))
+            shot["duration_seconds"] = max(min_shot_seconds, min(max_shot_seconds, snapped))
 
         total = sum(s["duration_seconds"] for s in shots)
         low = int(budget * (1 - tolerance_percent / 100))
@@ -53,7 +61,7 @@ def reconcile_scene_durations(story: dict, outline: dict, *, tolerance_percent: 
         while total > high and guard < 500:
             guard += 1
             longest = max(shots, key=lambda s: s["duration_seconds"])
-            if longest["duration_seconds"] <= 4:
+            if longest["duration_seconds"] <= min_shot_seconds:
                 break
             longest["duration_seconds"] = snap_duration_seconds(longest["duration_seconds"] - 1)
             total = sum(s["duration_seconds"] for s in shots)
@@ -62,7 +70,7 @@ def reconcile_scene_durations(story: dict, outline: dict, *, tolerance_percent: 
         while total < low and guard < 500:
             guard += 1
             shortest = min(shots, key=lambda s: s["duration_seconds"])
-            if shortest["duration_seconds"] >= 16:
+            if shortest["duration_seconds"] >= max_shot_seconds:
                 break
             shortest["duration_seconds"] = snap_duration_seconds(shortest["duration_seconds"] + 1)
             total = sum(s["duration_seconds"] for s in shots)
