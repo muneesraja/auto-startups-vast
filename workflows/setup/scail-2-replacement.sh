@@ -3,10 +3,10 @@
 # name: SCAIL-2 Character Replacement
 # workflow: SCAIL-2_Replacement
 # aliases: [scail 2, scail-2, scail2, character replacement scail, scail replacement, wan scail]
-# description: Downloads all models for the SCAIL-2 character-replacement workflow (ComfyUI built-in WanSCAILToVideo + SCAIL2ColoredMask + SAM3_VideoTrack nodes). Files: wan2.1_14B_SCAIL_2_fp8_scaled.safetensors (diffusion), sam3.1_multiplex_fp16.safetensors (checkpoint), UMT5-XXL FP8 text encoder, CLIP-ViT-H vision, Wan 2.1 VAE, Lightx2v 14B I2V CFG step distill LoRA. Upgrades ComfyUI to master (the runpod/comfyui image's v0.27.0 release is too old — WanSCAILToVideo + SCAIL2ColoredMask + SAM3_VideoTrack were added after 2026-06-30). Restarts ComfyUI at the end.
-# size: ~26.4GB
+# description: Downloads all models for the SCAIL-2 character-replacement workflow (ComfyUI built-in WanSCAILToVideo + SCAIL2ColoredMask + SAM3_VideoTrack nodes + Kosinkadink VideoHelperSuite for VHS_LoadVideo/VHS_VideoCombine). Files: wan2.1_14B_SCAIL_2_fp8_scaled.safetensors (diffusion), sam3.1_multiplex_fp16.safetensors (checkpoint), UMT5-XXL FP8 text encoder, CLIP-ViT-H vision, Wan 2.1 VAE, Lightx2v 14B I2V CFG step distill LoRA. Upgrades ComfyUI to master (the runpod/comfyui image's v0.27.0 release is too old — WanSCAILToVideo + SCAIL2ColoredMask + SAM3_VideoTrack were added after 2026-06-30) and installs ComfyUI-VideoHelperSuite. Restarts ComfyUI at the end.
+# size: ~26.5GB
 # min_vram: 24GB
-# nodes: [comfy-core (must be on master — see script body)]
+# nodes: [comfy-core (must be on master — see script body), ComfyUI-VideoHelperSuite]
 # node_patches: [comfy-core/upgrade-to-master (mandatory: v0.27.0 lacks WanSCAILToVideo/SCAIL2ColoredMask/SAM3_VideoTrack)]
 # ---
 set -e
@@ -87,9 +87,33 @@ if [ -f "$COMFYUI_DIR/requirements.txt" ]; then
     $COMFY_PIP install -q -r "$COMFYUI_DIR/requirements.txt" 2>&1 | tail -3 || true
 fi
 
-# Note: this workflow uses ONLY comfy-core (built-in) nodes — no custom_nodes
-# need to be installed. WanSCAILToVideo, SCAIL2ColoredMask, SAM3_VideoTrack,
-# ResizeImageMaskNode, GetImageSize are all in comfy-core master as of 2026-07-13.
+# Custom nodes required:
+#   - ComfyUI-VideoHelperSuite  (VHS_LoadVideo, VHS_VideoCombine)
+# WanSCAILToVideo, SCAIL2ColoredMask, SAM3_VideoTrack, ResizeImageMaskNode,
+# GetImageSize, MarkdownNote are all in comfy-core master as of 2026-07-13.
+echo "==> Installing custom node packs..."
+mkdir -p "$CUSTOM_NODES_DIR"
+cd "$CUSTOM_NODES_DIR"
+if [ -d ComfyUI-VideoHelperSuite ]; then
+    echo "  ComfyUI-VideoHelperSuite already present"
+else
+    if command -v comfy &> /dev/null; then
+        echo "  Installing ComfyUI-VideoHelperSuite via comfy-cli..."
+        comfy node install https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite 2>&1 | tail -3 || \
+            git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+    else
+        echo "  Cloning ComfyUI-VideoHelperSuite..."
+        git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+    fi
+fi
+cd "$COMFYUI_DIR"
+
+# Install pip deps for VHS into ComfyUI's Python (avif, imageio, etc.)
+VHS_REQ="$CUSTOM_NODES_DIR/ComfyUI-VideoHelperSuite/requirements.txt"
+if [ -f "$VHS_REQ" ]; then
+    echo "  Installing ComfyUI-VideoHelperSuite deps..."
+    $COMFY_PIP install -q -r "$VHS_REQ" 2>&1 | tail -3 || true
+fi
 
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"
@@ -194,6 +218,10 @@ fi
 echo "==> Done!"
 echo "👉 ComfyUI should now be loading the new nodes and models."
 echo ""
-echo "Required custom nodes (comfy-core master) — all built-in, but ComfyUI"
-echo "must be on master HEAD (not the v0.27.0 release). The upgrade section"
-echo "of this script handles that."
+echo "Required custom nodes:"
+echo "  - ComfyUI-VideoHelperSuite (cloned into custom_nodes/ by this script)"
+echo "    — used for VHS_LoadVideo and VHS_VideoCombine"
+echo "  - comfy-core (must be on master HEAD, not the v0.27.0 release)"
+echo "    — provides WanSCAILToVideo, SCAIL2ColoredMask, SAM3_VideoTrack,"
+echo "      ResizeImageMaskNode, GetImageSize. The upgrade section of this"
+echo "      script handles that."
