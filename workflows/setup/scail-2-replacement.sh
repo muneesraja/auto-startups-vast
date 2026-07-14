@@ -87,6 +87,18 @@ if [ -f "$COMFYUI_DIR/requirements.txt" ]; then
     $COMFY_PIP install -q -r "$COMFYUI_DIR/requirements.txt" 2>&1 | tail -3 || true
 fi
 
+# ⚠️  CRITICAL: comfy-kitchen 0.2.10 (shipped with runpod/comfyui image) is missing
+# TensorCoreConvRotW4A4Layout AND its CUDA apply_rope kernel is built for cu13xx driver
+# ABI, which crashes on this image's driver with "CUDA driver version is insufficient for
+# CUDA runtime version" the moment SAM3's tracker hits apply_rope. ComfyUI's own
+# comfy/quant_ops.py detects torch.version.cuda < 13 and calls ck.registry.disable("cuda"),
+# which routes to the eager backend — but ONLY if the import of comfy_kitchen hasn't
+# crashed first. Upgrading to 0.2.19 fixes the missing import AND aligns the cu13xx
+# detection (now disabled-by-default for cu12.x, so the broken kernel never executes).
+# See: workflow SAM3_VideoTrack error log on pod 64.119.209.250:17376 (2026-07-14).
+echo "==> Upgrading comfy-kitchen to 0.2.19+ (fixes SAM3 apply_rope CUDA-driver crash)..."
+$COMFY_PIP install -q -U --pre comfy-kitchen 2>&1 | tail -3 || true
+
 # Custom nodes required:
 #   - ComfyUI-VideoHelperSuite  (VHS_LoadVideo, VHS_VideoCombine)
 # WanSCAILToVideo, SCAIL2ColoredMask, SAM3_VideoTrack, ResizeImageMaskNode,
