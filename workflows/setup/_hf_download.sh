@@ -13,7 +13,12 @@
 # scripts, and those flags would kill the entire parent process on any failure.
 
 # Activate ComfyUI venv if available (hf/huggingface_hub need torch)
-for VENV in /venv/main/bin/activate /workspace/ComfyUI/.venv-cu128/bin/activate; do
+# Paths: RunPod standard /venv/main → RunPod slim /workspace/runpod-slim/ComfyUI/.venv-cu128
+#        → Vast.ai /workspace/ComfyUI/.venv-cu128 (legacy)
+for VENV in \
+  /venv/main/bin/activate \
+  /workspace/runpod-slim/ComfyUI/.venv-cu128/bin/activate \
+  /workspace/ComfyUI/.venv-cu128/bin/activate; do
   [ -f "$VENV" ] && source "$VENV" && break
 done
 
