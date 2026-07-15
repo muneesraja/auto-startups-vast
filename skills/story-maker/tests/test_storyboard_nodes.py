@@ -10,10 +10,13 @@ if _SKILL_DIR not in sys.path:
 from scripts.nodes.storyboard_nodes import (  # noqa: E402
     _build_safe_panel_regen_prompt,
     _chunk_shots,
+    _grid_bbox_row_major,
     _normalize_panels,
     _panel_line,
     build_panel_regen_prompt,
     build_storyboard_sheet_prompt,
+    detect_album_panel_bboxes,
+    resolve_panel_bboxes,
 )
 from scripts.nodes.sequential_shot_image_node import image_generation_router  # noqa: E402
 
@@ -97,8 +100,104 @@ class TestStoryboardHelpers(unittest.TestCase):
             }
         ]
         prompt = build_storyboard_sheet_prompt(scene, shots, render_style="Pixar CGI")
-        self.assertIn("STORYBOARD SHEET 01", prompt)
         self.assertIn("Storyboard Sheet 01 includes these shots", prompt)
+        self.assertIn("5 rows × 2 columns", prompt)
+        self.assertIn("photo album", prompt.lower())
+
+    def test_grid_bbox_row_major_5x2(self):
+        first = _grid_bbox_row_major(0)
+        self.assertAlmostEqual(first["x"], 0.0)
+        self.assertAlmostEqual(first["y"], 0.0)
+        self.assertAlmostEqual(first["w"], 0.5)
+        self.assertAlmostEqual(first["h"], 0.2)
+        third = _grid_bbox_row_major(2)  # second row, left
+        self.assertAlmostEqual(third["x"], 0.0)
+        self.assertAlmostEqual(third["y"], 0.2)
+        self.assertAlmostEqual(third["w"], 0.5)
+        self.assertAlmostEqual(third["h"], 0.2)
+        right = _grid_bbox_row_major(1)
+        self.assertAlmostEqual(right["x"], 0.5)
+
+    def test_detect_album_panel_bboxes_synthetic(self):
+        from PIL import Image, ImageDraw
+
+        width, height = 200, 500
+        cols, rows = 2, 5
+        gutter = 4
+        cell_w = (width - gutter) // cols
+        cell_h = (height - (rows - 1) * gutter) // rows
+        img = Image.new("RGB", (width, height), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        colors = [
+            (40, 40, 200),
+            (40, 180, 40),
+            (200, 40, 40),
+            (200, 160, 40),
+            (160, 40, 200),
+            (40, 160, 200),
+            (120, 80, 40),
+            (80, 120, 160),
+            (200, 80, 120),
+            (80, 200, 120),
+        ]
+        for idx, color in enumerate(colors):
+            col = idx % cols
+            row = idx // cols
+            x0 = col * (cell_w + gutter)
+            y0 = row * (cell_h + gutter)
+            draw.rectangle([x0, y0, x0 + cell_w - 1, y0 + cell_h - 1], fill=color)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "sheet.png")
+            img.save(path)
+            bboxes = detect_album_panel_bboxes(path, 10, inset_px=1)
+            self.assertIsNotNone(bboxes)
+            self.assertEqual(len(bboxes), 10)
+            # First panel should be top-left and roughly half width / fifth height
+            self.assertLess(bboxes[0]["x"], 0.05)
+            self.assertLess(bboxes[0]["y"], 0.05)
+            self.assertAlmostEqual(bboxes[0]["w"], 0.5, delta=0.08)
+            self.assertAlmostEqual(bboxes[0]["h"], 0.2, delta=0.08)
+            # Second panel starts near vertical gutter
+            self.assertGreater(bboxes[1]["x"], 0.45)
+            # Partial expected count
+            four = detect_album_panel_bboxes(path, 4, inset_px=1)
+            self.assertEqual(len(four), 4)
+
+            boxes, method = resolve_panel_bboxes(path, 10, mode="python")
+            self.assertEqual(method, "gutter")
+            self.assertEqual(len(boxes), 10)
+
+    def test_detect_album_panel_bboxes_no_gutters_returns_none(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "flat.png")
+            Image.new("RGB", (200, 500), (30, 80, 120)).save(path)
+            self.assertIsNone(detect_album_panel_bboxes(path, 10))
+            boxes, method = resolve_panel_bboxes(path, 10, mode="python")
+            self.assertEqual(method, "grid")
+            self.assertEqual(len(boxes), 10)
+            self.assertAlmostEqual(boxes[0]["w"], 0.5)
+            self.assertAlmostEqual(boxes[0]["h"], 0.2)
+
+    def test_detect_album_panel_bboxes_smoke_sheet_if_present(self):
+        repo_root = os.path.dirname(os.path.dirname(_SKILL_DIR))
+        sheet = os.path.join(
+            repo_root,
+            "outputs",
+            "story-maker",
+            "smoke_album_5x2",
+            "storyboard_sheets",
+            "scene_01_sheet_01.png",
+        )
+        if not os.path.isfile(sheet):
+            self.skipTest("smoke_album_5x2 sheet not present")
+        boxes, method = resolve_panel_bboxes(sheet, 10, mode="python")
+        self.assertEqual(method, "gutter")
+        self.assertEqual(len(boxes), 10)
+        self.assertLess(boxes[0]["x"], 0.02)
+        self.assertGreater(boxes[1]["x"], 0.4)
 
     def test_normalize_panels(self):
         data = {
@@ -118,11 +217,34 @@ class TestStoryboardHelpers(unittest.TestCase):
             "camera_intent": "medium shot",
             "video_motion_arc": "Child raises hand then smiles.",
         }
-        prompt = build_panel_regen_prompt(shot, render_style="Pixar CGI")
+        prompt = build_panel_regen_prompt(
+            shot,
+            render_style="Pixar CGI",
+            character_labels={"char_01": "Naila"},
+        )
         self.assertIn("char_01", prompt)
+        self.assertIn("Naila", prompt)
+        self.assertIn("Image 2", prompt)
         self.assertIn("Wave hello", prompt)
-        self.assertIn("raises hand", prompt)
+        self.assertNotIn("raises hand", prompt)  # motion_arc omitted from still regen
+        self.assertIn("do not add", prompt.lower())
+        self.assertIn("expression", prompt.lower())
+        self.assertIn("footwear", prompt.lower())
+        self.assertIn("REPLACE", prompt)
         self.assertIn("Pixar CGI", prompt)
+
+    def test_build_panel_regen_prompt_empty_stage(self):
+        shot = {
+            "characters_present": [],
+            "description": "Lush clearing with a swing",
+            "camera_intent": "wide",
+            "video_motion_arc": "Naila sleeps while dog and parrot watch.",
+        }
+        prompt = build_panel_regen_prompt(shot, render_style="Pixar CGI")
+        self.assertIn("empty-stage", prompt.lower())
+        self.assertNotIn("Naila sleeps", prompt)
+        self.assertIn("do not invent", prompt.lower())
+        self.assertNotIn("Image 2", prompt)
 
     def test_build_safe_panel_regen_prompt(self):
         shot = {
@@ -134,6 +256,9 @@ class TestStoryboardHelpers(unittest.TestCase):
         self.assertIn("family-friendly", prompt.lower())
         self.assertIn("close-up", prompt.lower())
         self.assertIn("Pixar CGI", prompt)
+        self.assertIn("footwear", prompt.lower())
+        self.assertIn("sheet identity wins", prompt.lower())
+        self.assertIn("expression", prompt.lower())
 
 
 class TestImageGenerationRouter(unittest.IsolatedAsyncioTestCase):

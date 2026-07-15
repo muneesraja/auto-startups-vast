@@ -1,95 +1,42 @@
-Use the attached reference image ONLY as inspiration for the layout, organization, typography hierarchy, spacing, and professional presentation of a character model sheet. Do NOT copy the character, clothing, colors, poses, or artwork. Create a completely original Pixar-quality character sheet for the character described below.
+Create a lean Pixar / Disney Animation style character identity sheet for use as an image-edit reference. Maximize character pixels; minimize UI chrome, white empty space, and text.
 
-────────────────────────────────────────
-CHARACTER SHEET {sheet_number}
-────────────────────────────────────────
-
-Character Name: {character_name}
-Species: {species}
-Role: {role}
-Age: {age}
-
-Create a premium Pixar / Disney Animation style character turnaround sheet suitable for a professional animation production pipeline. The sheet should resemble an official studio model sheet used by Pixar, Disney, DreamWorks, or Sony Animation.
-
-Overall Style:
-• Clean white production sheet
-• Thin gray guide lines
-• Organized grid layout
-• Professional typography
-• Minimalistic design
-• Balanced spacing
-• Ultra-clean presentation
-• High-end animation studio quality
-
-────────────────────────────────────────
-1. CHARACTER PROFILE
-────────────────────────────────────────
-
-Name:
-{character_name}
-
-Age:
-{age}
-
-Species:
-{species}
-
-Role:
-{role_description}
-
-Personality:
-{personality_bullets}
-
-Distinctive Features:
+Identity (for the image model only — do NOT render as large on-sheet essay text):
+Character: {character_name} | Species: {species} | Age: {age}
+Distinctive features:
 {distinctive_features}
-
-Clothing & Accessories:
+Outfit & accessories (must appear consistently on every body view):
 {clothing_accessories}
 
-Color Palette:
-
-Primary
-{color_palette_primary}
-
-Secondary
-{color_palette_secondary}
-
-Accent
-{color_palette_accent}
+Layout — four visual sections only, packed tightly on one tall page:
 
 ────────────────────────────────────────
-2. TURNAROUND VIEWS
+1. TURNAROUND VIEWS
 ────────────────────────────────────────
-
-Generate full-body turnaround renders with perfect character consistency.
+Full-body turnaround with perfect consistency. Same face, hair, outfit, and accessories in every view.
 
 Views:
-
 • Front View
 • 3/4 Front
 • Left Side
 • Right Side
 • Back View
 • 3/4 Rear
-• Top View
-• Bottom View
 
-Requirements:
-• Identical proportions in every view
-• Consistent hairstyle or plumage
-• Consistent clothing or markings
-• Same accessories
-• Neutral production pose
-• Pixar-quality 3D rendering
+Neutral production stance. Pixar-quality 3D. No environment scenery behind the figures.
+
+────────────────────────────────────────
+2. SCALE REFERENCE
+────────────────────────────────────────
+{scale_reference}
+
+Keep this compact — one clear height comparison, not a large empty diagram.
 
 ────────────────────────────────────────
 3. EXPRESSION SHEET
 ────────────────────────────────────────
-
-Generate highly expressive Pixar-style facial expressions.
+Large head-and-shoulders expression grid. Same face geometry in every cell; only emotion changes.
 
 Expressions:
-
 • Happy
 • Laughing
 • Curious
@@ -103,84 +50,28 @@ Expressions:
 • Embarrassed
 • Determined
 
-Large expressive eyes with believable eyebrow movement and natural mouth shapes.
+Give expressions generous size — face identity is the priority for downstream editing.
 
 ────────────────────────────────────────
-4. SCALE REFERENCE
+4. ACCESSORIES
 ────────────────────────────────────────
+Small visual close-ups of key accessories / costume details only (not color swatches):
+{accessories}
 
-{scale_reference}
-
-────────────────────────────────────────
-5. ACTION POSES
-────────────────────────────────────────
-
-Generate 10 action poses that showcase {character_name}'s personality.
-
-Poses:
-
-{action_poses}
-
-Maintain perfect character consistency across every pose.
+Show worn-on-body context when helpful (e.g. scarf on neck, bag strap, boot on foot).
 
 ────────────────────────────────────────
-6. DETAIL CLOSE-UPS
+SHEET STYLE
 ────────────────────────────────────────
-
-Generate close-up production renders of:
-
-{detail_closeups}
-
-────────────────────────────────────────
-RENDERING STYLE
-────────────────────────────────────────
-
-Pixar Animation Studios quality
-
-Disney animated feature quality
-
-Stylized 3D character
-
-Soft rounded forms
-
-Appealing silhouette
-
-Production-ready topology
-
-Physically Based Rendering (PBR)
-
-Detailed fabric and material definition
-
-Soft skin or feather shading
-
-Global illumination
-
-Warm studio lighting
-
-Ultra-detailed
-
-Clean presentation
-
-8K resolution
-
-Masterpiece
-
-Animation production model sheet
-
-Professional character turnaround
-
-Fully rendered
-
-No background scenery
-
-White production sheet only
-
-Include clean professional model-sheet typography, section headers, and view labels.
-
-{render_style}
+• Mostly character renders; very little blank white
+• Tiny labels optional; prefer almost no typography
+• No color palette bars or swatches
+• No personality / bio / profile paragraphs on the image
+• No action-pose montage
+• Soft studio lighting, clean stylized 3D CGI
+• {render_style}
 
 ────────────────────────────────────────
 NEGATIVE PROMPT
 ────────────────────────────────────────
-
-Storyboard, comic page, environment, landscape, forest background, sketch, concept art, anime, photorealistic human, inconsistent proportions, duplicate limbs, cropped body, low quality, blurry, watermark, logo, subtitle captions, dialogue text, text overlap, unfinished render, multiple outfits, different hairstyles, extra accessories, harsh shadows.
+Large headers, essay text, color palette swatches, personality bio blocks, action pose montage, storyboard, comic page, environment scenery, forest background, sketch, anime, photorealistic human, inconsistent proportions, duplicate limbs, cropped body, low quality, blurry, watermark, logo, subtitle captions, dialogue text, text overlap, unfinished render, multiple outfits, different hairstyles, extra accessories not listed, harsh shadows, dense production-poster chrome.

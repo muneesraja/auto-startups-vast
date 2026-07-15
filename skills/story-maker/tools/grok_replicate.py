@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from math import gcd
 
 import replicate
 
@@ -93,6 +94,84 @@ def _seedream_size(resolution: str | None) -> str:
     return "1K"
 
 
+# Replicate openai/gpt-image-2 uses `aspect_ratio` for both ratios and pixel enums.
+# Pixel enums from Replicate docs (pass through as-is for explicit resolution):
+_GPT_PIXEL_ENUMS = {
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "1536x1152",
+    "1152x1536",
+    "2048x2048",
+    "2048x1152",
+    "1152x2048",
+    "3840x2160",
+    "2160x3840",
+}
+_GPT_RATIO_ENUMS = {
+    "1:1",
+    "3:2",
+    "2:3",
+    "4:3",
+    "3:4",
+    "16:9",
+    "9:16",
+    "auto",
+}
+# Legacy / shorthand → nearest Replicate pixel enum (prefer 2K where possible)
+_GPT_ASPECT_ALIASES = {
+    "16:9": "2048x1152",
+    "9:16": "1152x2048",
+    "2:3": "1152x2048",
+    "3:2": "1536x1024",
+    "1:1": "1024x1024",
+    "1920x1080": "2048x1152",
+    "1536x864": "2048x1152",
+    "1280x720": "1536x1024",
+    "2048x1024": "2048x1152",  # former 2:1; closest landscape enum
+    "1080x1920": "1152x2048",
+}
+
+
+def _to_gpt_aspect_ratio(size: str | None) -> str:
+    """Normalize caller size/ratio into Replicate gpt-image-2 aspect_ratio."""
+    if not size:
+        return "2048x1152"
+    value = size.strip().lower().replace(" ", "")
+    if not value:
+        return "2048x1152"
+    # Pixel enums first (locks resolution). Then aliases bump common ratios
+    # like 16:9 → 2048x1152. Remaining ratio enums pass through as-is.
+    if value in _GPT_PIXEL_ENUMS:
+        return value
+    if value in _GPT_ASPECT_ALIASES:
+        return _GPT_ASPECT_ALIASES[value]
+    if value in _GPT_RATIO_ENUMS:
+        return value
+    if "x" in value:
+        try:
+            w_str, h_str = value.split("x", 1)
+            w, h = int(w_str), int(h_str)
+            if w > 0 and h > 0:
+                # Prefer closest known pixel enum by aspect, else reduced ratio
+                ratio = w / h
+                if abs(ratio - 16 / 9) < 0.05:
+                    return "2048x1152"
+                if abs(ratio - 9 / 16) < 0.05:
+                    return "1152x2048"
+                if abs(ratio - 2 / 3) < 0.05:
+                    return "1152x2048"
+                if abs(ratio - 3 / 2) < 0.05:
+                    return "1536x1024"
+                if abs(ratio - 1.0) < 0.05:
+                    return "1024x1024"
+                g = gcd(w, h)
+                return f"{w // g}:{h // g}"
+        except ValueError:
+            pass
+    return value
+
+
 def _gpt_image_input(
     prompt: str,
     image_urls: list[str] | None = None,
@@ -106,11 +185,9 @@ def _gpt_image_input(
         "number_of_images": 1,
         "output_format": "png",
         "background": "opaque",
+        # Replicate schema uses aspect_ratio (ratios or select pixel enums), not size.
+        "aspect_ratio": _to_gpt_aspect_ratio(size),
     }
-    if size:
-        inp["size"] = size
-    else:
-        inp["aspect_ratio"] = "16:9"
     openai_key = os.getenv("OPENAI_API_KEY") or getattr(config, "OPENAI_API_KEY", None)
     if openai_key:
         inp["openai_api_key"] = openai_key

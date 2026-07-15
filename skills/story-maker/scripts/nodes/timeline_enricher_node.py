@@ -1,6 +1,5 @@
 """Deterministic scene timeline enrichment for story plan shots."""
 import json
-import os
 
 from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
@@ -18,16 +17,9 @@ async def timeline_enricher(ctx: Context) -> None:
 
     story = clean_json_str(raw) if isinstance(raw, str) else raw
     target = ctx.state.get("target_duration_seconds")
-    meta_backup = story.get("_meta")
     enriched = enrich_story_timeline_with_target(story, target)
     ctx.state["story_plan_content"] = json.dumps(enriched, indent=2, ensure_ascii=False)
-
-    output_dir = ctx.state.get("output_dir")
-    if output_dir:
-        path = os.path.join(output_dir, "story_plan.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(enriched, f, indent=2, ensure_ascii=False)
-        print(f"📁 [timeline_enricher] Wrote enriched {path}")
+    print("📁 [timeline_enricher] Enriched story timeline in state")
 
 
 timeline_enricher_node = FunctionNode(

@@ -23,6 +23,7 @@ def _apply_model_cli_overrides(argv: list[str] | None = None) -> None:
     pre.add_argument("--planning-model")
     pre.add_argument("--narrative-expander-model")
     pre.add_argument("--story-plan-model")
+    pre.add_argument("--story-developer-model")
     pre.add_argument("--image-provider")
     pre.add_argument("--style")
     pre.add_argument("--sequential-shots", action="store_true", default=None)
@@ -33,6 +34,8 @@ def _apply_model_cli_overrides(argv: list[str] | None = None) -> None:
         os.environ["NARRATIVE_EXPANDER_MODEL"] = pre_args.narrative_expander_model
     if pre_args.story_plan_model:
         os.environ["STORY_PLAN_MODEL"] = pre_args.story_plan_model
+    if pre_args.story_developer_model:
+        os.environ["STORY_DEVELOPER_MODEL"] = pre_args.story_developer_model
     if pre_args.image_provider:
         os.environ["PROVIDER"] = pre_args.image_provider
     if pre_args.style:
@@ -50,30 +53,20 @@ from google.adk.workflow import START, JoinNode
 from google.genai import types
 
 import config
-from agents.scene_paper_author import scene_paper_author_agent
-from agents.story_sheet_scene_author import story_sheet_scene_author_agent
-from agents.narrative_expander import narrative_expander_agent
-from agents.ltx_shot_director import ltx_shot_director_agent
-from agents.audio_planner import audio_planner_agent
-from agents.video_shot_planner import video_shot_planner_agent
-from agents.scene_asset_planner import scene_asset_planner_agent
-from agents.character_sheet_prompter import character_sheet_prompter_agent
-from agents.shot_reference_strategist import shot_reference_strategist_agent
-
 from scripts.nodes.resume_router import (
     resume_router_node,
     resume_prompters_entry_node,
-    story_sheet_scene_router_node,
-    video_shot_plan_router_node,
+)
+from scripts.nodes.plan_pipeline_nodes import (
+    sheet_map_builder_node,
+    save_production_plan_node,
+    persist_enriched_plan_node,
+    build_generation_specs_from_plan_node,
+    specs_entry_router_node,
 )
 from scripts.nodes.save_artifact_nodes import (
+    save_developed_story_node,
     save_scene_paper_node,
-    save_story_sheet_scene_node,
-    save_narrative_outline_node,
-    save_story_plan_node,
-    save_video_shot_plan_node,
-    save_audio_plan_node,
-    save_scene_assets_node,
     merge_generation_specs_node,
 )
 from scripts.nodes.timeline_enricher_node import timeline_enricher_node
@@ -85,6 +78,7 @@ from scripts.nodes.generation_nodes import (
     generation_router_node,
     background_generator_node,
     character_sheet_generator_node,
+    location_sheet_generator_node,
     shot_image_generator_node,
     video_generator_node,
     concat_videos_node,
@@ -103,6 +97,17 @@ from scripts.nodes.vision_motion_prompter_node import vision_motion_prompter_nod
 from scripts.nodes.image_qa_node import image_qa_node
 from scripts.nodes.video_qa_node import video_qa_node
 from scripts.nodes.cost_estimate_node import cost_estimate_node
+from scripts.nodes.storyboard_director_nodes import (
+    storyboard_director_planner_node,
+    storyboard_video_router_node,
+    storyboard_director_video_generator_node,
+)
+
+from agents.story_developer import story_developer_agent
+from agents.scene_paper_author import scene_paper_author_agent
+from agents.production_plan_author import production_plan_author_agent
+from agents.character_sheet_prompter import character_sheet_prompter_agent
+from agents.shot_reference_strategist import shot_reference_strategist_agent
 
 join_prompters_node = JoinNode(name="join_prompters_node")
 
@@ -111,52 +116,35 @@ def _build_pipeline() -> Workflow:
     edges = [
         (START, resume_router_node),
         (resume_router_node, {
+            "developed_story": story_developer_agent,
             "scene_paper": scene_paper_author_agent,
-            "story_sheet_scene": story_sheet_scene_author_agent,
-            "narrative_outline": narrative_expander_agent,
-            "story_plan": ltx_shot_director_agent,
-            "video_shot_plan": video_shot_planner_agent,
-            "audio_plan": audio_planner_agent,
-            "scene_assets": scene_asset_planner_agent,
-            "generation_specs": resume_prompters_entry_node,
+            "plan": sheet_map_builder_node,
+            "generation_specs": specs_entry_router_node,
             "generate": background_generator_node,
             "all_complete": pipeline_complete_node,
         }),
-        # Planning chain — scene paper is source of truth for all downstream planning.
-        # Storyboard-mode profiles (reel_v2) get an explicit sheet map that pins the
-        # exact number of storyboard sheets before narrative expansion can run wild.
+        # Planning: developed story → scene_paper → sheet map → production plan
+        (story_developer_agent, save_developed_story_node),
+        (save_developed_story_node, scene_paper_author_agent),
         (scene_paper_author_agent, save_scene_paper_node),
-        (save_scene_paper_node, story_sheet_scene_router_node),
-        (story_sheet_scene_router_node, {
-            "storyboard": story_sheet_scene_author_agent,
-            "per_shot": narrative_expander_agent,
-        }),
-        (story_sheet_scene_author_agent, save_story_sheet_scene_node),
-        (save_story_sheet_scene_node, narrative_expander_agent),
-        (narrative_expander_agent, save_narrative_outline_node),
-        (save_narrative_outline_node, ltx_shot_director_agent),
-        (ltx_shot_director_agent, save_story_plan_node),
-        (save_story_plan_node, timeline_enricher_node),
+        (save_scene_paper_node, sheet_map_builder_node),
+        (sheet_map_builder_node, production_plan_author_agent),
+        (production_plan_author_agent, save_production_plan_node),
+        (save_production_plan_node, timeline_enricher_node),
         (timeline_enricher_node, duration_budget_validator_node),
-        (duration_budget_validator_node, video_shot_plan_router_node),
-        (video_shot_plan_router_node, {
-            "storyboard": video_shot_planner_agent,
-            "per_shot": audio_planner_agent,
+        (duration_budget_validator_node, persist_enriched_plan_node),
+        (persist_enriched_plan_node, specs_entry_router_node),
+        (specs_entry_router_node, {
+            "storyboard": build_generation_specs_from_plan_node,
+            "per_shot": resume_prompters_entry_node,
         }),
-        (video_shot_planner_agent, save_video_shot_plan_node),
-        (save_video_shot_plan_node, audio_planner_agent),
-        (audio_planner_agent, save_audio_plan_node),
-        (save_audio_plan_node, scene_asset_planner_agent),
-        (scene_asset_planner_agent, save_scene_assets_node),
         (resume_prompters_entry_node, character_sheet_prompter_agent),
         (resume_prompters_entry_node, shot_reference_strategist_agent),
-        # Fan-out: two prompters in parallel (motion prompts come post-image via vision)
-        (save_scene_assets_node, character_sheet_prompter_agent),
-        (save_scene_assets_node, shot_reference_strategist_agent),
         (character_sheet_prompter_agent, join_prompters_node),
         (shot_reference_strategist_agent, join_prompters_node),
-        # Fan-in + validate
         (join_prompters_node, merge_generation_specs_node),
+        # Specs validate
+        (build_generation_specs_from_plan_node, reference_integrity_node),
         (merge_generation_specs_node, reference_integrity_node),
         (reference_integrity_node, validate_generation_specs_node),
         (validate_generation_specs_node, generation_router_node),
@@ -167,7 +155,8 @@ def _build_pipeline() -> Workflow:
         (cost_estimate_node, pipeline_complete_node),
         # Generation chain
         (background_generator_node, character_sheet_generator_node),
-        (character_sheet_generator_node, image_generation_router_node),
+        (character_sheet_generator_node, location_sheet_generator_node),
+        (location_sheet_generator_node, image_generation_router_node),
         (image_generation_router_node, {
             "parallel": shot_image_generator_node,
             "sequential": sequential_shot_image_generator_node,
@@ -176,7 +165,13 @@ def _build_pipeline() -> Workflow:
         (storyboard_sheet_planner_node, storyboard_sheet_generator_node),
         (storyboard_sheet_generator_node, panel_crop_node),
         (panel_crop_node, panel_regen_node),
-        (panel_regen_node, vision_motion_prompter_node),
+        (panel_regen_node, storyboard_video_router_node),
+        (storyboard_video_router_node, {
+            "director": storyboard_director_planner_node,
+            "fallback": vision_motion_prompter_node,
+        }),
+        (storyboard_director_planner_node, storyboard_director_video_generator_node),
+        (storyboard_director_video_generator_node, concat_videos_node),
         (shot_image_generator_node, image_qa_node),
         (image_qa_node, vision_motion_prompter_node),
         (sequential_shot_image_generator_node, vision_motion_prompter_node),
@@ -213,6 +208,11 @@ async def main_async():
     parser.add_argument("--story-file", type=str, help="Path to story text file")
     parser.add_argument("--name", type=str, required=True, help="Output directory name")
     parser.add_argument("--fresh", action="store_true", help="Wipe artifacts and replan")
+    parser.add_argument(
+        "--skip-story-developer",
+        action="store_true",
+        help="Skip LLM story developer; copy raw story into developed_story.md",
+    )
     parser.add_argument(
         "--target-duration",
         type=str,
@@ -276,7 +276,7 @@ async def main_async():
         type=str,
         default=None,
         choices=("fal", "replicate"),
-        help="Grok image backend (sets PROVIDER env: fal or replicate)",
+        help="Image backend (sets PROVIDER: replicate default, or legacy fal)",
     )
     args = parser.parse_args()
     profile = resolve_style(args.style, os.environ.get("STORY_STYLE"))
@@ -310,10 +310,15 @@ async def main_async():
 
     initial_state = {
         "story_text": story_text,
+        "developed_story_text": "",
+        "developed_story_content": "",
         "story_sheet_scene_text": "",
+        "sheet_map_context": "",
+        "plan_content": "",
         "video_shot_plan_content": "",
         "output_dir": output_dir,
         "fresh": bool(args.fresh),
+        "skip_story_developer": bool(args.skip_story_developer),
         "plan_only": bool(args.plan_only),
         "stop_before_generation": bool(args.stop_before_generation),
         "only_scenes": only_scenes,
@@ -328,6 +333,7 @@ async def main_async():
         "default_pace": profile.default_pace,
         "target_duration_seconds": target_duration_seconds,
         "duration_tolerance_percent": args.duration_tolerance,
+        "storyboard_video_mode": config.STORYBOARD_VIDEO_MODE,
     }
 
     pipeline = _build_pipeline()

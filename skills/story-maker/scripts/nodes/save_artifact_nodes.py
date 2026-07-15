@@ -9,8 +9,9 @@ from google.adk.workflow import FunctionNode
 import config
 from schemas.plan import VideoShotPlan
 from profiles import get_profile
-from tools.workflow_builder import snap_duration_seconds
+from tools.workflow_builder import snap_duration_seconds, snap_ltx_duration
 from ._json_util import clean_json_str
+from .video_shot_cast import split_video_shots_by_anchor_cast
 
 
 def _output_dir(ctx: Context) -> str:
@@ -66,6 +67,22 @@ def _apply_render_style(prompt: str, render_style: str) -> str:
     if text and not text.endswith("."):
         text += "."
     return f"{text} {style}".strip()
+
+
+
+async def save_developed_story(ctx: Context) -> None:
+    raw = ctx.state.get("developed_story_content")
+    if not raw:
+        return
+    content = raw.strip() if isinstance(raw, str) else str(raw).strip()
+    path = os.path.join(_output_dir(ctx), "developed_story.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+        if not content.endswith("\n"):
+            f.write("\n")
+    ctx.state["developed_story_text"] = content
+    ctx.state["developed_story_content"] = content
+    print(f"📁 [save_developed_story] Wrote {path}")
 
 
 async def save_scene_paper(ctx: Context) -> None:
@@ -163,9 +180,18 @@ def _normalize_video_shot_plan(raw_plan: dict, story_plan: dict) -> dict:
 
         panel_ids = [sh.get("shot_id") for sh in story_scene.get("shots", []) if sh.get("shot_id")]
         panel_index = {pid: idx for idx, pid in enumerate(panel_ids)}
-        scene_budget = sum(int(sh.get("duration_seconds", 1)) for sh in story_scene.get("shots", []))
+        # LTX wall-clock: prefer scene duration_budget; panel durations are editorial only.
+        budget_raw = story_scene.get("duration_budget_seconds")
+        if budget_raw is not None:
+            try:
+                scene_budget = int(budget_raw)
+            except (TypeError, ValueError):
+                scene_budget = 0
+        else:
+            scene_budget = 0
         if scene_budget <= 0:
-            scene_budget = max(len(panel_ids), 1)
+            # Fallback: ~8s per ~3 panels (primary LTX clip density for a sheet scene).
+            scene_budget = max(8, ((len(panel_ids) + 2) // 3) * 8)
 
         normalized_video_shots: list[dict] = []
         consumed: list[str] = []
@@ -189,13 +215,19 @@ def _normalize_video_shot_plan(raw_plan: dict, story_plan: dict) -> dict:
             anchor = shot.get("anchor_panel_id") or sorted_ids[0]
             if anchor not in sorted_ids:
                 raise ValueError(f"{scene_id}.video_shots[{idx}] anchor_panel_id must be in panel_ids")
+            raw_dur = int(shot.get("duration_seconds", 8))
+            # Keep optional 3–15 if already in band; otherwise snap to primary {6,8,10}.
+            if 3 <= raw_dur <= 15 and raw_dur not in (6, 8, 10):
+                bounded = snap_ltx_duration(raw_dur, prefer_primary=False)
+            else:
+                bounded = snap_ltx_duration(raw_dur, prefer_primary=True)
             normalized_video_shots.append(
                 {
                     "video_shot_id": shot.get("video_shot_id") or f"{scene_id}_vshot_{idx:02d}",
                     "scene_id": scene_id,
                     "panel_ids": sorted_ids,
                     "anchor_panel_id": anchor,
-                    "duration_seconds": int(shot.get("duration_seconds", 3)),
+                    "duration_seconds": snap_duration_seconds(bounded, fps=25),
                     "motion_arc": str(shot.get("motion_arc") or "").strip(),
                     "pace": str(shot.get("pace") or "medium").strip().lower(),
                 }
@@ -204,11 +236,26 @@ def _normalize_video_shot_plan(raw_plan: dict, story_plan: dict) -> dict:
         if sorted(consumed, key=lambda p: panel_index[p]) != panel_ids:
             raise ValueError(f"{scene_id}: panel coverage mismatch; must cover each panel exactly once")
 
-        # snap durations and reconcile to scene budget
-        for shot in normalized_video_shots:
-            bounded = max(2, min(6, int(shot.get("duration_seconds", 3))))
-            shot["duration_seconds"] = snap_duration_seconds(bounded, fps=25)
+        # Split groups that invent cast absent from the anchor still.
+        characters = story_plan.get("characters") or []
+        normalized_video_shots = split_video_shots_by_anchor_cast(
+            normalized_video_shots,
+            story_scene,
+            characters=characters,
+        )
+        # Re-validate coverage after cast split.
+        split_panels = [
+            pid
+            for vs in normalized_video_shots
+            for pid in (vs.get("panel_ids") or [])
+        ]
+        if sorted(split_panels, key=lambda p: panel_index[p]) != panel_ids:
+            raise ValueError(
+                f"{scene_id}: panel coverage mismatch after cast-coherent split"
+            )
 
+        # Reconcile toward scene budget using primary LTX steps {6,8,10} when possible.
+        primary = (6, 8, 10)
         snapped_total = sum(int(shot["duration_seconds"]) for shot in normalized_video_shots)
         diff = int(scene_budget) - snapped_total
         if diff != 0 and normalized_video_shots:
@@ -219,11 +266,30 @@ def _normalize_video_shot_plan(raw_plan: dict, story_plan: dict) -> dict:
             while remaining > 0 and guard < 1000:
                 shot = normalized_video_shots[i % len(normalized_video_shots)]
                 candidate = int(shot["duration_seconds"]) + step
-                if 2 <= candidate <= 6:
-                    shot["duration_seconds"] = candidate
-                    remaining -= 1
+                if 3 <= candidate <= 15:
+                    # Prefer landing on primary values when close.
+                    if candidate in primary or remaining <= 2:
+                        shot["duration_seconds"] = candidate
+                        remaining -= 1
+                    elif step > 0 and candidate < 10:
+                        shot["duration_seconds"] = candidate
+                        remaining -= 1
+                    elif step < 0 and candidate > 6:
+                        shot["duration_seconds"] = candidate
+                        remaining -= 1
                 i += 1
                 guard += 1
+            for shot in normalized_video_shots:
+                d = int(shot["duration_seconds"])
+                if d in primary:
+                    shot["duration_seconds"] = d
+                elif 3 <= d <= 15:
+                    shot["duration_seconds"] = snap_ltx_duration(d, prefer_primary=False)
+                else:
+                    shot["duration_seconds"] = snap_ltx_duration(d, prefer_primary=True)
+                shot["duration_seconds"] = snap_duration_seconds(
+                    int(shot["duration_seconds"]), fps=25
+                )
 
         normalized_scenes.append({"scene_id": scene_id, "video_shots": normalized_video_shots})
 
@@ -392,6 +458,7 @@ async def merge_generation_specs(ctx: Context) -> None:
     print(f"📁 [merge_generation_specs] Wrote {path}")
 
 
+save_developed_story_node = FunctionNode(func=save_developed_story, name="save_developed_story_node")
 save_scene_paper_node = FunctionNode(func=save_scene_paper, name="save_scene_paper_node")
 save_story_sheet_scene_node = FunctionNode(
     func=save_story_sheet_scene, name="save_story_sheet_scene_node"

@@ -99,11 +99,15 @@ async def reference_integrity(ctx: Context) -> None:
     ref_limit = config.get_image_ref_limit()
     bg_modes = _scene_bg_modes(scene_assets)
     shot_scenes = _shot_scene_map(story)
+    pipeline_mode = (ctx.state.get("pipeline_mode") or "").strip().lower()
+    storyboard_mode = pipeline_mode == "storyboard"
 
     shot_chars = {}
     for scene in story.get("scenes", []):
         for shot in scene.get("shots", []):
-            shot_chars[shot["shot_id"]] = shot.get("characters_present", [])
+            shot_chars[shot["shot_id"]] = [
+                cid for cid in (shot.get("characters_present") or []) if cid
+            ]
 
     shot_images = specs.get("shot_images", {})
     repaired = False
@@ -113,14 +117,29 @@ async def reference_integrity(ctx: Context) -> None:
             continue
         mode = entry.get("generation_mode", "grok_edit")
         strategy = entry.get("reference_strategy", "char_sheets_only")
-        present = shot_chars.get(shot_id, [])
+        # Prefer characters_present already on the shot entry (storyboard specs);
+        # fall back to story plan roster.
+        present = [
+            cid
+            for cid in (entry.get("characters_present") or shot_chars.get(shot_id, []))
+            if cid
+        ]
+        entry["characters_present"] = present
         slots = entry.get("reference_slots", [])
         scene_id = shot_scenes.get(shot_id, "")
         bg_mode = bg_modes.get(scene_id, "style_anchor")
 
+        # Storyboard panel regen always uses crop edit at runtime — never coerce to T2I.
+        if storyboard_mode and (mode == "grok_t2i" or strategy == "no_references"):
+            mode = "grok_edit"
+            strategy = "char_sheets_only"
+            entry["generation_mode"] = "grok_edit"
+            entry["reference_strategy"] = "char_sheets_only"
+
         refs = []
-        if mode == "grok_t2i" or strategy == "no_references":
+        if not storyboard_mode and (mode == "grok_t2i" or strategy == "no_references"):
             entry["reference_images"] = []
+            entry["reference_slots"] = []
             entry["generation_mode"] = "grok_t2i"
             entry["reference_strategy"] = "no_references"
             repaired = True
@@ -133,7 +152,7 @@ async def reference_integrity(ctx: Context) -> None:
             asset_id = slot.get("asset_id")
             if role == "character_sheet" and asset_id in present:
                 refs.append(f"{{{{character_sheets.{asset_id}.fal_image_url}}}}")
-            elif role == "scene_background" and bg_mode == "full_plate":
+            elif role == "scene_background" and bg_mode == "full_plate" and not storyboard_mode:
                 backgrounds = specs.get("backgrounds", {})
                 bg_key = asset_id if asset_id in backgrounds else scene_id
                 if bg_key in backgrounds:
@@ -145,10 +164,9 @@ async def reference_integrity(ctx: Context) -> None:
                 if asset_id in prior_images:
                     refs.append(f"{{{{shot_images.{asset_id}.fal_image_url}}}}")
 
-        if bg_mode == "style_anchor":
-            strategy = "char_sheets_only" if present else "no_references"
+        if storyboard_mode or bg_mode == "style_anchor":
+            strategy = "char_sheets_only"
             slots = [s for s in slots if s.get("role") != "scene_background"]
-            entry["reference_slots"] = slots
             refs = [r for r in refs if r.startswith("{{character_sheets.")]
 
         if strategy == "char_sheets_only":
@@ -157,10 +175,21 @@ async def reference_integrity(ctx: Context) -> None:
                 expected = f"{{{{character_sheets.{cid}.fal_image_url}}}}"
                 if expected not in refs:
                     refs.append(expected)
+            # Rebuild slots from present so specs stay truthful for panel regen.
+            slots = [
+                {"role": "character_sheet", "asset_id": cid, "priority": i}
+                for i, cid in enumerate(present)
+            ]
+            entry["reference_slots"] = slots
             if not present:
                 entry["reference_images"] = []
-                entry["generation_mode"] = "grok_t2i"
-                entry["reference_strategy"] = "no_references"
+                entry["reference_slots"] = []
+                entry["reference_strategy"] = "char_sheets_only"
+                if storyboard_mode:
+                    entry["generation_mode"] = "grok_edit"
+                else:
+                    entry["generation_mode"] = "grok_t2i"
+                    entry["reference_strategy"] = "no_references"
                 repaired = True
                 continue
         elif strategy == "char_sheets_and_background":
@@ -186,9 +215,17 @@ async def reference_integrity(ctx: Context) -> None:
 
         entry["reference_images"] = refs
         entry["reference_strategy"] = strategy
+        entry["reference_slots"] = slots if strategy == "char_sheets_only" else entry.get(
+            "reference_slots", slots
+        )
         if not refs:
-            entry["generation_mode"] = "grok_t2i"
-            entry["reference_strategy"] = "no_references"
+            if storyboard_mode:
+                entry["generation_mode"] = "grok_edit"
+                entry["reference_strategy"] = "char_sheets_only"
+                entry["reference_slots"] = []
+            else:
+                entry["generation_mode"] = "grok_t2i"
+                entry["reference_strategy"] = "no_references"
         else:
             entry["generation_mode"] = "grok_edit"
         repaired = True

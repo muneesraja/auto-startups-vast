@@ -1,28 +1,16 @@
-"""Validate and reconcile story plan duration against narrative outline budgets."""
+"""Validate and reconcile story plan duration against scene budgets."""
 from __future__ import annotations
 
 import json
-import os
 
 from google.adk.agents.context import Context
 from google.adk.workflow import FunctionNode
 
-from .duration_reconcile import reconcile_scene_durations
+from .duration_reconcile import (
+    reconcile_against_budgets,
+    scene_budgets_from_plan_scenes,
+)
 from ._json_util import clean_json_str
-
-
-def _load_outline(ctx: Context) -> dict | None:
-    raw = ctx.state.get("narrative_outline_content")
-    if raw:
-        return clean_json_str(raw) if isinstance(raw, str) else raw
-    output_dir = ctx.state.get("output_dir")
-    if not output_dir:
-        return None
-    path = os.path.join(output_dir, "narrative_outline.json")
-    if not os.path.isfile(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
 
 
 async def duration_budget_validator(ctx: Context) -> None:
@@ -35,15 +23,24 @@ async def duration_budget_validator(ctx: Context) -> None:
     meta_backup = story.get("_meta")
     meta = story.get("meta", {})
     target = meta.get("target_duration_seconds") or ctx.state.get("target_duration_seconds")
-    tolerance = meta.get("duration_tolerance_percent", ctx.state.get("duration_tolerance_percent", 15))
-    min_shot_seconds = int(ctx.state.get("min_shot_seconds", 4))
-    max_shot_seconds = int(ctx.state.get("max_shot_seconds", 16))
+    tolerance = meta.get(
+        "duration_tolerance_percent", ctx.state.get("duration_tolerance_percent", 15)
+    )
+    min_shot_seconds = int(ctx.state.get("min_shot_seconds", 6))
+    max_shot_seconds = int(ctx.state.get("max_shot_seconds", 10))
 
-    outline = _load_outline(ctx)
-    if outline:
-        story = reconcile_scene_durations(
+    # Prefer budgets embedded on the production plan / story scenes.
+    plan_raw = ctx.state.get("plan_content")
+    budget_source = story
+    if plan_raw:
+        plan = clean_json_str(plan_raw) if isinstance(plan_raw, str) else plan_raw
+        if isinstance(plan, dict) and plan.get("scenes"):
+            budget_source = plan
+    budgets = scene_budgets_from_plan_scenes(budget_source)
+    if budgets:
+        story = reconcile_against_budgets(
             story,
-            outline,
+            budgets,
             tolerance_percent=tolerance,
             min_shot_seconds=min_shot_seconds,
             max_shot_seconds=max_shot_seconds,
@@ -99,14 +96,6 @@ async def duration_budget_validator(ctx: Context) -> None:
             f"✅ [duration_budget_validator] {total}s within target "
             f"{target}s ±{tolerance}% ({low}–{high}s)"
         )
-
-    output_dir = ctx.state.get("output_dir")
-    if output_dir:
-        if meta_backup is not None:
-            story["_meta"] = meta_backup
-        path = os.path.join(output_dir, "story_plan.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(story, f, indent=2, ensure_ascii=False)
 
 
 duration_budget_validator_node = FunctionNode(

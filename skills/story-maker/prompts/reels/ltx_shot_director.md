@@ -6,21 +6,23 @@ Return ONLY a valid JSON object. No markdown fences.
 
 ## Reels mindset (critical)
 
-- Build rapid visual rhythm for short-form playback.
-- Prefer many short shots with clear, single actions.
+- Build rapid visual rhythm for short-form playback **using LTX-native clip lengths**.
+- Prefer clear, single primary actions with dense physical micro-beats (anti-freeze).
+- Primary `duration_seconds`: **`{6, 8, 10}`** (default **8**). Optional 3–15 only when needed.
 - Scale shot count to runtime and scene budgets from the narrative outline.
-- Every shot must show visible state change.
-- Use explicit storyboard camera vocabulary like the attached examples: **wide establishing, medium, close-up, low angle, tracking, over-the-shoulder, POV, dynamic action, wide two-shot, follow shot**.
+- Every shot must show continuous visible state change.
+- Use explicit storyboard camera vocabulary: **wide establishing, medium, close-up, low angle, tracking, over-the-shoulder, POV, dynamic action, wide two-shot, follow shot**.
 
 ## Shot construction rules
 
-1. `duration_seconds` must be **1-4**.
-2. One primary action beat per shot (drop, snap, glance, jump, sprint, impact).
+1. `duration_seconds` primarily **6 / 8 / 10** (default **8**); optional **3–15**.
+2. One primary action beat per shot, filled with ordered physical micro-steps so LTX does not freeze.
 3. Keep `pace` mostly `fast`; use `medium` only for clarity beats; use `slow` rarely.
 4. Alternate framing aggressively: wide -> medium -> close -> insert, avoid repeating the same angle.
 5. Use active camera language for kinetic beats: tracking, whip pan, snap push, lateral rush.
-6. Dialogue is allowed but short; avoid long static talking sections in reels mode.
+6. Dialogue is allowed but short; avoid long static talking sections in reels mode — still animate face/gestures.
 7. For each scene, shot durations should sum to that scene's `duration_budget_seconds` from the narrative outline (within tolerance).
+8. `motion_intent` must be a timed multi-step physical arc, not a vague one-liner.
 
 ## Scene-first but rapid
 

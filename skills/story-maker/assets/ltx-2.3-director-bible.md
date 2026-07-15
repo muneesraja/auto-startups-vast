@@ -1,34 +1,62 @@
 # LTX 2.3 Director Bible (story-maker)
 
-Single source of truth for LTX 2.3 I2V planning and motion prompting. Condensed from [LTX I2V guide](https://docs.ltx.video/open-source-model/usage-guides/image-to-video), [Prompting guide](https://docs.ltx.video/api-documentation/implementation-guides/prompting-guide), and [Models API](https://docs.ltx.video/models).
+Single source of truth for LTX 2.3 I2V planning and motion prompting. Condensed from [LTX I2V guide](https://docs.ltx.video/open-source-model/usage-guides/image-to-video), [Prompting guide](https://docs.ltx.video/api-documentation/implementation-guides/prompting-guide), [Models / fal duration enums](https://fal.ai/models/fal-ai/ltx-2.3/image-to-video/api), and community I2V practice (physics-not-emotion, one motion idea, micro-actions).
+
+## Research notes (I2V prompting)
+
+**Official / API**
+
+- I2V prompts describe **what happens next** (motion, camera, audio). The start image already provides appearance and composition — do not restate them.
+- **Pro** durations: **6, 8, 10** seconds (primary). **Fast** may allow 12–20 only at 1080p @ 25fps; do not make those the default.
+- Pipeline default clip length: **8** seconds.
+
+**Community (aligned with official)**
+
+- Describe **physics / observable action**, not abstract emotion.
+- **Camera filmmaking terms** beat style adjectives (`dolly in`, `tracking`, `static locked-off`).
+- Break complex motion into **ordered micro-actions** inside one primary idea.
+- Keep **one subject focus, one primary motion idea, one camera behavior** — do not write a full competing scene script.
+
+**Tension resolved (detail vs overload)**
+
+- Freeze usually comes from **vague / idle / mood-only** text, not from too many *physical micro-beats*.
+- Prefer **dense timed physical beats within one arc** over short vague lines.
+- Avoid **extra story turns, style stacks, and appearance re-description** (that is the bad kind of length).
 
 ## One clip = one beat
 
 - Each LTX generation is **one continuous clip** with native audio.
 - Plan **one primary action arc** per shot. Prefer **fewer longer shots** over many short fragments.
+- **reel_v2:** storyboard panels are coverage cards; LTX duration lives on **`video_shots`** (panels ≠ clips).
 - Target **18–28 shots** for a ~5 min film (scene-first planning).
 
 ## Image-to-video prompt rules
 
-The Grok still image is the visual anchor. The LTX motion prompt describes **what changes** after that still.
+The still image is the visual anchor. The LTX motion prompt describes **what changes** after that still.
 
 | Include | Avoid |
 |---------|-------|
-| Motion and physical action | Character appearance, wardrobe, hair |
+| Motion and physical action (jaw, breath, hands, fabric, wind) | Character appearance, wardrobe, hair restated |
 | Camera movement (filmmaking terms) | Re-describing the environment layout |
 | Dialogue in quotes, music, SFX, ambience | Contradicting the still image |
 | Role + position referents ("the child", "the figure on the left") | Character names (LTX cannot bind names to pixels) |
 | Present tense, single flowing paragraph | "First frame", "last frame", FFLF language |
-| Sequential beats: "does X, then Y, then Z" | Multiple unrelated simultaneous actions |
+| Sequential micro-beats inside one primary idea | Multiple unrelated major story turns |
+
+### Anti-freeze (mandatory)
+
+- Every clip needs **continuous visible change** for the full duration: primary action + face/hands/prop follow-through + environment micro-motion (breath, fabric, particles, light flicker, leaves, steam).
+- Forbid vague one-liners and idle language that produce Ken-Burns freeze (`holds still`, `rests`, mood-only adjectives with no body change).
+- Use temporal markers: `over the first two seconds…`, `then…`, `by the midpoint…`, `in the final seconds…`.
 
 ### Dialogue = static camera
 
-For `ltx_shot_type: dialogue`, default **static / locked-off** camera. LTX native audio carries the performance; animate lips, expression, and **active gestures** (lean, reach, react) — not a frozen portrait. Assign **8–16s** for natural line delivery.
+For `ltx_shot_type: dialogue`, default **static / locked-off** camera. LTX native audio carries the performance; animate lips, expression, and **active gestures** (lean, reach, react) — not a frozen portrait. Prefer **8 or 10s** for natural line delivery (optional longer only if splitting is worse).
 
 ### Required paragraph structure (vision motion prompter)
 
 1. **Open:** `A cinematic scene of ...` — brief role + setting anchor of what is **already visible** (not full appearance re-description).
-2. **Sequential motion beats** — ordered actions matching `duration_seconds` and `frame_strategy`.
+2. **Sequential motion beats** — ordered physical micro-actions matching `duration_seconds` and `frame_strategy`.
 3. **Camera** — movement from `camera_intent` (static for dialogue only).
 4. **Audio** — dialogue in quotes, music, SFX, ambience.
 5. **Closing quality line** — pace-aware (see vision motion prompter):
@@ -44,27 +72,47 @@ Director assigns `pace: slow | medium | fast` per shot. Motion prompts must matc
 
 **Multi-character:** one primary actor per clip; use spatial labels, not names.
 
-**Prompt length:**
+### Prompt density by duration (primary band)
 
 | Duration | Sentences | Beats |
 |----------|-----------|-------|
-| 5–8s | 4–5 | opener + 1–2 motion + camera/audio + quality line |
-| 8–12s | 5–7 | opener + 2 motion + camera + audio + quality line |
-| 13–16s | 7–10 | opener + 2–3 motion + camera + audio + quality line |
+| **6s** | ~6–8 | opener + **3** timed motion beats + camera + audio + quality line |
+| **8s** | ~7–9 | opener + **3–4** timed motion beats + camera + audio + quality line |
+| **10s** | ~8–11 | opener + **4–5** timed motion beats + camera + audio + quality line |
+| Optional 3–5s | scale down | never fewer than **2** strong physical beats |
+| Optional 11–15s | scale up | still **one** primary idea; prefer split if multiple major actions |
 
-## Shot duration (director)
+## Shot duration (director / video_shots)
 
-Director assigns **4–16 seconds** per shot, snapped to **8n+1 @ 25fps** at timeline enrich time:
+**Primary (preferred):** `{6, 8, 10}` — default **8**.  
+**Optional:** `3–15` when budget math or a special beat requires it (not the default habit).  
+Snap planning values with `snap_ltx_duration` toward the primary set; keep optional values only when already in `3–15`.
 
-| Complexity | Duration | Example |
-|------------|----------|---------|
-| simple | 5–8s | picks up shell, single reaction |
-| moderate | 8–12s | chase + splash, short dialogue |
-| complex | 12–16s | one camera beat with 2–3 micro-beats; extended dialogue |
+| Case | Duration |
+|------|----------|
+| Default | **8** |
+| Brief action / reaction / cutaway | **6** |
+| Standard continuous action | **8** |
+| Slow / establishing / ambience | **10** |
+| Optional edge | 3–5 or 11–15 |
+| Multi major actions / subject change | **Split** into separate clips |
+
+| Complexity | Prefer | Notes |
+|------------|--------|-------|
+| simple | 6–8 | single gesture, reaction, insert |
+| moderate | 8 | standard action or short dialogue |
+| complex | split → multiple 6–10 | optional 11–15 only if one continuous idea |
 
 Compute from content when possible:
-- **Dialogue:** ~2.5 words/sec + 1–2s breath padding; prefer 8–16s.
-- **Action:** beats x complexity constant, then snap.
+- **Dialogue:** ~2.5 words/sec + breath padding; prefer 8 or 10.
+- **Action:** one primary arc; fill with micro-beats, then choose 6/8/10.
+
+### reel_v2 panels vs clips
+
+- Panel `duration_seconds` = editorial/board rhythm only.
+- Scene `duration_budget_seconds` + `video_shots[].duration_seconds` = LTX wall-clock.
+- A 10-panel sheet-scene often budgets **~24–32s** (≈ 3–4 clips at 6/8/10), scaled to target runtime.
+- **Cast-coherent groups:** each `video_shot` is anchored on a start still. Later panels may join only when their `characters_present` ⊆ the anchor panel's cast. Empty establishing panels are solo (or empty-only) clips — never invent named heroes into an empty plate in one I2V. Split when cast grows; pipeline normalize enforces this.
 
 ## Crowds and extras
 
@@ -74,7 +122,9 @@ Compute from content when possible:
 
 ## Grok still = LTX starting frame
 
-The Grok `image_prompt` must encode identity, pose, and layout. Use **animation-ready held poses**, **spatial placement**, and **16:9 landscape**. Mitigate Ken-Burns stillness with slight depth-of-field / film-still language (not documentary clarity).
+The still must encode identity, pose, and layout. Use **animation-ready held poses** (start of a 6–8s action, not a dead end pose), **spatial placement**, and **16:9 landscape**. Mitigate Ken-Burns stillness with slight depth-of-field / film-still language (not documentary clarity).
+
+**Story developer (upstream):** Named heroes who interact in one continuous beat must already be drawable in that beat's start frame. Prefer cut-based entrances (solo beat → shared-frame beat) over "empty plate then named hero walks in" as a single I2V moment.
 
 ### Scene staging and shot-reverse-shot geography
 
@@ -128,16 +178,17 @@ LTX generates synced audio in-prose: `"Help!" she cries`, soft ukulele enters, s
 
 ## What fails
 
-- Multiple unrelated simultaneous actions
-- Appearance re-description (conflicts with Grok still)
+- Multiple unrelated simultaneous major actions
+- Appearance re-description (conflicts with start still)
 - Abstract mood-only prompts with no physical motion
-- Overloading 16s with 4+ major story turns
-- Ken-Burns / zero-motion clips (retry with stronger sequential motion)
+- Vague short prompts that leave the model with nothing to animate (freeze / Ken-Burns)
+- Overloading one clip with 4+ major story turns (split instead)
 - Camera movement on dialogue shots (use static camera, but animate faces and gestures)
 - Uniform `pace: slow` across a whole scene — flatten story rhythm
 - Identical framing on consecutive shots (same wide master repeated)
 - Closing line `Smooth cinematic motion` on every clip
+- Treating 1–3s micro-cuts as first-class Pro LTX durations
 
 ## Long-form films
 
-Target runtime (e.g. 5 min) = **many shots + ffmpeg concat**. Per-scene budgets from narrative outline must reconcile with shot sums (±15%).
+Target runtime (e.g. 5 min) = **many shots + ffmpeg concat**. Per-scene budgets from narrative outline must reconcile with shot / video_shot sums (±15%).

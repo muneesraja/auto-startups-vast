@@ -59,11 +59,11 @@ class TestSceneDurationRebalance(unittest.TestCase):
             story,
             outline,
             tolerance_percent=15,
-            min_shot_seconds=1,
-            max_shot_seconds=4,
+            min_shot_seconds=6,
+            max_shot_seconds=10,
         )
         durations = [s["duration_seconds"] for s in result["scenes"][0]["shots"]]
-        self.assertTrue(all(1 <= d <= 4 for d in durations), durations)
+        self.assertTrue(all(6 <= d <= 10 for d in durations), durations)
 
 
 if __name__ == "__main__":

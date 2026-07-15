@@ -38,7 +38,14 @@ class TestGrokProviderDispatch(unittest.TestCase):
         mock_fal_t2i.return_value = {"status": "success"}
         with patch.dict("os.environ", {"PROVIDER": "fal", "FAL_KEY": "k"}):
             grok_tools.generate_grok_t2i("p", "/tmp/x.png")
-        mock_fal_t2i.assert_called_once_with("p", "/tmp/x.png", resolution=None)
+        mock_fal_t2i.assert_called_once_with(
+            "p",
+            "/tmp/x.png",
+            resolution=None,
+            size=None,
+            quality=None,
+            text_policy="default",
+        )
 
     @patch("tools.grok_replicate.generate_grok_t2i")
     def test_dispatch_replicate(self, mock_rep_t2i):
@@ -48,7 +55,14 @@ class TestGrokProviderDispatch(unittest.TestCase):
             {"PROVIDER": "replicate", "REPLICATE_API_TOKEN": "r8_xxx"},
         ):
             grok_tools.generate_grok_t2i("p", "/tmp/x.png")
-        mock_rep_t2i.assert_called_once_with("p", "/tmp/x.png", resolution=None)
+        mock_rep_t2i.assert_called_once_with(
+            "p",
+            "/tmp/x.png",
+            resolution=None,
+            size=None,
+            quality=None,
+            text_policy="default",
+        )
 
 
 if __name__ == "__main__":

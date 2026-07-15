@@ -8,7 +8,11 @@ import time
 from urllib.parse import urlparse
 
 import config
-from .workflow_builder import build_ltx_i2v_workflow, load_workflow_template
+from .workflow_builder import (
+    build_ltx_flf2v_workflow,
+    build_ltx_i2v_workflow,
+    load_workflow_template,
+)
 
 
 def _resolve_hostname(hostname: str) -> str | None:
@@ -306,3 +310,96 @@ def generate_ltx_i2v_video(
         return {"status": "error", "message": "Failed to download generated video"}
     except Exception as e:
         return {"status": "error", "message": f"LTX I2V failed: {e}"}
+
+
+def generate_ltx_flf2v_video(
+    first_frame_path: str,
+    last_frame_path: str,
+    motion_prompt: str,
+    output_path: str,
+    duration_seconds: int = 8,
+    fps: int = 24,
+    *,
+    first_frame_strength: float = 0.8,
+    last_frame_strength: float = 0.9,
+    seed: int = 42,
+) -> dict:
+    """Generate video+audio with LTX 2.3 first+last frame (FLF2V) via ComfyUI."""
+    try:
+        up_ff = upload_image(first_frame_path)
+        if not up_ff or not up_ff.get("name"):
+            return {
+                "status": "error",
+                "message": f"Failed to upload first frame: {first_frame_path}",
+            }
+        up_lf = upload_image(last_frame_path)
+        if not up_lf or not up_lf.get("name"):
+            return {
+                "status": "error",
+                "message": f"Failed to upload last frame: {last_frame_path}",
+            }
+
+        template = load_workflow_template(
+            config.FLF2V_TEMPLATE_NAME, config.WORKFLOWS_DIR
+        )
+        prefix = os.path.splitext(os.path.basename(output_path))[0]
+        shot_for_builder = {
+            "prompt": motion_prompt,
+            "first_frame_image": up_ff["name"],
+            "last_frame_image": up_lf["name"],
+            "duration": duration_seconds,
+            "fps": fps,
+            "filename_prefix": prefix,
+            "seed": seed,
+            "first_frame_strength": first_frame_strength,
+            "last_frame_strength": last_frame_strength,
+        }
+        global_cfg = {
+            "width": 1280,
+            "height": 720,
+            "seed_base": seed,
+            "fps": fps,
+            "duration": duration_seconds,
+        }
+        workflow = build_ltx_flf2v_workflow(template, shot_for_builder, global_cfg)
+
+        result = curl_json(
+            "POST",
+            "/prompt",
+            data={"prompt": workflow, "client_id": "story-maker-flf2v"},
+        )
+        if "error" in result:
+            return {"status": "error", "message": f"Queue error: {result['error']}"}
+
+        prompt_id = result.get("prompt_id")
+        outputs = wait_for_prompt(prompt_id)
+
+        srv_filename = None
+        srv_subfolder = ""
+        for _nid, out in outputs.items():
+            for key in ("gifs", "videos", "images"):
+                for item in out.get(key, []):
+                    if item.get("type") == "temp":
+                        continue
+                    srv_filename = item["filename"]
+                    srv_subfolder = item.get("subfolder", "")
+                    break
+                if srv_filename:
+                    break
+            if srv_filename:
+                break
+
+        if not srv_filename:
+            return {"status": "error", "message": "No video output in ComfyUI history"}
+
+        ok = download_output(
+            srv_filename,
+            output_path,
+            subfolder=srv_subfolder,
+            is_video=True,
+        )
+        if ok:
+            return {"status": "success", "video_path": output_path}
+        return {"status": "error", "message": "Failed to download generated video"}
+    except Exception as e:
+        return {"status": "error", "message": f"LTX FLF2V failed: {e}"}

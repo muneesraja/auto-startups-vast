@@ -84,7 +84,7 @@ The agent can infer a lot, but including these makes runs more reliable:
 | **Target duration** (`30s`, `90s`, `5m`) | Controls pacing and shot count |
 | **Sequential shots** | Opts into higher-fidelity continuity |
 | **Stop before generation** | Useful for reviewing plans/stills first |
-| **Provider** (`fal` or `replicate`) | Controls still-image backend |
+| **Provider** (`replicate`, default) | Chars/locs/panel primary; storyboard sheets use fal by default |
 | **Only scenes** (`scene_02`) | Lets the agent rerun a subset |
 
 You do **not** need to remember every CLI flag. Plain English is enough.
@@ -93,14 +93,15 @@ You do **not** need to remember every CLI flag. Plain English is enough.
 
 ## What the agent does (behind the scenes)
 
-1. Expands your story into a narrative outline with scene budgets
-2. Directs a `story_plan.json` with shot timing, pacing, and staging
-3. Plans audio and scene background assets
-4. Generates character sheets and shot still prompts
-5. Creates still images for each shot
-6. Uses a vision model to write motion prompts from the actual starting frames
-7. Renders LTX image-to-video clips
-8. Concatenates them into `final_film.mp4`
+1. Rewrites the source into `developed_story.md` (I2V-aware; expands thin stories to the target duration)
+2. Writes `scene_paper.md` (visual production coverage of the developed story)
+3. Authors a single `plan.json` (shots, light audio, assets, and for `reel_v2` video_shots)
+4. Builds `generation_specs.json` (runtime paths / status)
+5. Generates character / location sheets (Replicate) and storyboard albums (fal GPT Image 2 by default), then panel stills (Replicate primary, fal fallback)
+6. Creates still images for each shot / storyboard panels
+7. Uses a vision model to write motion prompts from the actual starting frames
+8. Renders LTX image-to-video clips
+9. Concatenates them into `final_film.mp4`
 
 If sequential shots are enabled, the agent also re-authors each shot still prompt after seeing the previous generated frame within the same scene.
 
@@ -111,10 +112,15 @@ If sequential shots are enabled, the agent also re-authors each shot still promp
 | Style | Best for | Default target | Shot rhythm |
 |------|----------|----------------|-------------|
 | `cinematic` | Short films, scene-first storytelling, slower breathing shots | `120s` | Fewer longer shots |
-| `reels` | Short-form content, rapid hooks, energetic pacing | `30s` | Many 1–4s shots |
-| `reel_v2` | Storyboard-sheet consistency: multi-panel sheets → crop → regen | `30s` | Many 1–4s shots |
+| `reels` | Short-form content; LTX-native clip lengths | `30s` | Primary `{6,8,10}` (optional 3–15) |
+| `reel_v2` | Storyboard-sheet consistency: multi-panel sheets → crop → regen | `30s` | Panels editorial; LTX via `video_shots` `{6,8,10}` |
 
-`reel_v2` does **not** use background plates or per-shot parallel still prompting. It generates per-scene 10-panel storyboard sheets, uses vision to detect panel boxes, crops them, then regenerates each panel at full resolution with character references.
+`reel_v2` does **not** use cinematic `backgrounds/` plates or per-shot parallel still prompting. It generates **location lock** plates (`locations/`), then per-scene 10-panel 5×2 photo-album sheets (9:16 page, 16:9 panels) **in story order** (each sheet after the first gets the previous sheet PNG as a continuity ref, plus location + character refs), uses Python white-gutter detection to crop panels (`STORYBOARD_CROP_MODE=python`; optional `vision`), then regenerates each panel at full resolution with character references only. LTX duration is planned on **`video_shots`** (primary `{6,8,10}`, default 8; optional 3–15) by grouping consecutive panels that stay **cast-coherent** to the anchor still — panels are editorial coverage, not 1s Pro clips. Empty establishing panels do not share a clip with character entrances.
+
+**FLF2V / assistant-director alt path:** set `STORYBOARD_VIDEO_MODE=director` to plan I2V standalones + FLF2V continuous chains from the storyboard sheet, `scene_paper.md` agenda, and 5×2 grid row/col map after panel regen. Prefer same-row FLF; motivated camera pans may reveal new subjects. The assistant director chooses per-clip durations (prefer LTX 6–10s; 3s only for super-short beats). Manual runner: `scripts/run_flf_scene.py`. Default remains the existing `video_shots` I2V path (`STORYBOARD_VIDEO_MODE=fallback`). See `SKILL.md` and `plans/flf-storyboard-pair-planner.md`.
+
+
+
 
 Selection precedence:
 
@@ -151,7 +157,7 @@ Minimum setup for most runs:
 
 ```bash
 OPENROUTER_API_KEY=...
-FAL_KEY=...
+REPLICATE_API_TOKEN=...
 COMFYUI_URL=http://localhost:8188
 
 STORY_STYLE=cinematic
@@ -160,15 +166,23 @@ STORY_STYLE=cinematic
 
 PLANNING_MODEL=openai/gpt-5.4-mini
 PLANNING_REASONING_EFFORT=low
-SECONDARY_MODEL=z-ai/glm-5.2
+SECONDARY_MODEL=openai/gpt-5.4-mini
 VISION_MODEL=openai/gpt-5-mini
-# CROP_ANALYSIS_MODEL=openai/gpt-5.4-mini
+# CROP_ANALYSIS_MODEL=openai/gpt-5.4-mini  # only if STORYBOARD_CROP_MODE=vision
+# STORYBOARD_CROP_MODE=python
 
-PROVIDER=fal
-# PROVIDER=replicate
-# REPLICATE_API_TOKEN=...
-
-BACKGROUND_IMAGE_SIZE=2048x1024
+PROVIDER=replicate
+STORYBOARD_IMAGE_PROVIDER=fal
+# PANEL_IMAGE_PROVIDER=replicate
+# PANEL_IMAGE_FALLBACK_PROVIDER=fal
+GROK_REPLICATE_MODEL=openai/gpt-image-2
+# Sheets: medium @ 2K; panel regen: low @ 2K
+# REPLICATE_SHEET_QUALITY=medium
+# CHARACTER_SHEET_SIZE=1152x2048
+# STORYBOARD_SHEET_SIZE=1152x2048
+# REPLICATE_PANEL_QUALITY=low
+# PANEL_IMAGE_SIZE=2048x1152
+# BACKGROUND_IMAGE_SIZE=2048x1152
 # SEQUENTIAL_SHOT_PROMPTS=1
 ```
 
@@ -177,14 +191,28 @@ Important env vars:
 | Env var | Meaning |
 |---------|---------|
 | `STORY_STYLE` | Default style profile (`cinematic` / `reels` / `reel_v2`) |
-| `CROP_ANALYSIS_MODEL` | Vision model for storyboard panel bbox JSON (`reel_v2`) |
-| `SEQUENTIAL_SHOT_PROMPTS` | Opt into sequential within-scene shot prompting |
-| `PLANNING_MODEL` | Narrative expander + shot director model |
-| `SECONDARY_MODEL` | Audio / scene assets / char sheets / shot image planning |
+| `PLANNING_MODEL` | Default for story developer, scene paper, and `plan.json` authors |
+| `STORY_DEVELOPER_MODEL` | Optional override for story developer only |
+| `STORY_PLAN_MODEL` | Optional override for `plan.json` author only |
+| `SECONDARY_MODEL` | Char-sheet / shot-image prompt authors |
 | `VISION_MODEL` | Vision motion prompting model |
-| `PROVIDER` | Grok image backend: `fal` or `replicate` |
-| `REPLICATE_API_TOKEN` | Required when `PROVIDER=replicate` |
-| `BACKGROUND_IMAGE_SIZE` | Panoramic scene background size |
+| `CROP_ANALYSIS_MODEL` | Optional storyboard panel bbox JSON when `STORYBOARD_CROP_MODE=vision` |
+| `STORYBOARD_CROP_MODE` | `python` (default: white-gutter → grid) \| `vision` \| `auto` |
+| `SEQUENTIAL_SHOT_PROMPTS` | Opt into sequential within-scene shot prompting |
+| `PROVIDER` | Default still-image backend for chars/locs/panel primary (`replicate`; legacy `fal` optional) |
+| `STORYBOARD_IMAGE_PROVIDER` | Storyboard album sheets only (`fal` default; `replicate` optional) |
+| `PANEL_IMAGE_PROVIDER` | Panel regen primary override (defaults to `PROVIDER`) |
+| `PANEL_IMAGE_FALLBACK_PROVIDER` | After primary panel fail: `fal` edit fallback (default when Replicate primary + `FAL_KEY`); `none` disables |
+| `FAL_KEY` | Required for fal storyboard sheets and panel fal fallback |
+| `REPLICATE_API_TOKEN` | Required for `PROVIDER=replicate` |
+| `GROK_REPLICATE_MODEL` | Replicate image model (`openai/gpt-image-2`) |
+| `GROK_FAL_MODEL` | Optional fal model override (GPT Image 2) |
+| `REPLICATE_SHEET_QUALITY` | Quality for character + storyboard sheets (`medium`) |
+| `REPLICATE_PANEL_QUALITY` | Quality for panel regen / shot stills (`low`) |
+| `CHARACTER_SHEET_SIZE` | Char sheet `aspect_ratio` pixel enum (`1152x2048`) |
+| `STORYBOARD_SHEET_SIZE` | Storyboard sheet size portrait album (`1152x2048`) |
+| `PANEL_IMAGE_SIZE` | Panel regen / shot still size (`2048x1152`) |
+| `BACKGROUND_IMAGE_SIZE` | Background plate size when used (`2048x1152`) |
 | `IMAGE_REF_LIMIT` | Optional override for reference image cap |
 | `COMFYUI_URL` | LTX I2V render endpoint |
 
@@ -220,6 +248,14 @@ python3 main.py \
 
 ### reel_v2 storyboard pipeline
 
+1. Generate character sheets, then **location lock** plates under `locations/` (empty-stage establishing images from `plan.locations`).
+2. Plan storyboard sheets in story order; each sheet after the first sets `continuity_from_sheet_id` to the previous sheet.
+3. Generate sheets **sequentially** via **fal GPT Image 2 edit** (default `STORYBOARD_IMAGE_PROVIDER=fal`) with refs: location lock → previous sheet → character sheets. **No T2I fallback** — failed sheets are marked `failed` and the run continues.
+4. Python gutter crop (or vision) → panel regen at full resolution with **crop + character refs only** (no location plate on regen). Primary: Replicate; on failure: fal edit fallback (`PANEL_IMAGE_FALLBACK_PROVIDER`), same `2048x1152` / `low`.
+5. Motion / I2V as usual.
+
+`reel_v2` still does **not** write cinematic `backgrounds/` plates (`assets.generate_background: false`).
+
 ```bash
 cd skills/story-maker
 
@@ -233,7 +269,7 @@ python3 main.py \
   --fresh
 ```
 
-Recommended for `reel_v2`: `PROVIDER=replicate`, `GROK_REPLICATE_MODEL=openai/gpt-image-2`, `REPLICATE_IMAGE_QUALITY=low`.
+Recommended for `reel_v2`: `PROVIDER=replicate`, `STORYBOARD_IMAGE_PROVIDER=fal`, `FAL_KEY` set, `GROK_REPLICATE_MODEL=openai/gpt-image-2`, sheet quality `medium` @ storyboard `1152x2048` (9:16 album) / character `1152x2048`, panel regen quality `low` @ `2048x1152` with fal fallback enabled.
 
 ### Fast reel with stronger continuity
 
@@ -290,14 +326,15 @@ python3 main.py \
 
 ```text
 outputs/story-maker/<name>/
-├── narrative_outline.json
-├── story_plan.json
-├── audio_plan.json
-├── scene_assets.json
+├── developed_story.md
+├── scene_paper.md
+├── plan.json
 ├── generation_specs.json
-├── backgrounds/
+├── cost_estimate.json   # with --plan-only
+├── backgrounds/         # cinematic / reels (not reel_v2)
 ├── characters/
-├── storyboard_sheets/   # reel_v2
+├── locations/           # reel_v2 location locks
+├── storyboard_sheets/   # reel_v2 (sequential continuity)
 ├── panel_crops/         # reel_v2
 ├── images/
 ├── videos/
@@ -306,9 +343,13 @@ outputs/story-maker/<name>/
 
 Useful files:
 
-- `story_plan.json` — shot plan, pacing, staging, blocking
-- `generation_specs.json` — still prompt specs + motion status
-- `images/` — generated starting frames
+- `developed_story.md` — I2V-aware expanded/rewritten story (skip with `--skip-story-developer`)
+- `scene_paper.md` — visual production paper
+- `plan.json` — production pack (shots, audio, assets, `locations[]`, video_shots)
+- `generation_specs.json` — runtime still/motion status
+- `locations/` — empty-stage establishing locks keyed by `location_id` (reel_v2)
+- `storyboard_sheets/` — multi-panel boards; sheet N+1 refs sheet N for continuity
+- `images/` — generated starting frames / regen panels
 - `videos/` — per-shot LTX clips
 - `final_film.mp4` — final concatenated output
 
@@ -340,8 +381,8 @@ These are what keep:
 - **Use `--stop-before-generation` first** when testing a new story or prompt style.
 - **Give stable output names** — easier resume and comparison.
 - **Rerun only broken scenes** instead of restarting whole stories.
-- **Replicate can handle more refs** than fal, which helps multi-character shots.
-- **Read `story_plan.json` and `generation_specs.json`** when diagnosing odd framing or continuity.
+- **Keep storyboard on fal + panel primary on Replicate** — fal fallback recovers E005/policy misses without bare T2I.
+- **Read `plan.json` and `generation_specs.json`** when diagnosing odd framing or continuity (check `fallback_mode` / `image_provider` on shots).
 
 ---
 
@@ -353,7 +394,7 @@ If shots feel visually repetitive:
 
 If dialogue reverses feel spatially wrong:
 
-> Inspect `story_plan.json` for `staging`, `blocking`, `subject_position`, `facing_direction`, and `background_region`.
+> Inspect `plan.json` for `staging`, `blocking`, `subject_position`, `facing_direction`, and `background_region`.
 
 If still generation is too slow or too expensive:
 

@@ -26,7 +26,7 @@ class TestGrokReplicate(unittest.TestCase):
                 result = generate_grok_t2i("forest clearing", "/tmp/rep.png")
         self.assertEqual(result["status"], "success")
         inp = mock_run.call_args[1]["input"]
-        self.assertEqual(inp["aspect_ratio"], "16:9")
+        self.assertEqual(inp["aspect_ratio"], "2048x1152")
         self.assertEqual(inp["quality"], "low")
         self.assertEqual(inp["output_format"], "png")
         self.assertNotIn("input_images", inp)
@@ -127,8 +127,8 @@ class TestGrokReplicate(unittest.TestCase):
                 )
         self.assertEqual(result["status"], "success")
         inp = mock_run.call_args[1]["input"]
-        self.assertEqual(inp["size"], "2048x1024")
-        self.assertNotIn("aspect_ratio", inp)
+        self.assertEqual(inp["aspect_ratio"], "2048x1152")
+        self.assertNotIn("size", inp)
 
     @patch("tools.grok_image_common.httpx.get")
     @patch("tools.grok_replicate.replicate.Client")
@@ -158,7 +158,7 @@ class TestGrokReplicate(unittest.TestCase):
 
     @patch("tools.grok_image_common.httpx.get")
     @patch("tools.grok_replicate.replicate.Client")
-    def test_gpt_image_edit_accepts_custom_size(self, mock_client_cls, mock_get):
+    def test_gpt_image_edit_accepts_aspect_ratio(self, mock_client_cls, mock_get):
         mock_run = mock_client_cls.return_value.run
         mock_run.return_value = ["https://replicate.delivery/edit-size.png"]
         mock_get.return_value = MagicMock(
@@ -177,12 +177,41 @@ class TestGrokReplicate(unittest.TestCase):
                     "storyboard sheet",
                     ["https://example.com/ref.png"],
                     "/tmp/edit-size.png",
+                    size="16:9",
+                )
+        self.assertEqual(result["status"], "success")
+        inp = mock_run.call_args[1]["input"]
+        # Ratio aliases bump to Replicate 2K pixel enums
+        self.assertEqual(inp["aspect_ratio"], "2048x1152")
+        self.assertNotIn("size", inp)
+
+    @patch("tools.grok_image_common.httpx.get")
+    @patch("tools.grok_replicate.replicate.Client")
+    def test_gpt_image_passes_pixel_enum_through(self, mock_client_cls, mock_get):
+        mock_run = mock_client_cls.return_value.run
+        mock_run.return_value = ["https://replicate.delivery/edit-legacy.png"]
+        mock_get.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"pngbytes",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "REPLICATE_API_TOKEN": "r8_test",
+                "GROK_REPLICATE_MODEL": "openai/gpt-image-2",
+            },
+        ):
+            with patch("tools.grok_replicate.config.GROK_REPLICATE_MODEL", "openai/gpt-image-2"):
+                result = generate_grok_edit(
+                    "storyboard sheet",
+                    ["https://example.com/ref.png"],
+                    "/tmp/edit-legacy.png",
                     size="2048x1152",
                 )
         self.assertEqual(result["status"], "success")
         inp = mock_run.call_args[1]["input"]
-        self.assertEqual(inp["size"], "2048x1152")
-
+        self.assertEqual(inp["aspect_ratio"], "2048x1152")
+        self.assertNotIn("size", inp)
 
 if __name__ == "__main__":
     unittest.main()

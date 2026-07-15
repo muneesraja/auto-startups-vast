@@ -146,18 +146,39 @@ def build_video_shot_vision_context(
     motion_arc: str,
     audio_shots: dict,
     characters: list[dict],
+    anchor_panel_id: str | None = None,
+    anchor_characters_present: list[str] | None = None,
 ) -> str:
     beat_list = []
     for i, shot in enumerate(member_shots, start=1):
         beat_list.append(
-            f"  {i}. {shot.get('shot_id')}: {shot.get('description', '')} | motion_intent={shot.get('motion_intent', '')}"
+            f"  {i}. {shot.get('shot_id')}: {shot.get('description', '')} | "
+            f"motion_intent={shot.get('motion_intent', '')} | "
+            f"characters_present={shot.get('characters_present') or []}"
         )
 
+    anchor_cast = [c for c in (anchor_characters_present or []) if c]
+    anchor_set = set(anchor_cast)
+    allowed_chars = [
+        c for c in characters if c.get("id") in anchor_set
+    ] if anchor_set else []
+    forbidden_chars = [
+        c for c in characters if c.get("id") and c.get("id") not in anchor_set
+    ]
+
     char_lines = []
-    for c in characters:
+    for c in allowed_chars:
         char_lines.append(
             f"- {c.get('id')}: {c.get('name')} — {c.get('appearance', '')}"
         )
+    if not char_lines:
+        char_lines.append("- (none — environment-only start frame)")
+
+    forbid_lines = []
+    for c in forbidden_chars:
+        forbid_lines.append(f"- {c.get('id')}: {c.get('name')}")
+    if not forbid_lines:
+        forbid_lines.append("- (none)")
 
     audio_blocks = []
     for shot in member_shots:
@@ -167,6 +188,13 @@ def build_video_shot_vision_context(
         audio_blocks.append(
             f"{sid}: {json.dumps(audio_shots.get(sid, {}), ensure_ascii=False)}"
         )
+
+    empty_note = (
+        "EMPTY ANCHOR: do not introduce people or roster animals. "
+        "Camera + environment micro-motion only."
+        if not anchor_cast
+        else "Only animate roles listed under allowed anchor cast."
+    )
 
     return f"""## Scene context
 scene_id: {scene.get('scene_id')}
@@ -178,24 +206,34 @@ staging: {scene.get('staging', '')}
 
 ## Video shot context
 video_shot_id: {video_shot_id}
+anchor_panel_id: {anchor_panel_id or ''}
+anchor_characters_present: {anchor_cast}
 duration_seconds: {duration_seconds}
 pace: {pace}
 motion_arc: {motion_arc}
 panel_count: {len(member_shots)}
+start_frame_rule: {empty_note}
 
 ### Ordered panel beats to cover in one continuous clip
+(Beats must remain start-frame faithful — do not invent forbidden cast.)
 {chr(10).join(beat_list)}
 
-## Character roster (map audio character_id to on-screen roles — do not use names in motion text)
+## Allowed anchor cast (roles OK in motion text — do not use names)
 {chr(10).join(char_lines)}
+
+## Forbidden cast (do NOT introduce these subjects)
+{chr(10).join(forbid_lines)}
 
 ## Audio guidance (from grouped panel shots)
 {chr(10).join(audio_blocks)}
 
-Write one LTX motion_prompt paragraph for the attached anchor start frame. Cover the ordered beats as a single continuous action arc."""
+Write one LTX motion_prompt paragraph for the attached anchor start frame. Cover only actions possible from subjects visible in that frame."""
 
 
 async def vision_motion_prompter(ctx: Context) -> None:
+    if os.getenv("SMOKE_SKIP_VISION", "").lower() in ("1", "true", "yes"):
+        print("⏭️ [vision_motion_prompter] SMOKE_SKIP_VISION — skipping")
+        return
     output_dir = ctx.state.get("output_dir")
     specs = _load_specs(ctx)
     pipeline_mode = ctx.state.get("pipeline_mode") or "per_shot"
@@ -314,15 +352,21 @@ async def vision_motion_prompter(ctx: Context) -> None:
                 print(f"  ⚠️ [vision_motion] {video_shot_id} has no member panel context")
                 return
 
+            anchor_found = shot_lookup.get(anchor_panel_id)
+            anchor_shot = anchor_found[1] if anchor_found else {}
+            anchor_cast = list(anchor_shot.get("characters_present") or [])
+
             user_text = build_video_shot_vision_context(
                 video_shot_id=video_shot_id,
                 scene=scene,
                 member_shots=member_shots,
-                duration_seconds=int(vshot.get("duration_seconds", 3)),
+                duration_seconds=int(vshot.get("duration_seconds", 8)),
                 pace=str(vshot.get("pace") or "medium"),
                 motion_arc=str(vshot.get("motion_arc") or ""),
                 audio_shots=audio_shots,
                 characters=characters,
+                anchor_panel_id=anchor_panel_id,
+                anchor_characters_present=anchor_cast,
             )
 
             async with sem:
@@ -338,7 +382,7 @@ async def vision_motion_prompter(ctx: Context) -> None:
             motion_entry["vision_source_image"] = image_path
             motion_entry["status"] = "prompted"
             motion_entry["shot_id"] = video_shot_id
-            motion_entry["duration_seconds"] = int(vshot.get("duration_seconds", 3))
+            motion_entry["duration_seconds"] = int(vshot.get("duration_seconds", 8))
             motion_entry["pace"] = str(vshot.get("pace") or "medium")
             motion_entry["motion_intent"] = str(vshot.get("motion_arc") or "")
             motion_entry["camera_intent"] = "storyboard_grouped"

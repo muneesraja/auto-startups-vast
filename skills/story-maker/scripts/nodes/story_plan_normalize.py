@@ -17,7 +17,7 @@ _VALID_FRAME_STRATEGIES = frozenset(
 
 
 def _infer_time_of_day(text: str) -> str:
-    lower = text.lower()
+    lower = str(text or "").lower()
     if any(w in lower for w in ("night", "moon", "stars", "twilight", "dusk")):
         return "night"
     if any(w in lower for w in ("evening", "sunset", "golden hour")):
@@ -28,7 +28,7 @@ def _infer_time_of_day(text: str) -> str:
 
 
 def _infer_lighting(text: str) -> str:
-    lower = text.lower()
+    lower = str(text or "").lower()
     if "neon" in lower or "glow" in lower:
         return "Colorful neon glow with soft ambient fill"
     if "sunbeam" in lower or "sunlight" in lower or "golden" in lower:

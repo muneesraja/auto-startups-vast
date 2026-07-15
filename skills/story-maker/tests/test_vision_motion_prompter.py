@@ -86,23 +86,83 @@ class TestVisionContextAssembly(unittest.TestCase):
             "staging": "path center",
         }
         member_shots = [
-            {"shot_id": "scene_01_shot_01", "description": "Naila runs", "motion_intent": "dashes"},
-            {"shot_id": "scene_01_shot_02", "description": "Father follows", "motion_intent": "catches up"},
+            {
+                "shot_id": "scene_01_shot_01",
+                "description": "Empty gate",
+                "motion_intent": "birds cross",
+                "characters_present": [],
+            },
         ]
         text = build_video_shot_vision_context(
             video_shot_id="scene_01_vshot_01",
             scene=scene,
             member_shots=member_shots,
-            duration_seconds=4,
+            duration_seconds=8,
             pace="fast",
-            motion_arc="Naila runs then father catches up.",
+            motion_arc="Light sweeps and birds cross.",
             audio_shots={},
-            characters=[{"id": "naila", "name": "Naila", "appearance": "green dress"}],
+            characters=[
+                {"id": "char_01", "name": "Naila", "appearance": "green dress"},
+                {"id": "char_03", "name": "Azhagi", "appearance": "dog"},
+            ],
+            anchor_panel_id="scene_01_shot_01",
+            anchor_characters_present=[],
         )
         self.assertIn("video_shot_id: scene_01_vshot_01", text)
-        self.assertIn("duration_seconds: 4", text)
-        self.assertIn("scene_01_shot_01", text)
-        self.assertIn("motion_arc: Naila runs then father catches up.", text)
+        self.assertIn("duration_seconds: 8", text)
+        self.assertIn("anchor_characters_present: []", text)
+        self.assertIn("EMPTY ANCHOR", text)
+        self.assertIn("Forbidden cast", text)
+        self.assertIn("char_01: Naila", text)
+        self.assertIn("environment-only start frame", text)
+
+    def test_build_video_shot_context_allowed_cast(self):
+        text = build_video_shot_vision_context(
+            video_shot_id="scene_01_vshot_02",
+            scene={"scene_id": "scene_01", "title": "t", "environment": "e", "time_of_day": "d", "lighting": "l"},
+            member_shots=[
+                {
+                    "shot_id": "scene_01_shot_04",
+                    "description": "Push gates",
+                    "motion_intent": "gates swing",
+                    "characters_present": ["char_01", "char_02"],
+                }
+            ],
+            duration_seconds=8,
+            pace="fast",
+            motion_arc="Gates swing outward.",
+            audio_shots={},
+            characters=[
+                {"id": "char_01", "name": "Naila", "appearance": "a"},
+                {"id": "char_02", "name": "Father", "appearance": "b"},
+                {"id": "char_03", "name": "Azhagi", "appearance": "dog"},
+            ],
+            anchor_panel_id="scene_01_shot_04",
+            anchor_characters_present=["char_01", "char_02"],
+        )
+        self.assertIn("anchor_characters_present: ['char_01', 'char_02']", text)
+        self.assertIn("char_01: Naila", text)
+        self.assertIn("char_03: Azhagi", text)
+        self.assertIn("Forbidden cast", text)
+        self.assertIn("Only animate roles listed", text)
+
+    def test_vision_prompt_files_include_anti_freeze_density(self):
+        root = os.path.join(_SKILL_DIR, "prompts")
+        for rel in (
+            "vision_motion_prompter.md",
+            "reel_v2/vision_motion_prompter.md",
+            "reels/vision_motion_prompter.md",
+        ):
+            path = os.path.join(root, rel)
+            with open(path, encoding="utf-8") as f:
+                text = f.read().lower()
+            self.assertIn("anti-freeze", text)
+            self.assertIn("primary", text)
+            self.assertRegex(text, r"\b6\b")
+            self.assertRegex(text, r"\b8\b")
+            self.assertRegex(text, r"\b10\b")
+            self.assertIn("never use", text)
+            self.assertIn("smooth cinematic motion", text)
 
     def test_find_shot_context(self):
         story = {

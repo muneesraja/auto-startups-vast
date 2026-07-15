@@ -58,8 +58,9 @@ def _scene_in_scope(scene_id: str, only_scenes: list[str] | None) -> bool:
 
 
 def _chars_in_scope(specs: dict, only_scenes: list[str] | None) -> set[str]:
+    all_chars = set(specs.get("character_sheets", {}).keys())
     if not only_scenes:
-        return set(specs.get("character_sheets", {}).keys())
+        return all_chars
     char_ids: set[str] = set()
     for shot_id, entry in specs.get("shot_images", {}).items():
         if not _shot_in_scope(shot_id, only_scenes):
@@ -69,7 +70,8 @@ def _chars_in_scope(specs: dict, only_scenes: list[str] | None) -> set[str]:
                 char_ids.add(slot["asset_id"])
         for cid in entry.get("characters_present", []):
             char_ids.add(cid)
-    return char_ids
+    # If scoped shots omit characters_present, still allow sheets so storyboard refs work.
+    return char_ids or all_chars
 
 
 def _load_specs(ctx: Context) -> dict:
@@ -198,6 +200,7 @@ def _url_reachable(url: str) -> bool:
 
 
 async def generate_character_sheets(ctx: Context) -> None:
+    import config
     from tools.fal_tools import generate_grok_t2i
     from tools.grok_replicate import upload_local_image
 
@@ -208,18 +211,31 @@ async def generate_character_sheets(ctx: Context) -> None:
     only_scenes = _only_scenes(ctx)
     style_id = (ctx.state.get("style_id") or "cinematic").strip().lower()
     profile = get_profile(style_id)
-    sheet_quality = "medium" if style_id == "reel_v2" else None
+    sheet_quality = config.REPLICATE_SHEET_QUALITY
     sheet_text_policy = (
         "production_labels" if profile.character_sheet_mode == "template" else "default"
     )
-    sheet_size = "1024x1536" if profile.character_sheet_mode == "template" else None
+    sheet_size = (
+        config.CHARACTER_SHEET_SIZE
+        if profile.character_sheet_mode == "template"
+        else config.BACKGROUND_IMAGE_SIZE
+    )
     chars_in_scope = _chars_in_scope(specs, only_scenes)
     chars_dir = os.path.join(output_dir, "characters")
     os.makedirs(chars_dir, exist_ok=True)
 
+    smoke_max_chars = int(os.getenv("SMOKE_MAX_CHARACTER_SHEETS", "0") or "0")
+    chars_done = 0
+
     for cid, entry in specs.get("character_sheets", {}).items():
         if cid not in chars_in_scope:
             continue
+        if smoke_max_chars > 0 and chars_done >= smoke_max_chars:
+            print(
+                f"  ⏭️ Smoke limit: skipping remaining character sheets "
+                f"after {smoke_max_chars}"
+            )
+            break
         out_path = os.path.join(chars_dir, f"{cid}.png")
         local_path = entry.get("output_path") or out_path
         if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
@@ -240,6 +256,7 @@ async def generate_character_sheets(ctx: Context) -> None:
             entry["fal_image_url"] = url
             entry["status"] = "completed"
             _save_specs(ctx, specs)
+            chars_done += 1
             continue
         prompt_box = [entry.get("sheet_prompt", "")]
         # Pre-soften infant language — GPT Image 2 often flags "baby" sheets.
@@ -272,6 +289,7 @@ async def generate_character_sheets(ctx: Context) -> None:
             entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"
         _save_specs(ctx, specs)
+        chars_done += 1
 
     _save_specs(ctx, specs)
 
@@ -371,7 +389,7 @@ async def generate_videos(ctx: Context) -> None:
                     video_shot_id,
                     {"shot_id": video_shot_id, "status": "pending"},
                 )
-                motion_entry.setdefault("duration_seconds", vshot.get("duration_seconds", 3))
+                motion_entry.setdefault("duration_seconds", vshot.get("duration_seconds", 8))
                 motion_entry.setdefault("pace", vshot.get("pace", "medium"))
                 motion_entry.setdefault("scene_id", scene_id)
                 motion_entry.setdefault("anchor_panel_id", anchor_panel_id)
@@ -408,7 +426,37 @@ async def concat_final_film(ctx: Context) -> None:
     only_scenes = _only_scenes(ctx)
 
     video_paths = []
-    if pipeline_mode == "storyboard" and video_shot_plan.get("scenes"):
+    director_mode = False
+    try:
+        from scripts.nodes.storyboard_director_nodes import is_director_video_mode
+
+        director_mode = is_director_video_mode(ctx)
+    except Exception:
+        director_mode = False
+
+    if director_mode and pipeline_mode == "storyboard":
+        scenes_plans = specs.get("storyboard_video_scenes") or specs.get("flf2v_scenes") or {}
+        plan_raw = ctx.state.get("plan_content") or story
+        plan = clean_json_str(plan_raw) if isinstance(plan_raw, str) else (plan_raw or {})
+        for scene in plan.get("scenes") or []:
+            scene_id = scene.get("scene_id")
+            if not _scene_in_scope(scene_id, only_scenes):
+                continue
+            scene_plan = scenes_plans.get(scene_id) or {}
+            clips = scene_plan.get("clips") or []
+            if not clips and scene_plan.get("segments"):
+                clips = [
+                    c
+                    for seg in scene_plan["segments"]
+                    for c in (seg.get("clips") or [])
+                ]
+            for clip in clips:
+                path = clip.get("output_path")
+                clip_id = clip.get("clip_id")
+                if not path or not os.path.isfile(path):
+                    raise RuntimeError(f"Missing director video for {clip_id}")
+                video_paths.append(path)
+    elif pipeline_mode == "storyboard" and video_shot_plan.get("scenes"):
         for scene in video_shot_plan.get("scenes", []):
             scene_id = scene.get("scene_id")
             if not _scene_in_scope(scene_id, only_scenes):
@@ -448,12 +496,126 @@ async def concat_final_film(ctx: Context) -> None:
         raise RuntimeError(result.get("message", "concat failed"))
 
 
+
+async def generate_location_sheets(ctx: Context) -> None:
+    """Generate reel_v2 location lock plates (empty-stage establishing images)."""
+    import config
+    from tools.fal_tools import generate_grok_t2i
+    from tools.grok_replicate import upload_local_image
+
+    pipeline_mode = (ctx.state.get("pipeline_mode") or "").strip().lower()
+    if pipeline_mode != "storyboard":
+        print("ℹ️ [generate_location_sheets] Skipped (not storyboard mode)")
+        return
+
+    output_dir = ctx.state["output_dir"]
+    specs = _load_specs(ctx)
+    locs = specs.get("location_sheets") or {}
+    if not locs:
+        print("ℹ️ [generate_location_sheets] No location_sheets in specs")
+        return
+
+    locs_dir = os.path.join(output_dir, "locations")
+    os.makedirs(locs_dir, exist_ok=True)
+    sheet_quality = config.REPLICATE_SHEET_QUALITY
+    sheet_size = config.BACKGROUND_IMAGE_SIZE
+    smoke_max = int(os.getenv("SMOKE_MAX_LOCATION_SHEETS", "0") or "0")
+    done = 0
+
+    only_scenes = _only_scenes(ctx)
+    needed_ids: set[str] | None = None
+    if only_scenes:
+        # Limit to locations referenced by in-scope scenes when possible.
+        try:
+            plan_raw = ctx.state.get("plan_content") or ctx.state.get("story_plan_content")
+            plan = clean_json_str(plan_raw) if isinstance(plan_raw, str) else (plan_raw or {})
+            needed_ids = set()
+            for scene in plan.get("scenes") or []:
+                if not isinstance(scene, dict):
+                    continue
+                if scene.get("scene_id") not in only_scenes:
+                    continue
+                lid = (scene.get("location_id") or "").strip()
+                if lid:
+                    needed_ids.add(lid)
+            if not needed_ids:
+                needed_ids = None
+        except Exception:
+            needed_ids = None
+
+    for lid, entry in locs.items():
+        if needed_ids is not None and lid not in needed_ids:
+            continue
+        if smoke_max > 0 and done >= smoke_max:
+            print(f"  ⏭️ Smoke limit: skipping remaining location sheets after {smoke_max}")
+            break
+        out_path = entry.get("output_path") or os.path.join(locs_dir, f"{lid}.png")
+        local_path = out_path
+        if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
+            url = entry.get("fal_image_url") or ""
+            needs_upload = (
+                not url
+                or "replicate.delivery/" in url
+                or (
+                    "api.replicate.com/v1/files/" not in url
+                    and not _url_reachable(url)
+                )
+            )
+            if needs_upload:
+                print(f"  Re-uploading location sheet: {lid}")
+                url = await asyncio.to_thread(upload_local_image, local_path)
+            entry["output_path"] = local_path
+            entry["fal_image_url"] = url
+            entry["status"] = "completed"
+            _save_specs(ctx, specs)
+            done += 1
+            continue
+
+        prompt_box = [entry.get("sheet_prompt", "")]
+        prompt_box[0] = soften_moderation_prompt(prompt_box[0])
+        entry["sheet_prompt"] = prompt_box[0]
+        print(f"  Location sheet: {lid}")
+
+        def _gen(path=out_path):
+            return generate_grok_t2i(
+                prompt_box[0],
+                path,
+                quality=sheet_quality,
+                size=sheet_size,
+                text_policy="no_text",
+            )
+
+        def _soften(_err: str, attempt: int) -> None:
+            before = prompt_box[0]
+            prompt_box[0] = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            if prompt_box[0] != before:
+                entry["sheet_prompt"] = prompt_box[0]
+                print(f"   Softened location prompt for moderation: {lid}")
+
+        result = await retry_async(
+            _gen, f"location sheet {lid}", on_sensitive=_soften
+        )
+        entry["output_path"] = result["generated_image_path"]
+        entry["fal_image_url"] = result["fal_image_url"]
+        if result.get("revised_prompt"):
+            entry["revised_prompt"] = result["revised_prompt"]
+        entry["status"] = "completed"
+        _save_specs(ctx, specs)
+        done += 1
+
+    _save_specs(ctx, specs)
+    print(f"✅ [generate_location_sheets] Completed {done} location sheet(s)")
+
+
 generation_router_node = FunctionNode(func=generation_router, name="generation_router_node")
 background_generator_node = FunctionNode(
     func=generate_backgrounds, name="background_generator_node"
 )
 character_sheet_generator_node = FunctionNode(
     func=generate_character_sheets, name="character_sheet_generator_node"
+)
+location_sheet_generator_node = FunctionNode(
+    func=generate_location_sheets, name="location_sheet_generator_node"
 )
 shot_image_generator_node = FunctionNode(
     func=generate_shot_images, name="shot_image_generator_node"

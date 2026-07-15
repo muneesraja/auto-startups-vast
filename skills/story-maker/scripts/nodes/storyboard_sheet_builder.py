@@ -78,16 +78,25 @@ def _shot_action(shot: dict[str, Any]) -> str:
 
 
 def build_grid_layout_instruction(panel_count: int, panels_per_sheet: int) -> str:
-    """Require a fully painted board — no blank panel cells."""
+    """Require a fully painted photo-album board — no blank panel cells."""
     if panel_count >= panels_per_sheet:
         return (
-            f"Arrange exactly {panel_count} storyboard panels in a 2 rows × 5 columns grid. "
-            "Every grid cell must contain a fully rendered cinematic panel with painted scene content."
+            f"Arrange exactly {panel_count} cinematic stills in a 5 rows × 2 columns grid "
+            "on a tall 9:16 portrait page (photo album / contact sheet). "
+            "Each panel frame itself must be a landscape 16:9 cinematic still (wider than tall), "
+            "not a portrait frame. "
+            "Use only thin uniform black or white gutters as separators. "
+            "Every grid cell must contain a fully rendered cinematic panel with painted scene content. "
+            "No text, labels, headers, captions, or timeline on the page."
         )
     return (
-        f"Arrange exactly {panel_count} storyboard panels across the full 2 rows × 5 columns sheet area. "
-        "Scale and compose panels so the entire storyboard canvas is filled with cinematic artwork. "
-        "CRITICAL: no blank, white, empty, or placeholder panel cells anywhere on the page."
+        f"Arrange exactly {panel_count} cinematic stills across a 5 rows × 2 columns album grid "
+        "on a tall 9:16 portrait page. "
+        "Each panel frame itself must be a landscape 16:9 cinematic still (wider than tall), "
+        "not a portrait frame. "
+        "Column width drives panel width; keep each panel 16:9 and let leftover vertical space "
+        "become the same thin gutter/background between rows — never fill with captions. "
+        "CRITICAL: no blank, white, empty, or placeholder panel cells; no on-page typography."
     )
 
 
@@ -160,19 +169,94 @@ def resolve_character_consistency(
     return "\n".join(lines)
 
 
-def resolve_environment_block(scene: dict[str, Any]) -> str:
-    """Merge scene metadata with research environment canon."""
+def resolve_location_def(
+    scene: dict[str, Any],
+    locations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve plan location for a scene by location_id."""
+    lid = (scene.get("location_id") or "").strip()
+    if not lid or not locations:
+        return None
+    for loc in locations:
+        if isinstance(loc, dict) and (loc.get("id") or "").strip() == lid:
+            return loc
+    return None
+
+
+def resolve_environment_block(
+    scene: dict[str, Any],
+    locations: list[dict[str, Any]] | None = None,
+) -> str:
+    """Prefer plan location description; fall back to thin ENVIRONMENT_CANON details."""
     bits = [
-        scene.get("environment", "").strip(),
-        scene.get("time_of_day", "").strip(),
-        scene.get("lighting", "").strip(),
-        scene.get("staging", "").strip(),
+        (scene.get("environment") or "").strip(),
+        (scene.get("time_of_day") or "").strip(),
+        (scene.get("lighting") or "").strip(),
+        (scene.get("staging") or "").strip(),
     ]
     scene_text = ". ".join(bit for bit in bits if bit)
+    loc = resolve_location_def(scene, locations)
+    if loc:
+        name = (loc.get("name") or loc.get("id") or "").strip()
+        description = (loc.get("description") or name).strip()
+        establishing = (loc.get("establishing_prompt") or "").strip()
+        parts = [
+            f"Location lock ({loc.get('id') or ''}): {name}.",
+            description,
+        ]
+        if establishing:
+            parts.append(establishing)
+        if scene_text:
+            parts.append(f"Scene-specific staging:\n{scene_text}")
+        return "\n\n".join(p for p in parts if p)
+
+    # Thin fallback when plan locations are absent (legacy Naila research canon).
     detail_lines = "\n".join(f"• {item}" for item in ENVIRONMENT_DETAILS)
     if scene_text:
         return f"{ENVIRONMENT_CANON}\n\nScene-specific staging:\n{scene_text}\n\n{detail_lines}"
     return f"{ENVIRONMENT_CANON}\n\n{detail_lines}"
+
+
+def build_reference_roles_block(
+    *,
+    has_location: bool,
+    has_previous_sheet: bool,
+    character_ids: list[str],
+) -> str:
+    """Label attached edit refs for the image model."""
+    lines: list[str] = []
+    idx = 1
+    if has_location:
+        lines.append(
+            f"{idx}. LOCATION LOCK — match world geometry, landmarks, and lighting from this plate."
+        )
+        idx += 1
+    if has_previous_sheet:
+        lines.append(
+            f"{idx}. PREVIOUS STORYBOARD SHEET — continue visual continuity after its final panels "
+            "(same world, character look, lighting language)."
+        )
+        idx += 1
+    if character_ids:
+        labels = ", ".join(character_ids)
+        lines.append(
+            f"{idx}. CHARACTER SHEETS ({labels}) — keep identity, wardrobe, and proportions locked."
+        )
+    if not lines:
+        return "No reference images attached; invent a coherent world from the written brief."
+    return "\n".join(lines)
+
+
+def build_continuity_note(*, continuity_from_sheet_id: str | None) -> str:
+    if not continuity_from_sheet_id:
+        return (
+            "Continuity: this is the first storyboard sheet — establish the world cleanly from the "
+            "location lock and character sheets."
+        )
+    return (
+        f"Continuity: continue immediately after previous sheet `{continuity_from_sheet_id}`. "
+        "Preserve screen direction, wardrobe, and environment layout from that sheet's last panels."
+    )
 
 
 def build_storyboard_sheet_prompt(
@@ -186,6 +270,10 @@ def build_storyboard_sheet_prompt(
     global_shot_offset: int = 0,
     template: str | None = None,
     style_id: str | None = "reel_v2",
+    locations: list[dict[str, Any]] | None = None,
+    continuity_from_sheet_id: str | None = None,
+    has_location_ref: bool = False,
+    has_previous_sheet_ref: bool = False,
 ) -> str:
     """Build a full production storyboard-sheet prompt for one sheet chunk."""
     char_ids: list[str] = []
@@ -209,7 +297,15 @@ def build_storyboard_sheet_prompt(
         panels_per_sheet=panels_per_sheet,
         grid_layout_instruction=build_grid_layout_instruction(len(shots), panels_per_sheet),
         character_consistency=resolve_character_consistency(char_ids, story_characters),
-        environment_block=resolve_environment_block(scene),
+        environment_block=resolve_environment_block(scene, locations),
+        reference_roles=build_reference_roles_block(
+            has_location=has_location_ref,
+            has_previous_sheet=has_previous_sheet_ref,
+            character_ids=char_ids,
+        ),
+        continuity_note=build_continuity_note(
+            continuity_from_sheet_id=continuity_from_sheet_id
+        ),
         shot_listing=build_shot_listing(shots, start_index=start_index),
         panel_lines=build_panel_lines(shots, start_index=start_index),
         render_style=render_style,

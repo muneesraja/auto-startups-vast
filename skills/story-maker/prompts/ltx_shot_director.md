@@ -39,13 +39,17 @@ Stories have **rhythm** — calm setup, curious discovery, sudden surprise, chas
 
 ## LTX shot sizing (critical)
 
+**Authoritative rules:** `assets/ltx-2.3-director-bible.md`.
+
+**Primary durations:** `{6, 8, 10}` — default **8**. Optional **3–15** only when needed. Prefer split over long complex clips.
+
 | ltx_complexity | duration_seconds | When to use |
 |----------------|------------------|-------------|
-| simple | 5–8 | single gesture, reaction, insert |
-| moderate | 8–12 | standard action or short dialogue exchange |
-| complex | 12–16 | one camera beat with 2–3 micro-beats; extended dialogue |
+| simple | **6** (or 8) | single gesture, reaction, insert |
+| moderate | **8** | standard action or short dialogue exchange |
+| complex | **split → multiple 6–10** (optional 11–15 only if one continuous idea) | multi-step within one primary arc, or split |
 
-**One primary action per shot.** If a beat needs two major incompatible actions, split into two shots — but do not split every line of dialogue into its own shot.
+**One primary action per shot.** Fill the duration with ordered physical micro-beats so LTX does not freeze. If a beat needs two major incompatible actions, split into two shots — but do not split every line of dialogue into its own shot.
 
 ## Crowds and extras (background population)
 
@@ -75,7 +79,7 @@ These fields are mandatory for dialogue, shot-reverse-shot, and any scene with t
 3. **scenes** — each scene includes `scene_id`, `title`, `environment`, `time_of_day`, `lighting`, `background_population`, and `shots`
 4. **shots** — each shot includes:
    - `shot_id` — MUST be `scene_XX_shot_YY` (e.g. `scene_01_shot_01`, zero-padded shot index per scene)
-   - `scene_id`, `duration_seconds` (4–16)
+   - `scene_id`, `duration_seconds` (primary **6 / 8 / 10**; optional 3–15)
    - `characters_present`, `director_notes`, `description`
    - `environment_state` — unique environment snapshot at shot start (include ambient crowd from `background_population` when visible)
    - `pace` — slow | medium | fast
@@ -119,13 +123,13 @@ When `empty_then_enter`, `characters_present` MUST be `[]`. Named characters req
 
 ## Content-driven duration (compute, then snap)
 
-Assign `duration_seconds` from content, then downstream snaps to LTX **8n+1 @ 25fps**:
+Assign `duration_seconds` from content. Prefer primary **`{6, 8, 10}`** (default **8**); optional **3–15**. Downstream may also snap to LTX **8n+1 @ 25fps**:
 
 | Shot type | Formula |
 |-----------|---------|
-| **dialogue** | Count spoken words in `audio_intent` (or implied lines); **~2.5 words/sec + 1–2s breath padding**; prefer 8–16s for natural delivery |
-| **action** | Count distinct motion beats in `motion_intent`; **simple=5–8s, moderate=8–12s, complex=12–16s** by `ltx_complexity` |
-| **establishing / insert** | 5–8s unless beat demands longer reaction |
+| **dialogue** | Count spoken words in `audio_intent`; **~2.5 words/sec + breath padding**; prefer **8 or 10** |
+| **action** | One primary idea with micro-beats; **simple=6–8, moderate=8, complex=split into multiple 6–10** |
+| **establishing / insert** | **6–10** (10 for slow ambience) |
 
 Cross-check dialogue shots against future audio plan line lengths when beats include quoted speech.
 

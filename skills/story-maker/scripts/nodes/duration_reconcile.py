@@ -1,4 +1,4 @@
-"""Per-scene duration reconciliation against narrative outline budgets."""
+"""Per-scene duration reconciliation against budgets."""
 from __future__ import annotations
 
 from tools.workflow_builder import snap_duration_seconds
@@ -11,6 +11,21 @@ def scene_budgets(outline: dict) -> dict[str, int]:
             sid = scene.get("scene_id")
             if sid:
                 budgets[sid] = int(scene.get("duration_budget_seconds", 0))
+    return budgets
+
+
+def scene_budgets_from_plan_scenes(story_or_plan: dict) -> dict[str, int]:
+    budgets: dict[str, int] = {}
+    for scene in story_or_plan.get("scenes", []):
+        sid = scene.get("scene_id")
+        if not sid:
+            continue
+        if scene.get("duration_budget_seconds") is not None:
+            budgets[sid] = int(scene["duration_budget_seconds"])
+        else:
+            budgets[sid] = sum(
+                int(sh.get("duration_seconds", 0)) for sh in scene.get("shots", [])
+            )
     return budgets
 
 
@@ -27,16 +42,15 @@ def recompute_meta(story: dict) -> None:
     meta["total_duration_seconds"] = total
 
 
-def reconcile_scene_durations(
+def reconcile_against_budgets(
     story: dict,
-    outline: dict,
+    budgets: dict[str, int],
     *,
     tolerance_percent: int = 15,
-    min_shot_seconds: int = 4,
-    max_shot_seconds: int = 16,
+    min_shot_seconds: int = 6,
+    max_shot_seconds: int = 10,
 ) -> dict:
-    """Rebalance shot durations within each scene toward outline scene budgets."""
-    budgets = scene_budgets(outline)
+    """Rebalance shot durations within each scene toward provided budgets."""
     if not budgets:
         return story
 
@@ -83,3 +97,24 @@ def reconcile_scene_durations(
 
     recompute_meta(story)
     return story
+
+
+def reconcile_scene_durations(
+    story: dict,
+    outline: dict,
+    *,
+    tolerance_percent: int = 15,
+    min_shot_seconds: int = 6,
+    max_shot_seconds: int = 10,
+) -> dict:
+    """Rebalance shot durations within each scene toward outline scene budgets."""
+    budgets = scene_budgets(outline)
+    if not budgets:
+        return story
+    return reconcile_against_budgets(
+        story,
+        budgets,
+        tolerance_percent=tolerance_percent,
+        min_shot_seconds=min_shot_seconds,
+        max_shot_seconds=max_shot_seconds,
+    )

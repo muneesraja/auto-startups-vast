@@ -10,6 +10,8 @@ from tools.fal_tools import generate_grok_edit, generate_grok_t2i
 
 _REF_PATTERN = re.compile(r"\{\{+([^}]+)\}\}+")
 _MAX_RETRIES = int(os.getenv("GROK_IMAGE_MAX_RETRIES", "6"))
+# After this many E005/sensitive failures, stop retrying (strategy change gets 1 shot).
+_MAX_SENSITIVE_RETRIES = int(os.getenv("GROK_SENSITIVE_MAX_RETRIES", "1"))
 
 # GPT Image 2 moderation often flags photoreal infant language; rewrite toward
 # clearly stylized cartoon/Pixar toddler framing on E005 / sensitive failures.
@@ -24,6 +26,12 @@ _SENSITIVE_REPLACEMENTS = (
     (re.compile(r"\bshort limbs and round belly\b", re.I), "short cartoon limbs"),
     (re.compile(r"\bbaby proportions\b", re.I), "toddler cartoon proportions"),
     (re.compile(r"\bbaby\b", re.I), "toddler"),
+    # Age/gender labels on protagonists often trip GPT Image 2 E005 on storyboard edits.
+    (re.compile(r"\b\d+[-\s]?year[-\s]?old\b", re.I), ""),
+    (re.compile(r"\byoung girl\b", re.I), "Pixar animated character"),
+    (re.compile(r"\byoung boy\b", re.I), "Pixar animated character"),
+    (re.compile(r"\blittle girl\b", re.I), "Pixar animated character"),
+    (re.compile(r"\blittle boy\b", re.I), "Pixar animated character"),
 )
 
 
@@ -46,7 +54,7 @@ def soften_moderation_prompt(prompt: str, *, aggressive: bool = False) -> str:
     if aggressive or "pixar-style toddler" in text.lower() or "animated toddler" in text.lower():
         # Second-pass: drop age words entirely — moderation still flags "toddler".
         text = re.sub(
-            r"\b(toddler|child|kid|infant|newborn|baby)\b",
+            r"\b(toddler|child|kid|infant|newborn|baby|girl|boy)\b",
             "character",
             text,
             flags=re.I,
@@ -54,7 +62,7 @@ def soften_moderation_prompt(prompt: str, *, aggressive: bool = False) -> str:
         text = re.sub(r"\b(young|tiny|little)\s+character\b", "character", text, flags=re.I)
     suffix = (
         " Family-friendly 3D animated movie character, stylized cartoon CGI, "
-        "not photorealistic, Pixar-style, safe for children."
+        "not photorealistic, Pixar-style."
     )
     if "not photorealistic" not in text.lower():
         text = text.rstrip() + suffix
@@ -93,16 +101,34 @@ async def retry_async(
     label: str,
     *,
     on_sensitive: Callable[[str, int], None] | None = None,
+    max_sensitive_retries: int | None = None,
 ):
+    """Retry image generation with a hard cap on moderation (E005) failures.
+
+    Transient errors (429 / internal) may use the full ``_MAX_RETRIES`` budget.
+    Sensitive failures call ``on_sensitive`` so callers can change strategy, then
+    allow at most ``max_sensitive_retries`` further attempts (default 1) so we
+    do not burn identical Replicate edit calls.
+    """
+    sensitive_cap = (
+        _MAX_SENSITIVE_RETRIES
+        if max_sensitive_retries is None
+        else max(0, int(max_sensitive_retries))
+    )
     last_err = None
+    sensitive_failures = 0
     for attempt in range(1, _MAX_RETRIES + 1):
         result = await asyncio.to_thread(fn)
         if result.get("status") == "success":
             return result
         last_err = result.get("message", "unknown error")
         print(f"   Retry {attempt}/{_MAX_RETRIES} {label}: {last_err}")
-        if on_sensitive and is_sensitive_error(last_err):
-            on_sensitive(last_err, attempt)
+        if is_sensitive_error(last_err):
+            sensitive_failures += 1
+            if on_sensitive:
+                on_sensitive(last_err, attempt)
+            if sensitive_failures > sensitive_cap:
+                raise RuntimeError(f"{label} failed: {last_err}")
         await asyncio.sleep(_retry_delay(attempt, last_err))
     raise RuntimeError(f"{label} failed: {last_err}")
 

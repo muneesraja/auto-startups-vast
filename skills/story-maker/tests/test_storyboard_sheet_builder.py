@@ -8,6 +8,7 @@ if _SKILL_DIR not in sys.path:
 
 from profiles import get_profile  # noqa: E402
 from scripts.nodes.storyboard_sheet_builder import (  # noqa: E402
+    build_grid_layout_instruction,
     build_panel_lines,
     build_shot_listing,
     build_storyboard_sheet_prompt,
@@ -58,15 +59,31 @@ class TestStoryboardSheetBuilder(unittest.TestCase):
             sheet_number=1,
             render_style="Pixar CGI test style",
         )
-        self.assertIn("STORYBOARD SHEET 01", prompt)
+        self.assertIn("photo album", prompt.lower())
         self.assertIn("THE SANCTUARY HEART", prompt)
-        self.assertIn("2 rows × 5 columns", prompt)
+        self.assertIn("5 rows × 2 columns", prompt)
+        self.assertIn("9:16", prompt)
+        self.assertIn("16:9", prompt)
         self.assertIn("Maintain perfect character consistency", prompt)
         self.assertIn("Storyboard Sheet 01 includes these shots", prompt)
         self.assertIn("Panel-by-panel direction", prompt)
         self.assertIn("Extreme Wide Establishing", prompt)
         self.assertIn("Pixar CGI test style", prompt)
         self.assertIn("NEGATIVE PROMPT", prompt)
+        self.assertIn("text-free", prompt.lower())
+        self.assertIn("no typography", prompt.lower())
+        # On-page production chrome should not be required
+        self.assertNotIn('production header ("STORYBOARD SHEET', prompt)
+
+    def test_grid_layout_instruction_is_album_5x2(self):
+        full = build_grid_layout_instruction(10, 10)
+        self.assertIn("5 rows × 2 columns", full)
+        self.assertIn("9:16", full)
+        self.assertIn("16:9", full)
+        self.assertNotIn("2 rows × 5 columns", full)
+        partial = build_grid_layout_instruction(3, 10)
+        self.assertIn("5 rows × 2 columns", partial)
+        self.assertIn("no blank", partial.lower())
 
     def test_environment_block_includes_canon(self):
         block = resolve_environment_block({"environment": "clearing with swing"})

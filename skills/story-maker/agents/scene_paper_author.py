@@ -4,7 +4,8 @@ from agents._base import make_text_agent
 _EXTRA = (
     "\n\nCRITICAL: Return ONLY the scene paper markdown document. "
     "No JSON. Do not wrap the entire document in markdown code fences.\n\n"
-    "Raw story input:\n\n{story_text}\n\n"
+    "Developed story input (prefer this over raw author draft):\n\n{developed_story_text}\n\n"
+    "Raw story fallback (use only if developed story is empty):\n\n{story_text}\n\n"
     "Target duration: {target_duration_seconds} seconds (±{duration_tolerance_percent}%).\n"
     "Style profile: {style_id}\n"
     "Pipeline mode: {pipeline_mode}\n"

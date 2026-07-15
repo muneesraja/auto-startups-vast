@@ -51,6 +51,10 @@ DEFAULT_OUTPUT_BASE_DIR = os.getenv(
 )
 WORKFLOWS_DIR = os.path.join(config_dir, "assets", "workflow-templates")
 I2V_TEMPLATE_NAME = "ltx-i2v"
+FLF2V_TEMPLATE_NAME = os.getenv("FLF2V_TEMPLATE_NAME", "ltx-flf2v")
+# storyboard video path: "fallback" = existing video_shots I2V; "director" = assistant-director I2V/FLF
+STORYBOARD_VIDEO_MODE = os.getenv("STORYBOARD_VIDEO_MODE", "fallback").strip().lower()
+FLF_DURATION_TOLERANCE_PERCENT = int(os.getenv("FLF_DURATION_TOLERANCE_PERCENT", "15"))
 
 DEFAULT_PLANNING_MODEL = "openai/gpt-5.4-mini"
 DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))
@@ -61,11 +65,22 @@ DEFAULT_SECONDARY_REASONING_EFFORT = os.getenv("SECONDARY_REASONING_EFFORT", "lo
 DEFAULT_VISION_MODEL = "openai/gpt-5-mini"
 DEFAULT_CROP_ANALYSIS_MODEL = "openai/gpt-5.4-mini"
 
-DEFAULT_IMAGE_PROVIDER = "fal"
+DEFAULT_IMAGE_PROVIDER = "replicate"
 GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
+# Fallback quality when a call does not pass quality= explicitly
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
-BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "2048x1024")
-STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "2048x1152")
+# Sheet assets (character + storyboard): medium quality, 2K pixel enums from Replicate
+REPLICATE_SHEET_QUALITY = os.getenv("REPLICATE_SHEET_QUALITY", "medium")
+# Panel regen / shot stills from storyboard crops: low quality, still 2K landscape
+REPLICATE_PANEL_QUALITY = os.getenv("REPLICATE_PANEL_QUALITY", "low")
+# Replicate gpt-image-2 `aspect_ratio` accepts ratios OR pixel enums
+# (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
+CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "1152x2048")
+BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "2048x1152")
+STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "1152x2048")
+# Panel crop: python (white-gutter detect → uniform grid) | vision | auto
+STORYBOARD_CROP_MODE = os.getenv("STORYBOARD_CROP_MODE", "python")
+PANEL_IMAGE_SIZE = os.getenv("PANEL_IMAGE_SIZE", "2048x1152")
 COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.04"))
 COST_OPENROUTER_CALL = float(os.getenv("COST_OPENROUTER_CALL", "0.002"))
 COST_LTX_VIDEO = float(os.getenv("COST_LTX_VIDEO", "0.0"))
@@ -110,6 +125,10 @@ def _resolve_model_id(role_env: str, default: str) -> str:
     return os.getenv(role_env) or os.getenv("PLANNING_MODEL") or default
 
 
+def get_story_developer_model_id() -> str:
+    return _resolve_model_id("STORY_DEVELOPER_MODEL", DEFAULT_PLANNING_MODEL)
+
+
 def get_narrative_expander_model_id() -> str:
     return _resolve_model_id("NARRATIVE_EXPANDER_MODEL", DEFAULT_PLANNING_MODEL)
 
@@ -141,7 +160,11 @@ def get_crop_analysis_model_config() -> tuple[str, str | None, str | None]:
 
 
 def get_image_provider() -> str:
-    """Return active Grok image backend: fal | replicate."""
+    """Default still-image backend: fal | replicate.
+
+    Used for character/location sheets, panel regen, and shot stills.
+    Storyboard album sheets use :func:`get_storyboard_image_provider`.
+    """
     provider = (os.getenv("PROVIDER") or DEFAULT_IMAGE_PROVIDER).strip().lower()
     if provider not in ("fal", "replicate"):
         raise ValueError(f"Invalid PROVIDER={provider!r}; use 'fal' or 'replicate'")
@@ -154,8 +177,81 @@ def get_image_provider() -> str:
     return provider
 
 
-def get_image_ref_limit() -> int:
-    """Max reference image URLs per Grok edit call for the active provider/model."""
+def get_storyboard_image_provider() -> str:
+    """Backend for storyboard sheet generation only.
+
+    Defaults to ``fal`` (GPT Image 2) so album sheets can use high-ref
+    character continuity while panel regen / shot stills stay on Replicate
+    via :func:`get_image_provider`.
+    """
+    raw = (os.getenv("STORYBOARD_IMAGE_PROVIDER") or "fal").strip().lower()
+    if raw not in ("fal", "replicate"):
+        raise ValueError(
+            f"Invalid STORYBOARD_IMAGE_PROVIDER={raw!r}; use 'fal' or 'replicate'"
+        )
+    if raw == "fal" and not (FAL_KEY or os.environ.get("FAL_KEY")):
+        raise ValueError("STORYBOARD_IMAGE_PROVIDER=fal requires FAL_KEY in .env")
+    if raw == "replicate" and not (
+        REPLICATE_API_TOKEN or os.environ.get("REPLICATE_API_TOKEN")
+    ):
+        raise ValueError(
+            "STORYBOARD_IMAGE_PROVIDER=replicate requires REPLICATE_API_TOKEN in .env"
+        )
+    return raw
+
+
+def _validate_image_backend(provider: str, *, label: str) -> str:
+    resolved = (provider or "").strip().lower()
+    if resolved not in ("fal", "replicate"):
+        raise ValueError(f"Invalid {label}={provider!r}; use 'fal' or 'replicate'")
+    if resolved == "fal" and not (FAL_KEY or os.environ.get("FAL_KEY")):
+        raise ValueError(f"{label}=fal requires FAL_KEY in .env")
+    if resolved == "replicate" and not (
+        REPLICATE_API_TOKEN or os.environ.get("REPLICATE_API_TOKEN")
+    ):
+        raise ValueError(f"{label}=replicate requires REPLICATE_API_TOKEN in .env")
+    return resolved
+
+
+def get_panel_image_provider() -> str:
+    """Primary backend for panel / shot still regen.
+
+    ``PANEL_IMAGE_PROVIDER`` overrides ``PROVIDER`` (default replicate).
+    """
+    raw = (os.getenv("PANEL_IMAGE_PROVIDER") or "").strip().lower()
+    if raw:
+        return _validate_image_backend(raw, label="PANEL_IMAGE_PROVIDER")
+    return get_image_provider()
+
+
+def get_panel_image_fallback_provider() -> str | None:
+    """Optional secondary backend after primary panel regen fails.
+
+    Defaults to ``fal`` when primary is ``replicate`` and ``FAL_KEY`` is set.
+    Set ``PANEL_IMAGE_FALLBACK_PROVIDER=`` (empty) or ``none`` to disable.
+    """
+    raw = os.getenv("PANEL_IMAGE_FALLBACK_PROVIDER")
+    if raw is None:
+        # Sensible default: Replicate primary → fal GPT Image 2 fallback.
+        primary = get_panel_image_provider()
+        if primary == "replicate" and (FAL_KEY or os.environ.get("FAL_KEY")):
+            return "fal"
+        return None
+    cleaned = raw.strip().lower()
+    if cleaned in ("", "none", "off", "0", "false"):
+        return None
+    fallback = _validate_image_backend(cleaned, label="PANEL_IMAGE_FALLBACK_PROVIDER")
+    primary = get_panel_image_provider()
+    if fallback == primary:
+        return None
+    return fallback
+
+
+def get_image_ref_limit(provider: str | None = None) -> int:
+    """Max reference image URLs per edit call for a provider/model.
+
+    When ``provider`` is omitted, uses :func:`get_image_provider`.
+    """
     override = os.getenv("IMAGE_REF_LIMIT")
     if override is not None and str(override).strip():
         limit = int(override)
@@ -163,8 +259,17 @@ def get_image_ref_limit() -> int:
             raise ValueError(f"IMAGE_REF_LIMIT must be >= 1, got {limit}")
         return limit
 
-    provider = get_image_provider()
-    if provider == "fal":
+    resolved = (provider or get_image_provider()).strip().lower()
+    if resolved == "fal":
+        # fal openai/gpt-image-2 shares the GPT Image ref budget; legacy Grok stays at 3.
+        model = (
+            os.getenv("GROK_FAL_MODEL")
+            or os.getenv("GROK_REPLICATE_MODEL")
+            or GROK_REPLICATE_MODEL
+            or ""
+        ).lower()
+        if "gpt-image" in model:
+            return REPLICATE_GPT_IMAGE_REF_LIMIT
         return FAL_GROK_REF_LIMIT
 
     model = (os.getenv("GROK_REPLICATE_MODEL") or GROK_REPLICATE_MODEL or "").lower()
@@ -239,6 +344,14 @@ def get_light_model():
         get_secondary_model_id(),
         timeout=SECONDARY_MODEL_TIMEOUT,
         reasoning_effort=get_secondary_reasoning_effort(),
+    )
+
+
+def get_story_developer_model():
+    return get_llm(
+        get_story_developer_model_id(),
+        timeout=DEFAULT_PLANNING_TIMEOUT,
+        reasoning_effort=get_planning_reasoning_effort(),
     )
 
 

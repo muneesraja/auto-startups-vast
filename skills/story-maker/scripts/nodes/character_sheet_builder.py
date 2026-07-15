@@ -321,18 +321,45 @@ def _split_appearance_lines(appearance: str) -> list[str]:
     return [p.strip(" •-\t") for p in parts if p.strip(" •-\t")]
 
 
+def _has_word(text: str, word: str) -> bool:
+    """Whole-word match only — avoids 'man' matching inside 'mane'/'German'."""
+    return re.search(rf"\b{re.escape(word)}\b", text, flags=re.IGNORECASE) is not None
+
+
 def _infer_species(appearance: str, name: str) -> str:
+    """Infer species from appearance + name.
+
+    Animals are checked before humans so tokens like \"mane\" never flip a horse
+    to Human via a naive substring match on \"man\".
+    """
     lower = f"{appearance} {name}".lower()
-    if any(w in lower for w in ("human", "girl", "boy", "man", "woman", "father", "mother")):
+
+    animal_rules: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("horse", "pony", "mare", "stallion", "foal", "colt"), "Horse"),
+        (("dog", "retriever", "canine", "puppy", "hound"), "Dog"),
+        (("parrot",), "Parrot"),
+        (("bird",), "Bird"),
+        (("elephant",), "Elephant"),
+        (("deer", "fawn", "doe", "buck", "stag"), "Deer"),
+        (("cat", "kitten", "feline"), "Cat"),
+    )
+    for words, species in animal_rules:
+        if any(_has_word(lower, w) for w in words):
+            return species
+
+    human_words = (
+        "human",
+        "girl",
+        "boy",
+        "man",
+        "woman",
+        "father",
+        "mother",
+        "child",
+        "person",
+    )
+    if any(_has_word(lower, w) for w in human_words):
         return "Human"
-    if "dog" in lower or "retriever" in lower:
-        return "Dog"
-    if "parrot" in lower or "bird" in lower:
-        return "Bird"
-    if "elephant" in lower:
-        return "Elephant"
-    if "cat" in lower:
-        return "Cat"
     return "Character"
 
 
@@ -371,6 +398,47 @@ def _default_detail_closeups(species: str) -> list[str]:
     return ["Face", "Eyes", "Body markings", "Texture detail", "Limbs or wings", "Tail or feet"]
 
 
+_ACCESSORY_HINTS = (
+    "accessor",
+    "scarf",
+    "bag",
+    "satchel",
+    "belt",
+    "boot",
+    "shoe",
+    "bracelet",
+    "vest",
+    "hat",
+    "pack",
+    "collar",
+    "bead",
+    "patch",
+    "footwear",
+)
+
+
+def _accessories_for_sheet(
+    clothing_accessories: list[str],
+    detail_closeups: list[str],
+) -> list[str]:
+    """Prefer outfit/accessory bullets; fall back to accessory-like detail close-ups."""
+    out: list[str] = []
+    for item in clothing_accessories:
+        text = (item or "").strip()
+        if text and text not in out:
+            out.append(text)
+    if out:
+        return out[:8]
+    for item in detail_closeups:
+        text = (item or "").strip()
+        if not text:
+            continue
+        low = text.lower()
+        if any(h in low for h in _ACCESSORY_HINTS) and text not in out:
+            out.append(text)
+    return out[:8] or ["Key costume accessories as worn on the character"]
+
+
 def _default_scale_reference(name: str, species: str) -> str:
     label = name or "the character"
     if species.lower() == "human":
@@ -392,7 +460,11 @@ def resolve_character_sheet_fields(character: dict[str, Any]) -> dict[str, Any]:
     appearance = (character.get("appearance") or "").strip()
     canon = CHARACTER_CANON.get(cid, {})
 
-    species = canon.get("species") or _infer_species(appearance, name)
+    species = (
+        (character.get("species") or "").strip()
+        or canon.get("species")
+        or _infer_species(appearance, name)
+    )
     role = canon.get("role") or "Story Character"
     age = canon.get("age") or "Unspecified"
     role_description = canon.get("role_description") or appearance or f"Character in the story: {name}."
@@ -403,6 +475,8 @@ def resolve_character_sheet_fields(character: dict[str, Any]) -> dict[str, Any]:
         appearance_lines[1:] if len(appearance_lines) > 1 else ["As described in production notes"]
     )
     personality = canon.get("personality") or ["Expressive", "Consistent", "Appealing", "Animation-ready"]
+    detail_closeups = canon.get("detail_closeups") or _default_detail_closeups(species)
+    accessories = _accessories_for_sheet(clothing_accessories, detail_closeups)
 
     return {
         "character_id": cid or name.lower(),
@@ -414,12 +488,13 @@ def resolve_character_sheet_fields(character: dict[str, Any]) -> dict[str, Any]:
         "personality": personality,
         "distinctive_features": distinctive_features,
         "clothing_accessories": clothing_accessories,
+        "accessories": accessories,
         "color_palette_primary": canon.get("color_palette_primary") or ["Warm tones"],
         "color_palette_secondary": canon.get("color_palette_secondary") or ["Earth tones"],
         "color_palette_accent": canon.get("color_palette_accent") or ["Golden accents"],
         "scale_reference": canon.get("scale_reference") or _default_scale_reference(name, species),
         "action_poses": canon.get("action_poses") or _default_action_poses(name, species),
-        "detail_closeups": canon.get("detail_closeups") or _default_detail_closeups(species),
+        "detail_closeups": detail_closeups,
         "appearance": appearance,
     }
 
@@ -432,7 +507,7 @@ def build_character_sheet_prompt(
     template: str | None = None,
     style_id: str | None = "reel_v2",
 ) -> str:
-    """Build a full production model-sheet prompt for one character."""
+    """Build a lean identity-sheet prompt for one character (regen-friendly)."""
     fields = resolve_character_sheet_fields(character)
     template_text = template or _load_prompt_file("character_sheet_template", style_id=style_id)
 
@@ -440,18 +515,11 @@ def build_character_sheet_prompt(
         sheet_number=f"{sheet_number:02d}",
         character_name=fields["character_name"],
         species=fields["species"],
-        role=fields["role"],
         age=fields["age"],
-        role_description=fields["role_description"],
-        personality_bullets=_bullet_block(fields["personality"]),
         distinctive_features=_bullet_block(fields["distinctive_features"]),
         clothing_accessories=_bullet_block(fields["clothing_accessories"]),
-        color_palette_primary=_palette_block(fields["color_palette_primary"]),
-        color_palette_secondary=_palette_block(fields["color_palette_secondary"]),
-        color_palette_accent=_palette_block(fields["color_palette_accent"]),
+        accessories=_bullet_block(fields["accessories"]),
         scale_reference=fields["scale_reference"],
-        action_poses=_bullet_block(fields["action_poses"]),
-        detail_closeups=_bullet_block(fields["detail_closeups"]),
         render_style=render_style,
     )
     return prompt

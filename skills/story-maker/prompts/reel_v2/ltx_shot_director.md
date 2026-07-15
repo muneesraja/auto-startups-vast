@@ -16,44 +16,44 @@ the raw story or duration math seems to suggest otherwise. The map's sheet count
 
 **One scene = one storyboard sheet** (unless the narrative outline explicitly splits a long beat across two scenes).
 
-Each sheet is a **2 rows × 5 columns** grid with **exactly 10 panels** (row-major: top-left → top-right → next row).
+Each sheet is a **5 rows × 2 columns** photo-album grid with **exactly 10 panels** (row-major: top-left → top-right → next row) on a **9:16** page; each panel is **16:9**.
 
 You are NOT planning loose shots — you are **filling panel slots** on a production board like MILO & PACK "DISCOVERY" or the sanctuary storyboard references.
 
 ### Sheet anatomy (what each panel must support)
 - Shot number (panel index 1–10 on the sheet)
-- Timestamp span within the scene (e.g. 0:00–0:01)
+- Editorial timestamp within the scene (board rhythm only)
 - **CAM** label (WIDE ESTABLISHING, MEDIUM, CLOSE-UP, LOW ANGLE, TRACKING, OTS, DYNAMIC ACTION, FOLLOW, etc.)
-- **Visual** — the still frame composition
-- **Motion** — how the clip animates over its duration
+- **Visual** — the still frame composition (**start of a 6–8s action**, not a dead pose)
+- **Motion** — multi-step **physical** micro-arc that can merge with neighbors into an LTX clip
 - Short action caption
 
 ### Panels per sheet: **10** (strict default)
 - **Always output {min_panels_per_sheet} panels** per scene/storyboard sheet.
-- Treat every storyboard scene as a full 2×5 matrix.
+- Treat every storyboard scene as a full 5×2 matrix.
 - If a narrative beat needs more than 10 panels, split into another scene/sheet.
 
-## Reels pacing (MILO & PACK reference)
+## Reels pacing (panels ≠ LTX clips)
 
-Hyper-fast sheet (10s scene): **10 shots × 1s** with aggressive framing variety:
-`wide → medium → close → low → tracking → medium CU → OTS → dynamic → close → follow`
+Panel `duration_seconds` is **editorial board rhythm** (typically **1–4**, often 1–2).  
+LTX wall-clock lives on scene `duration_budget_seconds` and later `video_shots` (**primary `{6,8,10}`**, default **8**; optional 3–15).
 
-Moderate-fast sheet: **10 shots × 1–2s** averaging ~1.2s per panel.
+A 10-panel sheet-scene usually carries a **~24–32s** duration budget (≈ 3–4 future LTX clips).
 
 Shot count per scene:
 ```
 panels_in_scene = 10  # strict storyboard matrix default
 ```
-Prefer `avg_shot_duration = 1` for punchy reels; use 2–3s only when a beat needs hold time.
 
 ## Shot construction rules
 
-1. `duration_seconds` must be **1-4** (use **1** for punctuation cuts; default **1–2** in reel_v2).
-2. One primary visible state change per panel.
-3. Keep `pace` mostly `fast`.
-4. Alternate framing aggressively — never repeat the same CAM type on consecutive panels unless motivated.
-5. Scene shot durations must sum to that scene's `duration_budget_seconds` (within tolerance).
-6. Global shot count should approximate `target_duration_seconds` (1s rhythm) or `target_duration_seconds / 2.5` (moderate).
+1. Panel `duration_seconds` may be **1–4** (board rhythm). Do **not** treat these as LTX Pro clip lengths.
+2. One primary visible state change per panel; `motion_intent` must be a **multi-step physical arc** (body/hands/face + environment micro-motion), not a vague verb.
+3. Write motion so adjacent panels can later merge into one continuous **6–10s** I2V idea.
+4. Keep `pace` mostly `fast`.
+5. Alternate framing aggressively — never repeat the same CAM type on consecutive panels unless motivated.
+6. Scene `duration_budget_seconds` is LTX wall-clock; panel durations need not sum to it.
+7. If a beat has multiple major actions or a subject change, plan it as separate panel groups for later video-shot splits.
 
 ## Scene staging and blocking (critical)
 
@@ -76,13 +76,13 @@ Write `description` as a **Visual** line and `motion_intent` as a **Motion** lin
 
 Example panel pair:
 - Visual: Wide shot from inside the house looking out the open front door as the boy and backpack run outside.
-- Motion: Fast forward exit toward a bright exterior.
+- Motion: Over the first beat they lean into the exit; then feet scramble forward; fabric and backpack straps bounce; bright exterior light blooms as they clear the threshold.
 
 ## Workflow
 
 1. Read narrative outline acts/scenes/beats.
 2. For each scene, expand beats into **up to 10 ordered panels** filling the sheet.
-3. Assign CAM variety and 1s–2s durations that sum to scene budget.
+3. Assign CAM variety and short editorial panel durations; keep scene budget as LTX wall-clock.
 4. Ensure the scene reads as one continuous mini-film when panels are read left-to-right, top-to-bottom.
 
 ## Crowds and extras

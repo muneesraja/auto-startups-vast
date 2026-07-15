@@ -10,7 +10,7 @@ if _SKILL_DIR not in sys.path:
 
 
 class TestResumeRouterScenePaper(unittest.TestCase):
-    def test_fresh_routes_scene_paper_and_wipes_scene_paper_md(self):
+    def test_fresh_routes_developed_story_and_wipes_scene_paper_md(self):
         from scripts.nodes.resume_router import resume_router
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -18,28 +18,31 @@ class TestResumeRouterScenePaper(unittest.TestCase):
             with open(scene_path, "w", encoding="utf-8") as f:
                 f.write("# old scene paper\n")
             ctx = MagicMock()
-            ctx.state = {"output_dir": tmp, "fresh": True}
+            ctx.state = {"output_dir": tmp, "fresh": True, "story_text": "x"}
             import asyncio
 
             asyncio.run(resume_router(ctx))
-            self.assertEqual(ctx.route, "scene_paper")
+            self.assertEqual(ctx.route, "developed_story")
             self.assertFalse(os.path.exists(scene_path))
 
-    def test_missing_scene_paper_routes_scene_paper(self):
+    def test_missing_developed_routes_developed_story(self):
         from scripts.nodes.resume_router import resume_router
 
         with tempfile.TemporaryDirectory() as tmp:
             ctx = MagicMock()
-            ctx.state = {"output_dir": tmp, "fresh": False}
+            ctx.state = {"output_dir": tmp, "fresh": False, "story_text": "x"}
             import asyncio
 
             asyncio.run(resume_router(ctx))
-            self.assertEqual(ctx.route, "scene_paper")
+            self.assertEqual(ctx.route, "developed_story")
 
     def test_loads_scene_paper_into_state(self):
         from scripts.nodes.resume_router import resume_router
 
         with tempfile.TemporaryDirectory() as tmp:
+            developed = "# Developed\n"
+            with open(os.path.join(tmp, "developed_story.md"), "w", encoding="utf-8") as f:
+                f.write(developed)
             content = "# Scene Paper: Test\n\n## Scene 01\n"
             with open(os.path.join(tmp, "scene_paper.md"), "w", encoding="utf-8") as f:
                 f.write(content)
@@ -48,9 +51,10 @@ class TestResumeRouterScenePaper(unittest.TestCase):
             import asyncio
 
             asyncio.run(resume_router(ctx))
-            self.assertEqual(ctx.route, "narrative_outline")
+            self.assertEqual(ctx.route, "plan")
             self.assertEqual(ctx.state["scene_paper_text"], content)
             self.assertEqual(ctx.state["scene_paper_content"], content)
+            self.assertEqual(ctx.state["developed_story_text"], developed)
 
 
 class TestSaveScenePaper(unittest.TestCase):
