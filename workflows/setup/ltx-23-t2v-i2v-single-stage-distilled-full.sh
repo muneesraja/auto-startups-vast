@@ -6,7 +6,7 @@
 # description: Downloads all models for the LTX 2.3 Single-Stage Distilled + Full dual-pass workflow (T2V & I2V with audio). Uses full bf16 dev checkpoint + distilled LoRA 384 rank 1.1 + Gemma 3 12B BF16 text encoder.
 # size: ~78GB
 # min_vram: 24GB
-# nodes: [ComfyUI-LTXVideo, ComfyUI-KJNodes]
+# nodes: [ComfyUI-LTXVideo, ComfyUI-KJNodes, RES4LYF]
 # ---
 set -e
 
@@ -32,22 +32,16 @@ cd "$COMFYUI_DIR"
 
 # ─── ComfyUI Python detection ───
 COMFY_PYTHON=""
-COMFY_PIP=""
 if [ -f /venv/main/bin/python3 ]; then
     COMFY_PYTHON="/venv/main/bin/python3"
-    COMFY_PIP="/venv/main/bin/pip"
-elif [ -f venv/bin/activate ]; then
-    source venv/bin/activate
-    COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
-elif [ -f .venv-cu128/bin/activate ]; then
-    source .venv-cu128/bin/activate
-    COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
+elif [ -f venv/bin/python3 ]; then
+    COMFY_PYTHON="$(pwd)/venv/bin/python3"
+elif [ -f .venv-cu128/bin/python3 ]; then
+    COMFY_PYTHON="$(pwd)/.venv-cu128/bin/python3"
 else
     COMFY_PYTHON="$(which python3)"
-    COMFY_PIP="$(which pip)"
 fi
+COMFY_PIP="$COMFY_PYTHON -m pip"
 echo "  Using ComfyUI Python: $COMFY_PYTHON"
 
 # ─── Custom node install (comfy-cli first, manual fallback) ───
@@ -56,24 +50,36 @@ if command -v comfy &> /dev/null; then
     echo "  Using comfy-cli to install nodes..."
     comfy node install https://github.com/Lightricks/ComfyUI-LTXVideo || true
     comfy node install https://github.com/kijai/ComfyUI-KJNodes || true
+    comfy node install https://github.com/ClownsharkBatwing/RES4LYF || true
 else
     echo "  comfy-cli not found, cloning node repositories manually..."
     mkdir -p "$CUSTOM_NODES_DIR"
     cd "$CUSTOM_NODES_DIR"
     [ -d ComfyUI-LTXVideo ] || git clone https://github.com/Lightricks/ComfyUI-LTXVideo || true
     [ -d ComfyUI-KJNodes ]  || git clone https://github.com/kijai/ComfyUI-KJNodes  || true
+    [ -d RES4LYF ]          || git clone https://github.com/ClownsharkBatwing/RES4LYF || true
     cd "$COMFYUI_DIR"
 fi
 
 # ─── Pip deps for each pack into ComfyUI's Python ───
 echo "==> Installing node dependencies..."
-for repo in ComfyUI-LTXVideo ComfyUI-KJNodes; do
+for repo in ComfyUI-LTXVideo ComfyUI-KJNodes RES4LYF; do
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
         echo "  Installing $repo deps..."
         $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -3 || true
     fi
 done
+
+# ─── kornia version pin ───
+# RES4LYF's deps upgrade kornia to 0.8+ which removes `pad` from
+# `kornia.geometry.transform.pyramid`, breaking ComfyUI-LTXVideo's
+# `pyramid_blending.py` import with ImportError. Pin to 0.7.3
+# in BOTH the venv AND system Python (RunPod slim venvs use
+# --system-site-packages, so kornia 0.8 from /usr/local wins).
+echo "==> Pinning kornia to 0.7.3 (RES4LYF deps break LTXVideo otherwise)..."
+$COMFY_PYTHON -m pip install -q "kornia==0.7.3" 2>&1 | tail -2 || true
+/usr/bin/python3 -m pip install -q "kornia==0.7.3" 2>&1 | tail -2 || true
 
 # ─── Model directory creation ───
 echo "==> Creating directories..."
