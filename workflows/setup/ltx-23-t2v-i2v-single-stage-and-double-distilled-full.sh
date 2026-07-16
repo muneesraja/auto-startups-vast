@@ -1,10 +1,10 @@
 #!/bin/bash
 # ---
-# name: LTX 2.3 T2V/I2V Single-Stage Distilled + Full
+# name: LTX 2.3 T2V/I2V Single-Stage and Double Distilled + Full
 # workflow: LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full
-# aliases: [ltx-23-single-stage, ltx-23-distilled-full, ltx23 t2v i2v single stage, ltx 2.3 distilled full]
-# description: Downloads all models for the LTX 2.3 Single-Stage Distilled + Full dual-pass workflow (T2V & I2V with audio). Uses full bf16 dev checkpoint + distilled LoRA 384 rank 1.1 + Gemma 3 12B BF16 text encoder.
-# size: ~78GB
+# aliases: [ltx-23-single-stage, ltx-23-distilled-full, ltx23 t2v i2v single stage, ltx 2.3 distilled full, ltx-23-double-distilled]
+# description: Downloads all models for the LTX 2.3 Single-Stage and Double Distilled + Full dual-pass workflow (T2V & I2V with audio). Uses full bf16 dev checkpoint + distilled LoRA 384 rank 1.1 + Gemma 3 12B BF16 text encoder + spatial upscaler.
+# size: ~79GB
 # min_vram: 24GB
 # nodes: [ComfyUI-LTXVideo, ComfyUI-KJNodes, RES4LYF]
 # ---
@@ -86,6 +86,7 @@ echo "==> Creating directories..."
 mkdir -p "$BASE_DIR/models/checkpoints"
 mkdir -p "$BASE_DIR/models/text_encoders"
 mkdir -p "$BASE_DIR/models/loras"
+mkdir -p "$BASE_DIR/models/latent_upscale_models"
 
 # ─── Load shared HF download helper (auto-fetch if missing) ───
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -140,6 +141,11 @@ fi
 echo "[3/3] Distilled LoRA 384-rank v1.1 (7.6GB)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "$BASE_DIR/models/loras"
 
+# [4/4] SPATIAL UPSCALER — x2 v1.1 (950MB)
+# Used by: LTXVLatentUpscaler (2x spatial upscale for higher resolution)
+echo "[4/4] Spatial upscaler x2 v1.1 (950MB)..."
+hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
+
 echo "==> All downloads completed!"
 
 # ─── Restart ComfyUI so new nodes + models are picked up ───
@@ -164,7 +170,8 @@ echo "📋 Workflow summary:"
 echo "   Model: ltx-2.3-22b-dev.safetensors (full bf16, 46.1GB)"
 echo "   LoRA:  ltx-2.3-22b-distilled-lora-384-1.1.safetensors (7.6GB)"
 echo "   Text:  comfy_gemma_3_12B_it.safetensors (24.4GB)"
-echo "   Nodes: ComfyUI-LTXVideo + ComfyUI-KJNodes"
+echo "   Upscale: ltx-2.3-spatial-upscaler-x2-1.1.safetensors (950MB)"
+echo "   Nodes: ComfyUI-LTXVideo + ComfyUI-KJNodes + RES4LYF"
 echo ""
 echo "💡 T2V: Set bypass_i2v=True (default)"
 echo "💡 I2V: Set bypass_i2v=False + load an input image"
