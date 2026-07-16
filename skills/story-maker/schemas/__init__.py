@@ -1,6 +1,7 @@
 from .generation import (
     CharacterSheetSpec,
     DirectorClip,
+    DirectorMotionSegment,
     DirectorSegment,
     GenerationSpecs,
     MotionSpec,
@@ -39,6 +40,7 @@ __all__ = [
     "AudioPlan",
     "CharacterSheetSpec",
     "DirectorClip",
+    "DirectorMotionSegment",
     "DirectorSegment",
     "GenerationSpecs",
     "MotionSpec",

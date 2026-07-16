@@ -18,6 +18,13 @@ Examples:
   .venv/bin/python scripts/run_flf_scene.py \\
     --output-dir ../../outputs/story-maker/story-naila-5m-v2 \\
     --scene scene_01 --generate-only
+
+  # Director-v2 backend (LTX Director Hotfix), specific clips only
+  STORY_MAKER_VIDEO_BACKEND=director_v2 \\
+  .venv/bin/python scripts/run_flf_scene.py \\
+    --output-dir ../../outputs/story-maker/story-naila-5m-v2 \\
+    --scene scene_07 --generate-only \\
+    --clip-ids scene_07_seg_01_clip_01,scene_07_seg_02_clip_01
 """
 from __future__ import annotations
 
@@ -32,6 +39,12 @@ if str(_SKILL_DIR) not in sys.path:
     sys.path.insert(0, str(_SKILL_DIR))
 
 
+def _parse_clip_ids(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [part.strip() for part in raw.replace(" ", ",").split(",") if part.strip()]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Storyboard assistant-director I2V/FLF scene runner"
@@ -41,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--generate-only", action="store_true")
     parser.add_argument(
+        "--clip-ids",
+        default="",
+        help="Comma-separated clip ids to generate (others left untouched)",
+    )
+    parser.add_argument(
         "--no-skip-existing",
         action="store_true",
         help="Regenerate even if clip mp4 already exists",
@@ -49,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
     output_dir = str(Path(args.output_dir).resolve())
     scene_id = args.scene
+    clip_ids = _parse_clip_ids(args.clip_ids)
 
     import config
     from scripts.nodes.plan_io import load_plan
@@ -66,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     print("VISION_MODEL=", config.get_vision_model_id())
     print("FLF2V_TEMPLATE=", config.FLF2V_TEMPLATE_NAME)
     print("STORYBOARD_VIDEO_MODE=", config.STORYBOARD_VIDEO_MODE)
+    print("STORY_MAKER_VIDEO_BACKEND=", config.STORY_MAKER_VIDEO_BACKEND)
+    if clip_ids:
+        print("CLIP_IDS=", clip_ids)
 
     specs = _load_specs(output_dir)
     plan = load_plan(output_dir) or {}
@@ -112,17 +134,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.plan_only:
         return 0
 
-    print(f"Generating {len(scene_plan.get('clips') or [])} clips...")
+    n = len(clip_ids) if clip_ids else len(scene_plan.get("clips") or [])
+    print(f"Generating {n} clip(s)...")
     out = generate_storyboard_video_clips(
         output_dir=output_dir,
         scene_plan=scene_plan,
         specs=specs,
         skip_existing=not args.no_skip_existing,
+        clip_ids=clip_ids or None,
     )
     persist_scene_plan(specs, out)
     _save_specs(output_dir, specs)
-    ok = sum(1 for c in out["clips"] if c.get("status") in ("completed", "skipped_exists"))
-    err = sum(1 for c in out["clips"] if c.get("status") == "error")
+    touched = (
+        [c for c in out["clips"] if c.get("clip_id") in set(clip_ids)]
+        if clip_ids
+        else out["clips"]
+    )
+    ok = sum(1 for c in touched if c.get("status") in ("completed", "skipped_exists"))
+    err = sum(1 for c in touched if c.get("status") == "error")
     print(f"Done: ok={ok} err={err} status={out.get('status')}")
     return 0 if err == 0 else 2
 

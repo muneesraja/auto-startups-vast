@@ -242,6 +242,11 @@ def generate_ltx_i2v_video(
     output_path: str,
     duration_seconds: int = 8,
     fps: int = 25,
+    *,
+    i2v_strength: float | None = None,
+    cfg: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
 ) -> dict:
     """Generate video+audio with LTX 2.3 I2V via ComfyUI."""
     try:
@@ -261,9 +266,13 @@ def generate_ltx_i2v_video(
             "fps": fps,
             "filename_prefix": prefix,
         }
+        if i2v_strength is not None:
+            shot_for_builder["i2v_strength"] = float(i2v_strength)
+        if cfg is not None:
+            shot_for_builder["cfg"] = float(cfg)
         global_cfg = {
-            "width": 1280,
-            "height": 720,
+            "width": int(width if width is not None else config.VIDEO_WIDTH),
+            "height": int(height if height is not None else config.VIDEO_HEIGHT),
             "seed_base": 42,
             "fps": fps,
             "duration": duration_seconds,
@@ -322,6 +331,9 @@ def generate_ltx_flf2v_video(
     *,
     first_frame_strength: float = 0.8,
     last_frame_strength: float = 0.9,
+    cfg: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
     seed: int = 42,
 ) -> dict:
     """Generate video+audio with LTX 2.3 first+last frame (FLF2V) via ComfyUI."""
@@ -351,12 +363,15 @@ def generate_ltx_flf2v_video(
             "fps": fps,
             "filename_prefix": prefix,
             "seed": seed,
-            "first_frame_strength": first_frame_strength,
-            "last_frame_strength": last_frame_strength,
+            "i2v_strength": float(first_frame_strength),
+            "first_frame_strength": float(first_frame_strength),
+            "last_frame_strength": float(last_frame_strength),
         }
+        if cfg is not None:
+            shot_for_builder["cfg"] = float(cfg)
         global_cfg = {
-            "width": 1280,
-            "height": 720,
+            "width": int(width if width is not None else config.VIDEO_WIDTH),
+            "height": int(height if height is not None else config.VIDEO_HEIGHT),
             "seed_base": seed,
             "fps": fps,
             "duration": duration_seconds,

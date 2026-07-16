@@ -401,6 +401,69 @@ class TestFlfStoryboardPlanner(unittest.TestCase):
         self.assertEqual(len(segs[0]["clips"]), 2)
         self.assertEqual(segs[0]["clips"][0]["end_panel_id"], segs[0]["clips"][1]["start_panel_id"])
 
+    def test_normalize_preserves_director_motion_segments(self):
+        raw = {
+            "segments": [
+                {
+                    "segment_id": "scene_01_seg_01",
+                    "cut_before": False,
+                    "clips": [
+                        {
+                            "clip_id": "scene_01_seg_01_clip_01",
+                            "start_panel_id": "scene_01_shot_01",
+                            "end_panel_id": "scene_01_shot_01",
+                            "workflow": "i2v",
+                            "continuous": False,
+                            "duration_seconds": 8,
+                            "motion_class": "large_reveal",
+                            "guidance": "balanced",
+                            "global_prompt": "Warm sanctuary light, cinematic 3D.",
+                            "motion_segments": [
+                                {
+                                    "start_ratio": 0.0,
+                                    "end_ratio": 0.5,
+                                    "prompt": "Dust drifts; camera pushes in.",
+                                },
+                                {
+                                    "start_ratio": 0.5,
+                                    "end_ratio": 1.0,
+                                    "prompt": "Push settles; faint birdsong.",
+                                },
+                            ],
+                            "motion_prompt": "Dust drifts; camera pushes in. Push settles; faint birdsong.",
+                        }
+                    ],
+                }
+            ]
+        }
+        out = normalize_flf_clip_plan(raw, _scene(), duration_budget_seconds=24)
+        clip = out["clips"][0]
+        self.assertEqual(clip["global_prompt"], "Warm sanctuary light, cinematic 3D.")
+        self.assertEqual(len(clip["motion_segments"]), 2)
+        self.assertEqual(clip["motion_segments"][0]["start_ratio"], 0.0)
+        self.assertEqual(clip["motion_segments"][-1]["end_ratio"], 1.0)
+
+    def test_normalize_synthesizes_motion_segments_from_flat_prompt(self):
+        raw = {
+            "clips": [
+                {
+                    "start_panel_id": "scene_01_shot_01",
+                    "end_panel_id": "scene_01_shot_01",
+                    "workflow": "i2v",
+                    "continuous": False,
+                    "duration_seconds": 6,
+                    "motion_prompt": "Light sweeps the empty sanctuary.",
+                }
+            ]
+        }
+        out = normalize_flf_clip_plan(raw, _scene(), duration_budget_seconds=24)
+        clip = next(
+            c for c in out["clips"] if c["start_panel_id"] == "scene_01_shot_01"
+        )
+        self.assertEqual(len(clip["motion_segments"]), 1)
+        self.assertEqual(clip["motion_segments"][0]["end_ratio"], 1.0)
+        self.assertIn("Light sweeps", clip["motion_segments"][0]["prompt"])
+
     def test_legacy_migration(self):
         legacy = {
             "scene_id": "scene_01",

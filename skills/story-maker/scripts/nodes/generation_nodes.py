@@ -201,8 +201,7 @@ def _url_reachable(url: str) -> bool:
 
 async def generate_character_sheets(ctx: Context) -> None:
     import config
-    from tools.fal_tools import generate_grok_t2i
-    from tools.grok_replicate import upload_local_image
+    from tools.grok_tools import generate_grok_t2i
 
     from profiles import get_profile
 
@@ -211,6 +210,7 @@ async def generate_character_sheets(ctx: Context) -> None:
     only_scenes = _only_scenes(ctx)
     style_id = (ctx.state.get("style_id") or "cinematic").strip().lower()
     profile = get_profile(style_id)
+    sheet_provider = config.get_character_sheet_image_provider()
     sheet_quality = config.REPLICATE_SHEET_QUALITY
     sheet_text_policy = (
         "production_labels" if profile.character_sheet_mode == "template" else "default"
@@ -223,6 +223,15 @@ async def generate_character_sheets(ctx: Context) -> None:
     chars_in_scope = _chars_in_scope(specs, only_scenes)
     chars_dir = os.path.join(output_dir, "characters")
     os.makedirs(chars_dir, exist_ok=True)
+
+    def _upload_char_sheet(local_path: str) -> str:
+        if sheet_provider == "fal":
+            import fal_client
+
+            return fal_client.upload_file(local_path)
+        from tools.grok_replicate import upload_local_image
+
+        return upload_local_image(local_path)
 
     smoke_max_chars = int(os.getenv("SMOKE_MAX_CHARACTER_SHEETS", "0") or "0")
     chars_done = 0
@@ -241,19 +250,26 @@ async def generate_character_sheets(ctx: Context) -> None:
         if os.path.isfile(local_path) and os.path.getsize(local_path) > 0:
             url = entry.get("fal_image_url") or ""
             # replicate.delivery URLs expire; prefer durable Files API URLs.
+            # fal storyboard edit also cannot fetch Replicate Files API URLs.
             needs_upload = (
                 not url
                 or "replicate.delivery/" in url
                 or (
+                    sheet_provider == "fal"
+                    and "api.replicate.com/v1/files/" in url
+                )
+                or (
                     "api.replicate.com/v1/files/" not in url
+                    and "fal.media" not in url
                     and not _url_reachable(url)
                 )
             )
             if needs_upload:
-                print(f"  Re-uploading character sheet: {cid}")
-                url = await asyncio.to_thread(upload_local_image, local_path)
+                print(f"  Re-uploading character sheet: {cid} ({sheet_provider})")
+                url = await asyncio.to_thread(_upload_char_sheet, local_path)
             entry["output_path"] = local_path
             entry["fal_image_url"] = url
+            entry["image_provider"] = sheet_provider
             entry["status"] = "completed"
             _save_specs(ctx, specs)
             chars_done += 1
@@ -262,7 +278,7 @@ async def generate_character_sheets(ctx: Context) -> None:
         # Pre-soften infant language — GPT Image 2 often flags "baby" sheets.
         prompt_box[0] = soften_moderation_prompt(prompt_box[0])
         entry["sheet_prompt"] = prompt_box[0]
-        print(f"  Character sheet: {cid}")
+        print(f"  Character sheet: {cid} (provider={sheet_provider})")
 
         def _gen(path=out_path):
             return generate_grok_t2i(
@@ -271,6 +287,7 @@ async def generate_character_sheets(ctx: Context) -> None:
                 quality=sheet_quality,
                 size=sheet_size,
                 text_policy=sheet_text_policy,
+                provider=sheet_provider,
             )
 
         def _soften(_err: str, attempt: int) -> None:
@@ -285,6 +302,7 @@ async def generate_character_sheets(ctx: Context) -> None:
         )
         entry["output_path"] = result["generated_image_path"]
         entry["fal_image_url"] = result["fal_image_url"]
+        entry["image_provider"] = sheet_provider
         if result.get("revised_prompt"):
             entry["revised_prompt"] = result["revised_prompt"]
         entry["status"] = "completed"

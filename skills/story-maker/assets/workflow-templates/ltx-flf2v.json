@@ -39,6 +39,18 @@
     "last_frame_strength": {
       "node": "320:330",
       "key": "strength"
+    },
+    "cfg": {
+      "node": "320:282",
+      "key": "cfg"
+    },
+    "cfg_upscale": {
+      "node": "320:314",
+      "key": "cfg"
+    },
+    "omni_lora_strength": {
+      "node": "320:331",
+      "key": "strength_model"
     }
   },
   "75": {
@@ -102,7 +114,7 @@
   },
   "320:279": {
     "inputs": {
-      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors"
     },
     "class_type": "LTXVAudioVAELoader",
     "_meta": {
@@ -131,7 +143,7 @@
     "inputs": {
       "cfg": 1,
       "model": [
-        "320:285",
+        "320:331",
         0
       ],
       "positive": [
@@ -198,7 +210,7 @@
   },
   "320:285": {
     "inputs": {
-      "lora_name": "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors",
+      "lora_name": "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
       "strength_model": 0.5,
       "model": [
         "320:316",
@@ -207,7 +219,21 @@
     },
     "class_type": "LoraLoaderModelOnly",
     "_meta": {
-      "title": "Load LoRA"
+      "title": "Load Distilled LoRA"
+    }
+  },
+  "320:331": {
+    "inputs": {
+      "lora_name": "LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors",
+      "strength_model": 0.9,
+      "model": [
+        "320:285",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load OmniNFT RL LoRA"
     }
   },
   "320:286": {
@@ -623,7 +649,7 @@
     "inputs": {
       "cfg": 1,
       "model": [
-        "320:285",
+        "320:331",
         0
       ],
       "positive": [
@@ -662,7 +688,7 @@
   },
   "320:316": {
     "inputs": {
-      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -671,8 +697,8 @@
   },
   "320:317": {
     "inputs": {
-      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
-      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors",
+      "text_encoder": "comfy_gemma_3_12B_it.safetensors",
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors",
       "device": "default"
     },
     "class_type": "LTXAVTextEncoderLoader",

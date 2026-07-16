@@ -90,8 +90,8 @@ def build_ltx_i2v_workflow(template: dict, shot_data: dict, global_cfg: dict) ->
         ),
     )
     seed = shot_data.get("seed", global_cfg.get("seed_base", 42))
-    width = global_cfg.get("width", 1280)
-    height = global_cfg.get("height", 720)
+    width = global_cfg.get("width", 1920)
+    height = global_cfg.get("height", 1088)
     duration = snap_duration_seconds(
         int(shot_data.get("duration", global_cfg.get("duration", 8))),
         fps=int(shot_data.get("fps", global_cfg.get("fps", 25))),
@@ -99,6 +99,13 @@ def build_ltx_i2v_workflow(template: dict, shot_data: dict, global_cfg: dict) ->
     fps = int(shot_data.get("fps", global_cfg.get("fps", 25)))
     motion_image = shot_data.get("motion_image") or "example.png"
     filename_prefix = shot_data["filename_prefix"]
+    i2v_strength = float(
+        shot_data.get(
+            "i2v_strength",
+            shot_data.get("first_frame_strength", global_cfg.get("i2v_strength", 0.7)),
+        )
+    )
+    cfg = float(shot_data.get("cfg", global_cfg.get("cfg", 1.0)))
 
     overrides = {
         "prompt": prompt_text,
@@ -108,6 +115,9 @@ def build_ltx_i2v_workflow(template: dict, shot_data: dict, global_cfg: dict) ->
         "height": height,
         "duration": duration,
         "fps": fps,
+        "i2v_strength": i2v_strength,
+        "cfg": cfg,
+        "cfg_upscale": cfg,
     }
     workflow = _apply_overrides(workflow, overrides, overrides_map)
 
@@ -149,8 +159,8 @@ def build_ltx_flf2v_workflow(template: dict, shot_data: dict, global_cfg: dict) 
         ),
     )
     seed = shot_data.get("seed", global_cfg.get("seed_base", 42))
-    width = int(global_cfg.get("width", 1280))
-    height = int(global_cfg.get("height", 720))
+    width = int(global_cfg.get("width", 1920))
+    height = int(global_cfg.get("height", 1088))
     fps = int(shot_data.get("fps", global_cfg.get("fps", 25)))
     duration = snap_duration_seconds(
         int(shot_data.get("duration", global_cfg.get("duration", 8))),
@@ -159,7 +169,16 @@ def build_ltx_flf2v_workflow(template: dict, shot_data: dict, global_cfg: dict) 
     first_frame = shot_data.get("first_frame_image") or "first.png"
     last_frame = shot_data.get("last_frame_image") or "last.png"
     filename_prefix = shot_data["filename_prefix"]
-    lf_strength = float(shot_data.get("last_frame_strength", 0.85))
+    i2v_strength = float(
+        shot_data.get(
+            "i2v_strength",
+            shot_data.get("first_frame_strength", global_cfg.get("i2v_strength", 0.7)),
+        )
+    )
+    lf_strength = float(
+        shot_data.get("last_frame_strength", global_cfg.get("last_frame_strength", 0.85))
+    )
+    cfg = float(shot_data.get("cfg", global_cfg.get("cfg", 1.0)))
 
     overrides = {
         "prompt": prompt_text,
@@ -169,7 +188,10 @@ def build_ltx_flf2v_workflow(template: dict, shot_data: dict, global_cfg: dict) 
         "height": height,
         "duration": duration,
         "fps": fps,
+        "i2v_strength": i2v_strength,
         "last_frame_strength": lf_strength,
+        "cfg": cfg,
+        "cfg_upscale": cfg,
     }
     workflow = _apply_overrides(workflow, overrides, overrides_map)
 

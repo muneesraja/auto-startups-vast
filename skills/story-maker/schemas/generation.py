@@ -64,6 +64,22 @@ class LocationSheetSpec(BaseModel):
     status: str = "pending"
 
 
+class DirectorMotionSegment(BaseModel):
+    """Timed Prompt Relay beat within one Director clip (ratios of clip duration)."""
+
+    start_ratio: float = Field(ge=0.0, le=1.0)
+    end_ratio: float = Field(ge=0.0, le=1.0)
+    prompt: str = ""
+
+    @model_validator(mode="after")
+    def validate_span(self) -> DirectorMotionSegment:
+        if self.end_ratio <= self.start_ratio:
+            raise ValueError("motion segment end_ratio must be > start_ratio")
+        if not str(self.prompt or "").strip():
+            raise ValueError("motion segment prompt must be non-empty")
+        return self
+
+
 class DirectorClip(BaseModel):
     """One render unit: I2V standalone or FLF2V first→last transition."""
 
@@ -75,6 +91,23 @@ class DirectorClip(BaseModel):
     continuous: bool = False
     duration_seconds: int = Field(ge=3, le=10, default=6)
     pace: Literal["slow", "medium", "fast"] = "fast"
+    motion_class: Literal[
+        "talking",
+        "walking",
+        "horse_riding",
+        "forest_exploration",
+        "large_reveal",
+        "fast_action",
+        "general",
+    ] = "general"
+    guidance: Literal["balanced", "prompt_follow", "strong"] = "balanced"
+    i2v_strength: float = Field(ge=0.4, le=0.95, default=0.7)
+    cfg: float = Field(ge=1.0, le=1.5, default=1.0)
+    last_frame_strength: float | None = Field(default=None, ge=0.5, le=1.0)
+    # LTX Director layers: global look + timed Prompt Relay beats.
+    # motion_prompt remains the legacy flat fallback / template-backend prompt.
+    global_prompt: str = ""
+    motion_segments: list[DirectorMotionSegment] = Field(default_factory=list)
     motion_prompt: str = ""
     rationale: str = ""
     output_path: str | None = None

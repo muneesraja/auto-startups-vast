@@ -117,7 +117,7 @@ If sequential shots are enabled, the agent also re-authors each shot still promp
 
 `reel_v2` does **not** use cinematic `backgrounds/` plates or per-shot parallel still prompting. It generates **location lock** plates (`locations/`), then per-scene 10-panel 5×2 photo-album sheets (9:16 page, 16:9 panels) **in story order** (each sheet after the first gets the previous sheet PNG as a continuity ref, plus location + character refs), uses Python white-gutter detection to crop panels (`STORYBOARD_CROP_MODE=python`; optional `vision`), then regenerates each panel at full resolution with character references only. LTX duration is planned on **`video_shots`** (primary `{6,8,10}`, default 8; optional 3–15) by grouping consecutive panels that stay **cast-coherent** to the anchor still — panels are editorial coverage, not 1s Pro clips. Empty establishing panels do not share a clip with character entrances.
 
-**FLF2V / assistant-director alt path:** set `STORYBOARD_VIDEO_MODE=director` to plan I2V standalones + FLF2V continuous chains from the storyboard sheet, `scene_paper.md` agenda, and 5×2 grid row/col map after panel regen. Prefer same-row FLF; motivated camera pans may reveal new subjects. The assistant director chooses per-clip durations (prefer LTX 6–10s; 3s only for super-short beats). Manual runner: `scripts/run_flf_scene.py`. Default remains the existing `video_shots` I2V path (`STORYBOARD_VIDEO_MODE=fallback`). See `SKILL.md` and `plans/flf-storyboard-pair-planner.md`.
+**FLF2V / assistant-director alt path:** set `STORYBOARD_VIDEO_MODE=director` to plan I2V standalones + FLF2V continuous chains from the storyboard sheet, `scene_paper.md` agenda, and 5×2 grid row/col map after panel regen. Prefer same-row FLF; motivated camera pans may reveal new subjects. The assistant director chooses per-clip durations (prefer LTX 6–10s; 3s only for super-short beats) plus `motion_class` / `guidance` enums (mapped to image-lock strength and CFG). Default LTX resolution is **1920×1088**. Manual runner: `scripts/run_flf_scene.py`. Default remains the existing `video_shots` I2V path (`STORYBOARD_VIDEO_MODE=fallback`). See `SKILL.md` and `plans/ad-ltx-strength-cfg-resolution.md`.
 
 
 
@@ -173,8 +173,9 @@ VISION_MODEL=openai/gpt-5-mini
 
 PROVIDER=replicate
 STORYBOARD_IMAGE_PROVIDER=fal
+# CHARACTER_SHEET_IMAGE_PROVIDER=fal
 # PANEL_IMAGE_PROVIDER=replicate
-# PANEL_IMAGE_FALLBACK_PROVIDER=fal
+# PANEL_IMAGE_FALLBACK_PROVIDER=none
 GROK_REPLICATE_MODEL=openai/gpt-image-2
 # Sheets: medium @ 2K; panel regen: low @ 2K
 # REPLICATE_SHEET_QUALITY=medium
@@ -199,11 +200,12 @@ Important env vars:
 | `CROP_ANALYSIS_MODEL` | Optional storyboard panel bbox JSON when `STORYBOARD_CROP_MODE=vision` |
 | `STORYBOARD_CROP_MODE` | `python` (default: white-gutter → grid) \| `vision` \| `auto` |
 | `SEQUENTIAL_SHOT_PROMPTS` | Opt into sequential within-scene shot prompting |
-| `PROVIDER` | Default still-image backend for chars/locs/panel primary (`replicate`; legacy `fal` optional) |
-| `STORYBOARD_IMAGE_PROVIDER` | Storyboard album sheets only (`fal` default; `replicate` optional) |
+| `PROVIDER` | Default still-image backend for locs/panel primary (`replicate`; legacy `fal` optional) |
+| `STORYBOARD_IMAGE_PROVIDER` | Storyboard album sheets (`fal` default; `replicate` optional) |
+| `CHARACTER_SHEET_IMAGE_PROVIDER` | Character sheets (`fal` when `FAL_KEY` set) |
 | `PANEL_IMAGE_PROVIDER` | Panel regen primary override (defaults to `PROVIDER`) |
-| `PANEL_IMAGE_FALLBACK_PROVIDER` | After primary panel fail: `fal` edit fallback (default when Replicate primary + `FAL_KEY`); `none` disables |
-| `FAL_KEY` | Required for fal storyboard sheets and panel fal fallback |
+| `PANEL_IMAGE_FALLBACK_PROVIDER` | After primary panel fail: off by default; set `fal` to opt in |
+| `FAL_KEY` | Required for fal storyboard + character sheets |
 | `REPLICATE_API_TOKEN` | Required for `PROVIDER=replicate` |
 | `GROK_REPLICATE_MODEL` | Replicate image model (`openai/gpt-image-2`) |
 | `GROK_FAL_MODEL` | Optional fal model override (GPT Image 2) |
@@ -251,7 +253,7 @@ python3 main.py \
 1. Generate character sheets, then **location lock** plates under `locations/` (empty-stage establishing images from `plan.locations`).
 2. Plan storyboard sheets in story order; each sheet after the first sets `continuity_from_sheet_id` to the previous sheet.
 3. Generate sheets **sequentially** via **fal GPT Image 2 edit** (default `STORYBOARD_IMAGE_PROVIDER=fal`) with refs: location lock → previous sheet → character sheets. **No T2I fallback** — failed sheets are marked `failed` and the run continues.
-4. Python gutter crop (or vision) → panel regen at full resolution with **crop + character refs only** (no location plate on regen). Primary: Replicate; on failure: fal edit fallback (`PANEL_IMAGE_FALLBACK_PROVIDER`), same `2048x1152` / `low`.
+4. Python gutter crop (or vision) → panel regen at full resolution with **crop + character refs only** (no location plate on regen). Primary: **Replicate only** by default (same `2048x1152` / `low`). Fal panel fallback is opt-in via `PANEL_IMAGE_FALLBACK_PROVIDER=fal`.
 5. Motion / I2V as usual.
 
 `reel_v2` still does **not** write cinematic `backgrounds/` plates (`assets.generate_background: false`).
@@ -269,7 +271,7 @@ python3 main.py \
   --fresh
 ```
 
-Recommended for `reel_v2`: `PROVIDER=replicate`, `STORYBOARD_IMAGE_PROVIDER=fal`, `FAL_KEY` set, `GROK_REPLICATE_MODEL=openai/gpt-image-2`, sheet quality `medium` @ storyboard `1152x2048` (9:16 album) / character `1152x2048`, panel regen quality `low` @ `2048x1152` with fal fallback enabled.
+Recommended for `reel_v2`: `PROVIDER=replicate`, `STORYBOARD_IMAGE_PROVIDER=fal`, character sheets on fal (`FAL_KEY` set), `GROK_REPLICATE_MODEL=openai/gpt-image-2`, sheet quality `medium` @ storyboard `1152x2048` (9:16 album) / character `1152x2048`, panel regen quality `low` @ `2048x1152` on Replicate (no fal panel fallback).
 
 ### Fast reel with stronger continuity
 

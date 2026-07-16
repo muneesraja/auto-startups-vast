@@ -40,13 +40,14 @@ See [`assets/ltx-2.3-director-bible.md`](assets/ltx-2.3-director-bible.md) for L
 
 - `OPENROUTER_API_KEY` (or `GEMINI_API_KEY` / `MINIMAX_API_KEY`)
 - Still images (split backends for `reel_v2`):
-  - **`PROVIDER=replicate`** (default) → `REPLICATE_API_TOKEN` for character/location sheets and panel regen primary
+  - **`PROVIDER=replicate`** (default) → `REPLICATE_API_TOKEN` for location plates and panel/shot stills
   - **`STORYBOARD_IMAGE_PROVIDER=fal`** (default) → `FAL_KEY` for storyboard album sheets (GPT Image 2 edit + refs; no T2I fallback)
+  - **`CHARACTER_SHEET_IMAGE_PROVIDER`** → defaults to `fal` when `FAL_KEY` is set (few sheet calls; keep volume shots on Replicate)
   - Model: `openai/gpt-image-2` (Replicate and fal)
   - Character sheets: quality `medium`, size `1152x2048`
   - Storyboard sheets: quality `medium`, size `1152x2048` (9:16 album)
   - Panel regen / shot stills: quality `low`, size `2048x1152`
-  - Panel regen ladder: Replicate edit → Replicate crop-only → **fal edit fallback** (`PANEL_IMAGE_FALLBACK_PROVIDER=fal`) → soft crop-copy last
+  - Panel regen ladder: Replicate edit → Replicate crop-only → soft crop-copy last (fal panel fallback **off** by default; opt in with `PANEL_IMAGE_FALLBACK_PROVIDER=fal`)
   - Legacy global `PROVIDER=fal` (Grok Imagine) is optional only — not used for new runs
 - `COMFYUI_URL` for LTX 2.3 I2V
 - `ffmpeg` for final concat
@@ -114,11 +115,12 @@ Selection precedence: `--style` CLI flag > `STORY_STYLE` in `.env` > `cinematic`
 | `PLANNING_REASONING_EFFORT` | Reasoning effort for planning models (`low`, `medium`, `high`) | `low` |
 | `SECONDARY_REASONING_EFFORT` | Reasoning effort for secondary models | `low` |
 | `SECONDARY_MODEL_TIMEOUT` | Secondary agent timeout (seconds) | `600` |
-| `PROVIDER` | Default still-image backend for chars/locs/panel primary (`replicate` or legacy `fal`) | `replicate` |
+| `PROVIDER` | Default still-image backend for locs/panel primary (`replicate` or legacy `fal`) | `replicate` |
 | `STORYBOARD_IMAGE_PROVIDER` | Storyboard album sheets only (`fal` or `replicate`) | `fal` |
+| `CHARACTER_SHEET_IMAGE_PROVIDER` | Character sheets (`fal` / `replicate`) | `fal` when `FAL_KEY` set |
 | `PANEL_IMAGE_PROVIDER` | Panel regen primary override (defaults to `PROVIDER`) | (inherits) |
-| `PANEL_IMAGE_FALLBACK_PROVIDER` | Panel regen fallback after primary fails (`fal` / `none`) | `fal` when primary is replicate + `FAL_KEY` set |
-| `FAL_KEY` | Required for fal storyboard sheets and panel fal fallback | — |
+| `PANEL_IMAGE_FALLBACK_PROVIDER` | Panel regen fallback after primary fails (`fal` / `none`) | off (`none`) |
+| `FAL_KEY` | Required for fal storyboard + character sheets | — |
 | `REPLICATE_API_TOKEN` | Required when `PROVIDER=replicate` | — |
 | `GROK_REPLICATE_MODEL` | Replicate model slug | `openai/gpt-image-2` |
 | `GROK_FAL_MODEL` | Optional fal model override (defaults to GPT Image 2) | (inherits) |
@@ -145,7 +147,8 @@ SECONDARY_REASONING_EFFORT=low
 VISION_MODEL=openai/gpt-5-mini
 PROVIDER=replicate
 STORYBOARD_IMAGE_PROVIDER=fal
-# PANEL_IMAGE_FALLBACK_PROVIDER=fal
+# CHARACTER_SHEET_IMAGE_PROVIDER=fal
+# PANEL_IMAGE_FALLBACK_PROVIDER=none
 GROK_REPLICATE_MODEL=openai/gpt-image-2
 CHARACTER_SHEET_SIZE=1152x2048
 STORYBOARD_SHEET_SIZE=1152x2048
@@ -221,23 +224,29 @@ cd skills/story-maker
 .venv/bin/python scripts/repair_video_shots_cast.py ../../outputs/story-maker/<name>
 ```
 
-### Storyboard assistant director (I2V + FLF2V)
+### Storyboard assistant director (LTX Director timeline)
 
 After panel stills exist, vision acts as assistant director: reads the **full storyboard sheet** + the scene block from `scene_paper.md` (editorial agenda) + **5×2 grid row/col map**, and returns hard-cut **segments** of clips:
 
-- `start == end` → standalone **I2V**
-- continuous adjacent panels with shared endpoints (`02→03`, then `03→04`) → **FLF2V**
+- `start == end` → standalone **I2V** (one start guide)
+- continuous adjacent panels with shared endpoints (`02→03`, then `03→04`) → **FLF2V** (start + end guides)
 - same-row pairs preferred for FLF; motivated **camera pans/turns** may bridge to a newly revealed subject (e.g. point → what she points at)
 - cast/subject jumps without a camera bridge → new segment (editorial cut)
 
+Each clip is one **Director timeline**: `global_prompt` (look) + `motion_segments[]` (timed Prompt Relay beats) + panel guides. `motion_prompt` remains the flat fallback for the legacy template backend.
+
 The assistant director **chooses** each clip duration and the scene total (prefer LTX **6–10s**; **3s** only for super-short beats; max **10s**). Scene-paper duration lines are not used as a hard budget.
+
+Per clip the AD also picks **`motion_class`** (guide strength) and **`guidance`** (CFG 1.0–1.5); the pipeline maps enums to floats. Default LTX resolution is **1920×1088** (`VIDEO_WIDTH` / `VIDEO_HEIGHT`).
 
 Plans persist under `generation_specs.storyboard_video_scenes` (legacy mirror: `flf2v_scenes`).
 
 ```bash
 cd skills/story-maker
-# Opt into the director path in the main pipeline
+# Opt into the director planning path in the main pipeline
 export STORYBOARD_VIDEO_MODE=director
+# Opt into LTX Director Hotfix rendering (vs legacy ltx-i2v/ltx-flf2v templates)
+export STORY_MAKER_VIDEO_BACKEND=director_v2
 
 # Manual scene runner — plan only
 VISION_MODEL=openai/gpt-5-mini .venv/bin/python scripts/run_flf_scene.py \
@@ -298,7 +307,7 @@ outputs/story-maker/<name>/
 └── final_film.mp4
 ```
 
-`reel_v2` uses `locations/{location_id}.png` establishing locks and generates storyboard sheets via fal GPT Image 2 edit in story order (location + previous sheet + character refs; no T2I fallback). Panel regen uses crop + character refs only (Replicate primary, fal fallback; no location plate). Cinematic `backgrounds/` plates are not used in reel_v2.
+`reel_v2` uses `locations/{location_id}.png` establishing locks and generates storyboard sheets via fal GPT Image 2 edit in story order (location + previous sheet + character refs; no T2I fallback). Character sheets also default to fal. Panel regen uses crop + character refs only on **Replicate** (fal panel fallback off by default). Cinematic `backgrounds/` plates are not used in reel_v2.
 
 Override base dir with `STORY_MAKER_OUTPUT_DIR` in `.env`.
 

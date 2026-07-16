@@ -114,6 +114,47 @@ Compute from content when possible:
 - A 10-panel sheet-scene often budgets **~24–32s** (≈ 3–4 clips at 6/8/10), scaled to target runtime.
 - **Cast-coherent groups:** each `video_shot` is anchored on a start still. Later panels may join only when their `characters_present` ⊆ the anchor panel's cast. Empty establishing panels are solo (or empty-only) clips — never invent named heroes into an empty plate in one I2V. Split when cast grows; pipeline normalize enforces this.
 
+## Assistant-director render knobs (storyboard director path)
+
+Per clip the AD picks enums; code maps to ComfyUI floats. Default output resolution is **1920×1088** (`VIDEO_WIDTH` / `VIDEO_HEIGHT`).
+
+**Renderer:** with `STORY_MAKER_VIDEO_BACKEND=director_v2`, clips render through **LTX Director** (guide keyframes + Prompt Relay). Legacy `templates` backend still accepts a flat `motion_prompt`.
+
+### Director prompt layers (AD output)
+
+| Field | Role |
+|-------|------|
+| `global_prompt` | Look / lighting / location context (not beat-by-beat action) |
+| `motion_segments[]` | Timed Prompt Relay beats (`start_ratio`/`end_ratio`/`prompt`, covering 0→1) |
+| `motion_prompt` | Flat join of those beats — legacy fallback for template backend |
+| `start_panel_id` / `end_panel_id` | Guide images (I2V start; FLF start + end-frame) |
+
+Prefer **2–4** motion segments on 6–10s clips; each distinct action ≈ **≥2s**. FLF last beat should settle toward the end panel composition.
+
+### `motion_class` → LTX Director guide strength
+
+| motion_class | strength | Intent |
+|--------------|---------:|--------|
+| talking | 0.80 | Hold face / likeness on dialogue |
+| walking | 0.70 | Gentle locomotion |
+| horse_riding | 0.65 | Mount motion |
+| forest_exploration | 0.70 | Ambient roam |
+| large_reveal | 0.60 | Wide reveal / motivated pan |
+| fast_action | 0.55 | Freer motion |
+| general | 0.70 | Default |
+
+FLF last-frame guide strength stays ≥ `max(0.85, i2v_strength + 0.05)`.
+
+### `guidance` → CFG (sampler passes)
+
+| guidance | cfg |
+|----------|----:|
+| balanced | 1.0 |
+| prompt_follow | 1.2 |
+| strong | 1.5 |
+
+Do not exceed **1.5** in production.
+
 ## Crowds and extras
 
 - **`characters` roster** = named heroes only.

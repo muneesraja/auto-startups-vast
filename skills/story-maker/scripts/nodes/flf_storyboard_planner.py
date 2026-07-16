@@ -6,6 +6,7 @@ import os
 import re
 from typing import Any
 
+from tools.ltx_render_params import resolve_clip_render_params
 from tools.workflow_builder import snap_duration_seconds, snap_ltx_duration
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -211,12 +212,26 @@ columns: {grid_columns}
 
 Prefer FLF2V on same-row pairs when action continues OR a motivated camera pan/turn
 bridges them (e.g. child points in row4 col1 → camera pans along the gesture to deer in row4 col2).
-Write the camera move into motion_prompt.
+Put the camera move into a timed motion_segments beat (not only global_prompt).
 
-## Duration guidance (LTX 2.3)
+## Duration guidance (LTX 2.3 / Director)
 - Prefer 6–10s per clip (best quality): use {{6, 8, 10}}.
 - 3s only for a truly super-short beat; never above 10s.
 - You choose the scene runtime as the sum of clip durations.
+- Each clip is one Director timeline: global_prompt + motion_segments + panel guides.
+
+## Render knobs (required every clip)
+Pick enums only — do not invent floats:
+- motion_class: talking | walking | horse_riding | forest_exploration | large_reveal | fast_action | general
+  (talking=hold face; fast_action/large_reveal=more motion freedom / guide strength)
+- guidance: balanced | prompt_follow | strong
+  (default balanced; prompt_follow if timed beats are ignored; strong rarely)
+
+## Director prompt layers (required every clip)
+- global_prompt: 1–2 sentences of look/lighting/location context only
+- motion_segments: 2–4 timed beats with start_ratio/end_ratio covering 0.0→1.0
+  (action + camera + audio per window; ≥~2s per distinct beat when possible)
+- motion_prompt: flat join of those beats + pace closing line (legacy fallback)
 
 ## Allowed panel ids (story order)
 {json.dumps(panel_ids, ensure_ascii=False)}
@@ -225,7 +240,8 @@ Write the camera move into motion_prompt.
 {chr(10).join(beat_lines)}
 
 Attached image is the full storyboard sheet for this scene.
-Act as assistant director: segment into I2V standalones and FLF2V continuous chains.
+Act as assistant director for LTX Director: segment into I2V standalones and FLF2V
+continuous chains with timed motion_segments.
 Hard cuts start new segments — never FLF across unmotivated jumps.
 Return JSON only.
 """
@@ -368,6 +384,58 @@ def _clean_prompt(prompt: str) -> str:
     return re.sub(r"\s{2,}", " ", prompt).strip()
 
 
+def _normalize_motion_segments(
+    raw_segments: Any,
+    *,
+    clip_id: str,
+) -> tuple[list[dict], list[str]]:
+    """Validate AD timed beats; return cleaned segments + repairs."""
+    repairs: list[str] = []
+    if not isinstance(raw_segments, list) or not raw_segments:
+        return [], repairs
+
+    cleaned: list[dict] = []
+    for item in raw_segments:
+        if not isinstance(item, dict):
+            continue
+        prompt = _clean_prompt(str(item.get("prompt") or "").strip())
+        if not prompt:
+            continue
+        try:
+            start = float(item.get("start_ratio", 0.0))
+            end = float(item.get("end_ratio", 1.0))
+        except (TypeError, ValueError):
+            repairs.append(f"drop invalid motion_segment ratios on {clip_id}")
+            continue
+        start = max(0.0, min(1.0, start))
+        end = max(0.0, min(1.0, end))
+        if end <= start:
+            repairs.append(f"drop inverted motion_segment on {clip_id}")
+            continue
+        cleaned.append(
+            {
+                "start_ratio": round(start, 4),
+                "end_ratio": round(end, 4),
+                "prompt": prompt,
+            }
+        )
+
+    cleaned.sort(key=lambda s: (s["start_ratio"], s["end_ratio"]))
+    if len(cleaned) > 5:
+        repairs.append(f"truncated motion_segments to 5 on {clip_id}")
+        cleaned = cleaned[:5]
+
+    if cleaned:
+        if cleaned[0]["start_ratio"] > 0.05:
+            cleaned[0]["start_ratio"] = 0.0
+            repairs.append(f"snap first motion_segment to 0.0 on {clip_id}")
+        if cleaned[-1]["end_ratio"] < 0.95:
+            cleaned[-1]["end_ratio"] = 1.0
+            repairs.append(f"snap last motion_segment to 1.0 on {clip_id}")
+
+    return cleaned, repairs
+
+
 def _clip_start(clip: dict) -> str:
     return str(
         clip.get("start_panel_id")
@@ -488,9 +556,21 @@ def _normalize_one_clip(
             )
 
     pace = str(clip.get("pace") or "fast").strip().lower() or "fast"
+    if pace not in ("slow", "medium", "fast"):
+        pace = "fast"
     raw_dur = int(clip.get("duration_seconds") or 6)
     duration = snap_director_clip_duration(raw_dur, fps=fps)
+    motion_segments, seg_repairs = _normalize_motion_segments(
+        clip.get("motion_segments"),
+        clip_id=str(clip.get("clip_id") or f"{scene_id}_clip_{index:02d}"),
+    )
+    repairs.extend(seg_repairs)
     prompt = str(clip.get("motion_prompt") or "").strip()
+    if not prompt and motion_segments:
+        from tools.ltx_director_timeline import flatten_motion_segments_prompt
+
+        prompt = flatten_motion_segments_prompt(motion_segments)
+        repairs.append(f"derived motion_prompt from motion_segments for {first}→{last}")
     if not prompt:
         if first == last:
             prompt = _default_hold_prompt(shot_lookup.get(first), pace)
@@ -500,7 +580,16 @@ def _normalize_one_clip(
             )
         repairs.append(f"filled empty motion_prompt for {first}→{last}")
     prompt = _clean_prompt(prompt)
+    if not motion_segments and prompt:
+        # Legacy AD plans: synthesize one full-span beat so Director path always
+        # has timed segments when re-rendered.
+        motion_segments = [
+            {"start_ratio": 0.0, "end_ratio": 1.0, "prompt": prompt}
+        ]
+        repairs.append(f"synthesized motion_segments from motion_prompt for {first}→{last}")
+    global_prompt = _clean_prompt(str(clip.get("global_prompt") or "").strip())
     rationale = str(clip.get("rationale") or "").strip()
+    render = resolve_clip_render_params(clip, prefer_stored=False)
 
     return {
         "clip_id": str(clip.get("clip_id") or f"{scene_id}_clip_{index:02d}"),
@@ -515,6 +604,13 @@ def _normalize_one_clip(
         "mode": "i2v_hold" if workflow == _MODE_I2V else _MODE_FLF,
         "duration_seconds": duration,
         "pace": pace,
+        "motion_class": render["motion_class"],
+        "guidance": render["guidance"],
+        "i2v_strength": render["i2v_strength"],
+        "cfg": render["cfg"],
+        "last_frame_strength": render["last_frame_strength"],
+        "global_prompt": global_prompt,
+        "motion_segments": motion_segments,
         "motion_prompt": prompt,
         "rationale": rationale,
         "_cut_before": bool(clip.get("_cut_before", False)),
@@ -600,6 +696,7 @@ def _ensure_panel_coverage(
         return clips
 
     repairs.append(f"coverage missing panels: {missing}")
+    default_render = resolve_clip_render_params({}, prefer_stored=False)
     for pid in missing:
         i = panel_ids.index(pid)
         prev_id = panel_ids[i - 1] if i > 0 else None
@@ -622,6 +719,7 @@ def _ensure_panel_coverage(
                     "mode": _MODE_FLF,
                     "duration_seconds": snap_director_clip_duration(6, fps=fps),
                     "pace": "fast",
+                    **default_render,
                     "motion_prompt": _default_pair_prompt(
                         shot_lookup.get(prev_id), shot_lookup.get(pid), "fast"
                     ),
@@ -647,6 +745,7 @@ def _ensure_panel_coverage(
                     "mode": "i2v_hold",
                     "duration_seconds": snap_director_clip_duration(6, fps=fps),
                     "pace": "fast",
+                    **default_render,
                     "motion_prompt": _default_hold_prompt(shot_lookup.get(pid), "fast"),
                     "rationale": "coverage fill standalone I2V",
                     "_cut_before": True,

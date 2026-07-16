@@ -72,3 +72,6 @@ kanban/boards/
 .upload_manifest.json
 *.upload_manifest.json
 outputs/
+
+# Vendor clones under Research (docs stay tracked; source trees do not)
+Research/WhatDreamsCost-ComfyUI/

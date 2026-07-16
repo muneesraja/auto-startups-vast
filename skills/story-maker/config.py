@@ -54,7 +54,16 @@ I2V_TEMPLATE_NAME = "ltx-i2v"
 FLF2V_TEMPLATE_NAME = os.getenv("FLF2V_TEMPLATE_NAME", "ltx-flf2v")
 # storyboard video path: "fallback" = existing video_shots I2V; "director" = assistant-director I2V/FLF
 STORYBOARD_VIDEO_MODE = os.getenv("STORYBOARD_VIDEO_MODE", "fallback").strip().lower()
+# Render backend when STORYBOARD_VIDEO_MODE=director:
+#   templates = legacy ltx-i2v / ltx-flf2v templates (default)
+#   director_v2 = LTX Director Hotfix timeline workflow
+STORY_MAKER_VIDEO_BACKEND = os.getenv(
+    "STORY_MAKER_VIDEO_BACKEND", "templates"
+).strip().lower()
 FLF_DURATION_TOLERANCE_PERCENT = int(os.getenv("FLF_DURATION_TOLERANCE_PERCENT", "15"))
+# LTX output resolution (must be divisible by 32 for latent math)
+VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1920"))
+VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1088"))
 
 DEFAULT_PLANNING_MODEL = "openai/gpt-5.4-mini"
 DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))
@@ -81,7 +90,7 @@ STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "1152x2048")
 # Panel crop: python (white-gutter detect → uniform grid) | vision | auto
 STORYBOARD_CROP_MODE = os.getenv("STORYBOARD_CROP_MODE", "python")
 PANEL_IMAGE_SIZE = os.getenv("PANEL_IMAGE_SIZE", "2048x1152")
-COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.04"))
+COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.01"))
 COST_OPENROUTER_CALL = float(os.getenv("COST_OPENROUTER_CALL", "0.002"))
 COST_LTX_VIDEO = float(os.getenv("COST_LTX_VIDEO", "0.0"))
 
@@ -160,9 +169,9 @@ def get_crop_analysis_model_config() -> tuple[str, str | None, str | None]:
 
 
 def get_image_provider() -> str:
-    """Default still-image backend: fal | replicate.
+    """Default still-image backend for locations / shot stills / panel regen.
 
-    Used for character/location sheets, panel regen, and shot stills.
+    Character sheets use :func:`get_character_sheet_image_provider`.
     Storyboard album sheets use :func:`get_storyboard_image_provider`.
     """
     provider = (os.getenv("PROVIDER") or DEFAULT_IMAGE_PROVIDER).strip().lower()
@@ -180,9 +189,9 @@ def get_image_provider() -> str:
 def get_storyboard_image_provider() -> str:
     """Backend for storyboard sheet generation only.
 
-    Defaults to ``fal`` (GPT Image 2) so album sheets can use high-ref
-    character continuity while panel regen / shot stills stay on Replicate
-    via :func:`get_image_provider`.
+    Defaults to ``fal`` (GPT Image 2). Keep panel / shot stills on Replicate
+    via :func:`get_image_provider` — fal edit+refs for high-volume panel regen
+    is typically much more expensive than Replicate ``quality=low``.
     """
     raw = (os.getenv("STORYBOARD_IMAGE_PROVIDER") or "fal").strip().lower()
     if raw not in ("fal", "replicate"):
@@ -198,6 +207,22 @@ def get_storyboard_image_provider() -> str:
             "STORYBOARD_IMAGE_PROVIDER=replicate requires REPLICATE_API_TOKEN in .env"
         )
     return raw
+
+
+def get_character_sheet_image_provider() -> str:
+    """Backend for character sheet generation.
+
+    Defaults to ``fal`` (same preference as storyboard sheets). Override with
+    ``CHARACTER_SHEET_IMAGE_PROVIDER``. Location plates and panel/shot stills
+    stay on :func:`get_image_provider` (Replicate).
+    """
+    raw = (os.getenv("CHARACTER_SHEET_IMAGE_PROVIDER") or "").strip().lower()
+    if raw:
+        return _validate_image_backend(raw, label="CHARACTER_SHEET_IMAGE_PROVIDER")
+    # Prefer fal when keyed — sheets benefit from fal's multi-ref edit; few calls.
+    if FAL_KEY or os.environ.get("FAL_KEY"):
+        return "fal"
+    return get_image_provider()
 
 
 def _validate_image_backend(provider: str, *, label: str) -> str:
@@ -227,15 +252,12 @@ def get_panel_image_provider() -> str:
 def get_panel_image_fallback_provider() -> str | None:
     """Optional secondary backend after primary panel regen fails.
 
-    Defaults to ``fal`` when primary is ``replicate`` and ``FAL_KEY`` is set.
-    Set ``PANEL_IMAGE_FALLBACK_PROVIDER=`` (empty) or ``none`` to disable.
+    Defaults to **off** — fal GPT Image 2 edit+refs for panel volume is
+    typically ~3–4× Replicate ``quality=low``. Opt in with
+    ``PANEL_IMAGE_FALLBACK_PROVIDER=fal``.
     """
     raw = os.getenv("PANEL_IMAGE_FALLBACK_PROVIDER")
     if raw is None:
-        # Sensible default: Replicate primary → fal GPT Image 2 fallback.
-        primary = get_panel_image_provider()
-        if primary == "replicate" and (FAL_KEY or os.environ.get("FAL_KEY")):
-            return "fal"
         return None
     cleaned = raw.strip().lower()
     if cleaned in ("", "none", "off", "0", "false"):

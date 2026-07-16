@@ -201,9 +201,24 @@ def generate_storyboard_video_clips(
     scene_plan: dict,
     specs: dict | None = None,
     skip_existing: bool = True,
+    clip_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Render director clips with I2V or FLF2V in editorial order."""
+    """Render director clips with I2V or FLF2V in editorial order.
+
+    Backend selection (orthogonal to STORYBOARD_VIDEO_MODE planning gate):
+      STORY_MAKER_VIDEO_BACKEND=templates   → ltx-i2v / ltx-flf2v (default)
+      STORY_MAKER_VIDEO_BACKEND=director_v2 → LTX Director Hotfix timeline
+    """
+    import config
     from tools.comfyui_tools import generate_ltx_flf2v_video, generate_ltx_i2v_video
+    from tools.ltx_director_workflow import (
+        DIRECTOR_FPS,
+        generate_ltx_director_from_clip,
+    )
+    from tools.ltx_render_params import resolve_clip_render_params
+
+    backend = (config.STORY_MAKER_VIDEO_BACKEND or "templates").strip().lower()
+    use_director_v2 = backend in ("director_v2", "director", "hotfix", "ltx_director")
 
     specs = specs if specs is not None else _load_specs(output_dir)
     stills = _still_paths(specs)
@@ -217,6 +232,13 @@ def generate_storyboard_video_clips(
             for seg in scene_plan["segments"]
             for c in (seg.get("clips") or [])
         ]
+
+    wanted = {c.strip() for c in (clip_ids or []) if c and str(c).strip()}
+    if wanted:
+        clips = [c for c in clips if (c.get("clip_id") or "") in wanted]
+        missing = wanted - {(c.get("clip_id") or "") for c in clips}
+        if missing:
+            print(f"  ⚠️ unknown clip_ids skipped: {sorted(missing)}")
 
     results: list[dict] = []
     for clip in clips:
@@ -249,14 +271,34 @@ def generate_storyboard_video_clips(
         else:
             workflow = "flf2v"
 
+        render = resolve_clip_render_params(clip, prefer_stored=True)
+        entry.update(render)
+
         print(
-            f"  ▶ {clip_id} [{workflow}] {start_id} → {end_id} "
-            f"continuous={clip.get('continuous')} dur={duration}s"
+            f"  ▶ {clip_id} [{workflow}] backend={backend} {start_id} → {end_id} "
+            f"continuous={clip.get('continuous')} dur={duration}s "
+            f"class={render['motion_class']} strength={render['i2v_strength']} "
+            f"cfg={render['cfg']}"
         )
 
-        if workflow == "i2v":
+        if use_director_v2:
+            result = generate_ltx_director_from_clip(
+                clip,
+                first_frame_path=first_path,
+                last_frame_path=last_path if workflow == "flf2v" else None,
+                output_path=out_path,
+                global_prompt=(clip.get("global_prompt") or "").strip(),
+                fps=DIRECTOR_FPS,
+            )
+        elif workflow == "i2v":
             result = generate_ltx_i2v_video(
-                first_path, prompt, out_path, duration_seconds=duration, fps=25
+                first_path,
+                prompt,
+                out_path,
+                duration_seconds=duration,
+                fps=25,
+                i2v_strength=render["i2v_strength"],
+                cfg=render["cfg"],
             )
         else:
             result = generate_ltx_flf2v_video(
@@ -266,12 +308,17 @@ def generate_storyboard_video_clips(
                 out_path,
                 duration_seconds=duration,
                 fps=25,
+                first_frame_strength=render["i2v_strength"],
+                last_frame_strength=render["last_frame_strength"],
+                cfg=render["cfg"],
             )
 
         if result.get("status") == "success":
             entry["status"] = "completed"
             entry["output_path"] = result.get("video_path") or out_path
             entry["workflow"] = workflow
+            if use_director_v2:
+                entry["render_backend"] = "director_v2"
         else:
             entry["status"] = "error"
             entry["message"] = result.get("message") or "unknown error"
@@ -287,18 +334,53 @@ def generate_storyboard_video_clips(
                 clip.update(
                     {
                         k: by_id[cid][k]
-                        for k in ("status", "output_path", "message", "workflow")
+                        for k in (
+                            "status",
+                            "output_path",
+                            "message",
+                            "workflow",
+                            "motion_class",
+                            "guidance",
+                            "i2v_strength",
+                            "cfg",
+                            "last_frame_strength",
+                            "global_prompt",
+                            "motion_segments",
+                            "render_backend",
+                        )
                         if k in by_id[cid]
                     }
                 )
 
-    scene_plan["clips"] = results
+    # When filtering clip_ids, merge into the full plan rather than dropping others.
+    if wanted:
+        full_clips = scene_plan.get("clips") or []
+        if not full_clips and scene_plan.get("segments"):
+            full_clips = [
+                c
+                for seg in scene_plan["segments"]
+                for c in (seg.get("clips") or [])
+            ]
+        merged = []
+        updated = {c["clip_id"]: c for c in results if c.get("clip_id")}
+        for clip in full_clips:
+            cid = clip.get("clip_id")
+            merged.append(updated.get(cid, clip) if cid in updated else clip)
+        scene_plan["clips"] = merged
+        results = merged
+    else:
+        scene_plan["clips"] = results
+
     scene_plan["duration_total_seconds"] = sum(
-        int(c.get("duration_seconds") or 0) for c in results
+        int(c.get("duration_seconds") or 0) for c in scene_plan["clips"]
     )
     scene_plan["status"] = (
         "completed"
-        if results and all(c.get("status") in ("completed", "skipped_exists") for c in results)
+        if scene_plan["clips"]
+        and all(
+            c.get("status") in ("completed", "skipped_exists")
+            for c in scene_plan["clips"]
+        )
         else "partial"
     )
     return scene_plan

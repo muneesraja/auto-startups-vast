@@ -146,8 +146,17 @@ async def vision_json_from_image(
     resp = await acompletion(**kwargs)
     raw = str(resp.choices[0].message.content or "").strip()
     try:
-        return _json.loads(raw)
-    except _json.JSONDecodeError as exc:
+        # Claude and some OpenRouter routes ignore response_format and wrap
+        # JSON in markdown fences — reuse the shared LLM JSON cleaner.
+        from scripts.nodes._json_util import clean_json_str
+
+        parsed = clean_json_str(raw)
+        if not isinstance(parsed, dict):
+            raise RuntimeError(
+                f"Vision model returned non-object JSON: {type(parsed).__name__}"
+            )
+        return parsed
+    except Exception as exc:
         raise RuntimeError(f"Vision model returned invalid JSON: {raw[:200]}") from exc
 
 
