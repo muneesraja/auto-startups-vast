@@ -22,8 +22,13 @@ for VENV in \
   [ -f "$VENV" ] && source "$VENV" && break
 done
 
-# Load HF token: env var first (set by provisioning), then JSON config
+# Load HF token: explicit env var → RunPod secret → JSON config files
+# RunPod Secrets inject as RUNPOD_SECRET_HF_TOKEN (not HF_TOKEN)
 HF_TOKEN="${HF_TOKEN:-}"
+if [ -z "$HF_TOKEN" ] && [ -n "${RUNPOD_SECRET_HF_TOKEN:-}" ]; then
+    HF_TOKEN="$RUNPOD_SECRET_HF_TOKEN"
+    echo "HF token loaded from RunPod secret (RUNPOD_SECRET_HF_TOKEN)"
+fi
 if [ -z "$HF_TOKEN" ]; then
     for TOKEN_PATH in /root/config/token.json /workspace/config/token.json; do
       if [ -f "$TOKEN_PATH" ]; then
