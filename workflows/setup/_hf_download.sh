@@ -47,8 +47,8 @@ else
   echo "✅ HF token available"
 fi
 
-# Enable hf_transfer for maximum speed
-export HF_HUB_ENABLE_HF_TRANSFER=1
+# Enable Xet high-performance transfer (replaces deprecated hf_transfer)
+export HF_XET_HIGH_PERFORMANCE=1
 
 # Download function: hf_download REPO_ID FILENAME LOCAL_DIR
 hf_download() {
@@ -65,7 +65,7 @@ hf_download() {
 import os, time, sys
 from huggingface_hub import hf_hub_download
 
-os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+os.environ['HF_XET_HIGH_PERFORMANCE'] = '1'
 
 token = "$HF_TOKEN" or None
 repo_id = "$repo_id"
