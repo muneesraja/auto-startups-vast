@@ -3,8 +3,8 @@
 # name: LTX Official ComfyUI Workflow 2.3 I2V
 # workflow: video_ltx2_3_i2v
 # aliases: [ltx-23-i2v-official, ltx-official, ltx23-official, ltx-i2v-official]
-# description: Downloads all models for the official LTX 2.3 Image-to-Video workflow (Lightricks FP8 checkpoint + Kijai dynamic-rank distilled LoRA + Lightricks 384-rank distilled LoRA + Gemma FP4 text encoder + Gemma abliterated LoRA + spatial upscaler).
-# size: ~48GB
+# description: Downloads all models for the official LTX 2.3 Image-to-Video workflow (Lightricks FP8 checkpoint + Kijai dynamic-rank distilled LoRA + Lightricks 384-rank distilled LoRA + Gemma FP4 text encoder + Gemma abliterated LoRA + spatial upscaler + OmniNFT RL LoRA).
+# size: ~49GB
 # min_vram: 24GB
 # ---
 set -e
@@ -53,7 +53,7 @@ unset _HF_HELPER
 echo "==> Starting downloads..."
 
 # 1. Checkpoint (Lightricks official FP8 — 29.1GB) — primary transformer for the workflow
-echo "[1/4] Transformer checkpoint (FP8)..."
+echo "[1/7] Transformer checkpoint (FP8)..."
 hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DIR/models/checkpoints"
 
 # 2. Distilled LoRA — Kijai dynamic-rank variant (~2.6GB).
@@ -62,7 +62,7 @@ hf_download "Lightricks/LTX-2.3-fp8" "ltx-2.3-22b-dev-fp8.safetensors" "$BASE_DI
 # Workaround for double-nest: download with local_dir=$BASE_DIR (helper
 # creates $BASE_DIR/split_files/loras/foo), then move to
 # $BASE_DIR/models/loras/.
-echo "[2/4] Kijai dynamic-rank distilled LoRA..."
+echo "[2/7] Kijai dynamic-rank distilled LoRA..."
 LORA_BLOB="split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"
 LORA_FINAL="$BASE_DIR/models/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors"
 mkdir -p "$BASE_DIR/models/loras"
@@ -78,7 +78,7 @@ fi
 # Different from step 2: this is the rank-384 preset from Lightricks' official
 # release. Both LoRAs are needed (different rank/training method, applied
 # at different strengths in the workflow).
-echo "[3/4] Lightricks 384-rank distilled LoRA..."
+echo "[3/7] Lightricks 384-rank distilled LoRA..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$BASE_DIR/models/loras"
 
 # 4. Text Encoder — Gemma 3 12B FP4 Mixed (~8.8GB).
@@ -87,7 +87,7 @@ hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384.safetensors" "$
 # Workaround for double-nest: download with local_dir=$BASE_DIR (helper
 # creates $BASE_DIR/split_files/text_encoders/foo), then move to
 # $BASE_DIR/models/text_encoders/.
-echo "[4/4] Gemma 3 12B FP4 text encoder..."
+echo "[4/7] Gemma 3 12B FP4 text encoder..."
 TE_BLOB="split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
 TE_FINAL="$BASE_DIR/models/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
 mkdir -p "$BASE_DIR/models/text_encoders"
@@ -101,7 +101,7 @@ fi
 
 # 5. Gemma 3 abliterated LoRA — workflow also references this for prompt quality.
 # Same split_files/loras/ filename-prefix double-nest as the Kijai LoRA in step 2.
-echo "[5/5] Gemma-3 abliterated LoRA..."
+echo "[5/7] Gemma-3 abliterated LoRA..."
 ABLORA_BLOB="split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
 ABLORA_FINAL="$BASE_DIR/models/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors"
 hf_download "Comfy-Org/ltx-2" "$ABLORA_BLOB" "$BASE_DIR"
@@ -115,8 +115,15 @@ fi
 # 6. Spatial upscaler v1.1 (~996MB) — required by the workflow's LatentUpscaleModelLoader.
 # Previously assumed to be cached by ltx-23-fflf-seed-hunter.sh, but on fresh
 # instances that assumption is wrong and the workflow silently fails to load.
-echo "[6/6] Spatial upscaler (v1.1)..."
+echo "[6/7] Spatial upscaler (v1.1)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
+
+# 7. OmniNFT RL LoRA (~588MB) — Kijai's OmniNFT reinforcement learning LoRA.
+# The HF filename includes a "loras/" prefix, so passing local_dir=$BASE_DIR/models
+# places the file at $BASE_DIR/models/loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors
+# directly — no move/rename needed.
+echo "[7/7] OmniNFT RL LoRA..."
+hf_download "Kijai/LTX2.3_comfy" "loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors" "$BASE_DIR/models"
 
 echo "==> All downloads completed!"
 echo "==> Done!"

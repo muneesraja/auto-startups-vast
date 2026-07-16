@@ -3,8 +3,8 @@
 # name: LTX 2.3 T2V/I2V Single-Stage and Double Distilled + Full
 # workflow: LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full
 # aliases: [ltx-23-single-stage, ltx-23-distilled-full, ltx23 t2v i2v single stage, ltx 2.3 distilled full, ltx-23-double-distilled]
-# description: Downloads all models for the LTX 2.3 Single-Stage and Double Distilled + Full dual-pass workflow (T2V & I2V with audio). Uses full bf16 dev checkpoint + distilled LoRA 384 rank 1.1 + Gemma 3 12B BF16 text encoder + spatial upscaler.
-# size: ~79GB
+# description: Downloads all models for the LTX 2.3 Single-Stage and Double Distilled + Full dual-pass workflow (T2V & I2V with audio). Uses full bf16 dev checkpoint + distilled LoRA 384 rank 1.1 + Gemma 3 12B BF16 text encoder + spatial upscaler + OmniNFT RL LoRA.
+# size: ~80GB
 # min_vram: 24GB
 # nodes: [ComfyUI-LTXVideo, ComfyUI-KJNodes, RES4LYF]
 # ---
@@ -109,17 +109,17 @@ unset _HF_HELPER
 
 echo "==> Starting downloads..."
 
-# [1/3] THE BRAIN — Full bf16 dev checkpoint (46.1GB)
+# [1/5] THE BRAIN — Full bf16 dev checkpoint (46.1GB)
 # Used by: CheckpointLoaderSimple → MODEL + CLIP + VAE
 # Also used by: LTXVAudioVAELoader (audio VAE extracted from checkpoint)
-echo "[1/3] Transformer checkpoint (full bf16, 46.1GB)..."
+echo "[1/5] Transformer checkpoint (full bf16, 46.1GB)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-dev.safetensors" "$BASE_DIR/models/checkpoints"
 
-# [2/3] THE TEXT BRAIN — Gemma 3 12B IT BF16 (24.4GB)
+# [2/5] THE TEXT BRAIN — Gemma 3 12B IT BF16 (24.4GB)
 # Used by: LTXAVTextEncoderLoader → CLIP for text encoding
 # The workflow references "comfy_gemma_3_12B_it.safetensors" but the HF file
 # is "gemma_3_12B_it.safetensors" from Comfy-Org/ltx-2. Download then rename.
-echo "[2/3] Text encoder Gemma 3 12B BF16 (24.4GB)..."
+echo "[2/5] Text encoder Gemma 3 12B BF16 (24.4GB)..."
 TE_BLOB="split_files/text_encoders/gemma_3_12B_it.safetensors"
 TE_FINAL="$BASE_DIR/models/text_encoders/comfy_gemma_3_12B_it.safetensors"
 mkdir -p "$BASE_DIR/models/text_encoders"
@@ -136,15 +136,20 @@ elif [ -f "$BASE_DIR/models/text_encoders/gemma_3_12B_it.safetensors" ]; then
   echo "  ✅ Renamed to $TE_FINAL"
 fi
 
-# [3/3] THE DISTILLATION — Distilled LoRA 384-rank v1.1 (7.6GB)
+# [3/5] THE DISTILLATION — Distilled LoRA 384-rank v1.1 (7.6GB)
 # Used by: LoraLoaderModelOnly (applied at strengths 0.5 and 0.2)
-echo "[3/3] Distilled LoRA 384-rank v1.1 (7.6GB)..."
+echo "[3/5] Distilled LoRA 384-rank v1.1 (7.6GB)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-22b-distilled-lora-384-1.1.safetensors" "$BASE_DIR/models/loras"
 
-# [4/4] SPATIAL UPSCALER — x2 v1.1 (950MB)
+# [4/5] SPATIAL UPSCALER — x2 v1.1 (950MB)
 # Used by: LTXVLatentUpscaler (2x spatial upscale for higher resolution)
-echo "[4/4] Spatial upscaler x2 v1.1 (950MB)..."
+echo "[4/5] Spatial upscaler x2 v1.1 (950MB)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
+
+# [5/5] OmniNFT RL LoRA (588MB)
+# Additional LoRA for enhanced motion quality
+echo "[5/5] OmniNFT RL LoRA..."
+hf_download "Kijai/LTX2.3_comfy" "loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors" "$BASE_DIR/models/loras"
 
 echo "==> All downloads completed!"
 
@@ -171,6 +176,7 @@ echo "   Model: ltx-2.3-22b-dev.safetensors (full bf16, 46.1GB)"
 echo "   LoRA:  ltx-2.3-22b-distilled-lora-384-1.1.safetensors (7.6GB)"
 echo "   Text:  comfy_gemma_3_12B_it.safetensors (24.4GB)"
 echo "   Upscale: ltx-2.3-spatial-upscaler-x2-1.1.safetensors (950MB)"
+echo "   OmniNFT: LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors (588MB)"
 echo "   Nodes: ComfyUI-LTXVideo + ComfyUI-KJNodes + RES4LYF"
 echo ""
 echo "💡 T2V: Set bypass_i2v=True (default)"
