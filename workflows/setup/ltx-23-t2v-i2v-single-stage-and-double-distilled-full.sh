@@ -148,8 +148,9 @@ hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "
 
 # [5/5] OmniNFT RL LoRA (588MB)
 # Additional LoRA for enhanced motion quality
+# HF filename includes "loras/" prefix, so use $BASE_DIR/models (not models/loras)
 echo "[5/5] OmniNFT RL LoRA..."
-hf_download "Kijai/LTX2.3_comfy" "loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors" "$BASE_DIR/models/loras"
+hf_download "Kijai/LTX2.3_comfy" "loras/LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors" "$BASE_DIR/models"
 
 echo "==> All downloads completed!"
 
