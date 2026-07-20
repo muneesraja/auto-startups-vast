@@ -198,7 +198,13 @@ hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "
 
 echo "==> All downloads completed!"
 
-# Restart ComfyUI so it picks up the newly installed custom nodes + model files
+# Restart ComfyUI so it picks up the newly installed custom nodes + model files.
+# On RunPod's runpod/comfyui image, the entrypoint pre-starts ComfyUI and there
+# is no supervisord — so the script MUST kill the old process and relaunch it
+# itself, otherwise the new custom_nodes/ clones never get imported. Using
+# tmux new-session is the only pattern that survives SSH disconnect on RunPod
+# slim (nohup/setsid+disown are killed when the SSH session ends — see
+# vast-ai-script-runner skill pitfalls).
 echo "==> Restarting ComfyUI..."
 if command -v supervisorctl &> /dev/null; then
     supervisorctl restart comfyui 2>/dev/null \
@@ -209,8 +215,26 @@ elif [ -f /etc/supervisor/supervisord.conf ]; then
         && echo "✅ ComfyUI supervisor started" \
         || echo "⚠️  supervisord failed — restart ComfyUI manually"
 else
-    echo "⚠️  No supervisor found — restart ComfyUI manually"
-    echo "    Run: cd $COMFYUI_DIR && $COMFY_PYTHON main.py --listen 0.0.0.0 --port 8188 &"
+    # Detect the ComfyUI listen port from the running process (default 8188)
+    COMFY_PORT=$(ps aux | grep '[p]ython.*main.py' | grep -oE -- '--port [0-9]+' | awk '{print $2}' | head -1)
+    [ -z "$COMFY_PORT" ] && COMFY_PORT=8188
+
+    # Write a launcher script (avoids tmux-quoting traps from inline env vars)
+    cat > /root/start_comfyui.sh << EOF
+#!/bin/bash
+cd $COMFYUI_DIR
+exec $COMFY_PYTHON main.py --listen 0.0.0.0 --port $COMFY_PORT --enable-cors-header 2>&1
+EOF
+    chmod +x /root/start_comfyui.sh
+
+    # Kill old process + clean db lock, then relaunch in tmux
+    pkill -9 -f "main.py --listen" 2>/dev/null || true
+    sleep 3
+    rm -f "$COMFYUI_DIR/user/comfyui.db.lock" 2>/dev/null || true
+    tmux kill-session -t comfyui 2>/dev/null || true
+    tmux new-session -d -s comfyui "/root/start_comfyui.sh 2>&1 | tee /workspace/comfyui.log"
+    echo "✅ ComfyUI restarted in tmux session 'comfyui' (port $COMFY_PORT)"
+    echo "    Tail log: tmux attach -t comfyui"
 fi
 
 echo "==> Done!"
