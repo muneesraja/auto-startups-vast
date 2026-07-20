@@ -7,17 +7,24 @@ from typing import Any
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# From Research/story-board/Character-consistency.md
+# From Research/story-board/Character-consistency.md — provider-facing age-neutral.
 CHARACTER_CONSISTENCY_CANON: dict[str, str] = {
     "naila": (
-        "Naila: 5-year-old girl with curly dark brown hair, expressive brown eyes, "
-        "light brown skin, wearing a forest-green dress, barefoot."
+        "Naila, matching the attached character reference: curly dark brown hair, "
+        "expressive brown eyes, light brown skin, forest-green dress, barefoot."
     ),
     "father": (
-        "Father: kind forest caretaker in khaki ranger clothing with a medium beard."
+        "Father, matching the attached character reference: kind forest caretaker in "
+        "khaki ranger clothing with a medium beard."
     ),
-    "azhagi": "Azhagi: fluffy golden retriever, protective and expressive.",
-    "neju": "Neju: colorful green parrot with an orange beak and blue wing tips.",
+    "azhagi": (
+        "Azhagi, matching the attached character reference: fluffy golden retriever, "
+        "protective and expressive."
+    ),
+    "neju": (
+        "Neju, matching the attached character reference: colorful green parrot with an "
+        "orange beak and blue wing tips."
+    ),
 }
 
 ENVIRONMENT_CANON = (
@@ -112,14 +119,17 @@ def build_shot_listing(shots: list[dict[str, Any]], *, start_index: int = 1) -> 
 
 
 def build_panel_lines(shots: list[dict[str, Any]], *, start_index: int = 1) -> str:
-    """Detailed per-panel blocks for crop alignment."""
+    """Detailed per-panel blocks for crop alignment (Director-aware)."""
     blocks: list[str] = []
     for offset, shot in enumerate(shots):
         index = start_index + offset
         camera = _shot_camera(shot)
         action = _shot_action(shot)
         duration = shot.get("duration_seconds")
-        duration_label = f"~{duration}s" if duration else "~1s"
+        # Editorial board beat only — never an LTX render duration.
+        beat_label = f"board beat ~{duration}s" if duration else "board beat"
+        row = (index - 1) // 2 + 1
+        col = (index - 1) % 2 + 1
         staging_bits = []
         for key in ("subject_position", "facing_direction", "eyeline", "background_region"):
             val = shot.get(key)
@@ -128,14 +138,26 @@ def build_panel_lines(shots: list[dict[str, Any]], *, start_index: int = 1) -> s
         visual = _strip_visual_prefix(shot.get("description", ""))
         if staging_bits:
             visual = f"{visual} ({'; '.join(staging_bits)})"
+        guide_role = (shot.get("director_guide_role") or "").strip()
+        transition = (shot.get("director_transition_after") or "").strip()
+        continuity = (shot.get("director_continuity_note") or "").strip()
+        group = shot.get("director_chain_group")
         block = [
-            f"Panel {index} | Duration: {duration_label}",
+            f"Panel {index} | grid row {row} col {col} | {beat_label}",
             f"CAM: {camera}",
             f"Visual: {visual}",
         ]
         motion = (shot.get("motion_intent") or "").strip()
         if motion:
             block.append(f"Motion: {motion}")
+        if guide_role:
+            block.append(f"Director guide role: {guide_role}")
+        if transition:
+            block.append(f"Continuity edge after panel: {transition}")
+        if group is not None:
+            block.append(f"Director chain group: {group}")
+        if continuity:
+            block.append(f"Director note: {continuity}")
         blocks.append("\n".join(block))
     return "\n\n".join(blocks)
 
@@ -276,6 +298,8 @@ def build_storyboard_sheet_prompt(
     has_previous_sheet_ref: bool = False,
 ) -> str:
     """Build a full production storyboard-sheet prompt for one sheet chunk."""
+    from .reference_led_identity import normalize_provider_identity_language
+
     char_ids: list[str] = []
     for shot in shots:
         for cid in shot.get("characters_present", []):
@@ -284,7 +308,7 @@ def build_storyboard_sheet_prompt(
 
     start_index = global_shot_offset + 1
     template_text = template or _load_prompt_file("storyboard_sheet_template", style_id=style_id)
-    return template_text.format(
+    prompt = template_text.format(
         sheet_number=f"{sheet_number:02d}",
         scene_title=scene.get("title", scene.get("scene_id", "Storyboard Sheet")),
         sheet_subtitle=scene.get("title", scene.get("scene_id", "Storyboard Sheet")),
@@ -309,4 +333,11 @@ def build_storyboard_sheet_prompt(
         shot_listing=build_shot_listing(shots, start_index=start_index),
         panel_lines=build_panel_lines(shots, start_index=start_index),
         render_style=render_style,
+    )
+    return normalize_provider_identity_language(
+        prompt,
+        characters=story_characters,
+        character_ids=char_ids,
+        has_character_reference=bool(char_ids),
+        preserve_safe_presentation=True,
     )

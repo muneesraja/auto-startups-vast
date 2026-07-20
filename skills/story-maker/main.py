@@ -191,6 +191,41 @@ def _read_story(story_arg: str | None, story_file: str | None) -> str:
     raise ValueError("Provide --story or --story-file")
 
 
+def resolve_output_layout(
+    *,
+    name: str | None,
+    story_id: str | None,
+    part: int | None,
+    base_dir: str,
+) -> tuple[str, str, str]:
+    """Return ``(story_root, output_dir, asset_root)``.
+
+    Series mode (``story_id`` + ``part``):
+      story_root = asset_root = ``<base>/<story_id>``
+      output_dir = ``<story_root>/part-<n>``
+
+    Legacy flat mode (``name``):
+      story_root = asset_root = output_dir = ``<base>/<name>``
+    """
+    has_name = bool((name or "").strip())
+    has_series = bool((story_id or "").strip()) and part is not None
+    if has_name and has_series:
+        raise ValueError("Provide either --name OR (--story-id and --part), not both")
+    if not has_name and not has_series:
+        raise ValueError("Provide --name OR (--story-id and --part)")
+    if has_series:
+        if part is None or int(part) < 1:
+            raise ValueError("--part must be a positive integer")
+        sid = (story_id or "").strip().strip("/")
+        if not sid:
+            raise ValueError("--story-id must be non-empty")
+        story_root = os.path.join(base_dir, sid)
+        output_dir = os.path.join(story_root, f"part-{int(part)}")
+        return story_root, output_dir, story_root
+    flat = os.path.join(base_dir, (name or "").strip())
+    return flat, flat, flat
+
+
 def _parse_target_duration(value: str) -> int:
     s = value.strip().lower().replace(" ", "")
     if s.endswith("min"):
@@ -206,7 +241,24 @@ async def main_async():
     parser = argparse.ArgumentParser(description="Story Maker V2 — ADK multi-agent pipeline")
     parser.add_argument("--story", type=str, help="Raw story text")
     parser.add_argument("--story-file", type=str, help="Path to story text file")
-    parser.add_argument("--name", type=str, required=True, help="Output directory name")
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Output directory name (legacy flat layout under outputs/story-maker/<name>)",
+    )
+    parser.add_argument(
+        "--story-id",
+        type=str,
+        default=None,
+        help="Story series id (e.g. story-naila). Use with --part for shared assets.",
+    )
+    parser.add_argument(
+        "--part",
+        type=int,
+        default=None,
+        help="Series part number (1, 2, …). Writes to <story-id>/part-<n>/.",
+    )
     parser.add_argument("--fresh", action="store_true", help="Wipe artifacts and replan")
     parser.add_argument(
         "--skip-story-developer",
@@ -292,8 +344,21 @@ async def main_async():
     except ValueError as e:
         parser.error(str(e))
 
-    output_dir = os.path.join(config.DEFAULT_OUTPUT_BASE_DIR, args.name)
+    try:
+        story_root, output_dir, asset_root = resolve_output_layout(
+            name=args.name,
+            story_id=args.story_id,
+            part=args.part,
+            base_dir=config.DEFAULT_OUTPUT_BASE_DIR,
+        )
+    except ValueError as e:
+        parser.error(str(e))
+
+    os.makedirs(story_root, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(asset_root, exist_ok=True)
+    for shared in ("characters", "locations", "backgrounds"):
+        os.makedirs(os.path.join(asset_root, shared), exist_ok=True)
 
     only_scenes = None
     if args.only_scenes:
@@ -317,6 +382,10 @@ async def main_async():
         "plan_content": "",
         "video_shot_plan_content": "",
         "output_dir": output_dir,
+        "story_root": story_root,
+        "asset_root": asset_root,
+        "story_id": (args.story_id or args.name or "").strip() or None,
+        "part": args.part,
         "fresh": bool(args.fresh),
         "skip_story_developer": bool(args.skip_story_developer),
         "plan_only": bool(args.plan_only),
@@ -352,6 +421,8 @@ async def main_async():
     )
 
     print(f"\nStory Maker V2 output: {output_dir}")
+    if asset_root != output_dir:
+        print(f"Shared assets (asset_root): {asset_root}")
     if target_duration_seconds:
         print(f"Target duration: {target_duration_seconds}s (±{args.duration_tolerance}%)")
     started = datetime.now(timezone.utc)

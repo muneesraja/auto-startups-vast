@@ -594,13 +594,18 @@ def build_panel_regen_prompt(
     *,
     render_style: str,
     character_labels: dict[str, str] | None = None,
+    story_characters: list[dict] | None = None,
 ) -> str:
+    from .reference_led_identity import normalize_provider_identity_language
     from .save_artifact_nodes import _apply_render_style
 
     char_ids = [cid for cid in (shot.get("characters_present") or []) if cid]
     description = (shot.get("description") or "").strip()
     camera = shot.get("camera_intent") or shot.get("frame_strategy") or "medium shot"
     labels = character_labels or {}
+    guide_role = str(shot.get("director_guide_role") or "").strip().lower()
+    continuity = str(shot.get("director_continuity_note") or "").strip()
+    transition = str(shot.get("director_transition_after") or "").strip().lower()
 
     if char_ids:
         slot_lines: list[str] = []
@@ -632,6 +637,30 @@ def build_panel_regen_prompt(
             "Environment / empty-stage panel — no named heroes. "
             "Do not invent people, animals, or creatures."
         )
+
+    role_line = ""
+    if guide_role == "end":
+        role_line = (
+            "Director role: END / destination keyframe — prioritize a landable end composition "
+            "with clear silhouette and settled pose. "
+        )
+    elif guide_role == "middle":
+        role_line = (
+            "Director role: MIDDLE / waypoint — preserve geography, screen direction, and "
+            "pose continuity for a bridge still. "
+        )
+    elif guide_role == "start":
+        role_line = (
+            "Director role: START keyframe — clear readable opening composition for a unit. "
+        )
+    if transition == "match_cut":
+        role_line += (
+            "Match-cut boundary: preserve the shared composition so the next unit can start "
+            "from this still. "
+        )
+    if continuity:
+        role_line += f"Continuity lock: {continuity}. "
+
     prompt = (
         "Upscale and recreate this storyboard panel as a single full-frame cinematic "
         "animation still at high resolution. "
@@ -640,13 +669,21 @@ def build_panel_regen_prompt(
         "CRITICAL: do not add people, animals, props, landmarks, or objects that are "
         "not already visible in the crop; do not change geography or invent new subjects. "
         f"Camera: {camera}. "
+        f"{role_line}"
         f"Soft visual guidance (crop wins for layout/pose only; identity conflicts resolve "
         f"to the character sheet; expression stays from the crop): "
         f"{description or 'as shown in crop'}. "
         f"{char_line} "
         "No text, labels, captions, shot numbers, or watermarks."
     )
-    return _apply_render_style(prompt, render_style)
+    styled = _apply_render_style(prompt, render_style)
+    return normalize_provider_identity_language(
+        styled,
+        characters=story_characters,
+        character_ids=char_ids,
+        has_character_reference=bool(char_ids),
+        preserve_safe_presentation=True,
+    )
 
 
 def _build_safe_panel_regen_prompt(
@@ -1086,9 +1123,16 @@ async def panel_regen(ctx: Context) -> None:
     smoke_max_panels = int(os.getenv("SMOKE_MAX_PANEL_REGENS", "0") or "0")
     smoke_per_sheet = int(os.getenv("SMOKE_MAX_PANELS_PER_SHEET", "0") or "0")
     regen_all = os.getenv("PANEL_REGEN_ALL", "").lower() in ("1", "true", "yes")
+    try:
+        from .storyboard_director_nodes import is_director_video_mode
+
+        if is_director_video_mode(ctx):
+            regen_all = True
+    except Exception:
+        pass
     smoke_bypass_anchor = smoke_max_panels > 0 or smoke_per_sheet > 0 or regen_all
     if regen_all:
-        print("  ⏭️ PANEL_REGEN_ALL=1 — generating all panels with crops (not anchors-only)")
+        print("  ⏭️ PANEL_REGEN_ALL / director mode — generating all panels with crops (not anchors-only)")
     fb_label = fallback_provider or "none"
     print(
         f"  Panel regen provider={panel_provider} fallback={fb_label} "
@@ -1162,7 +1206,10 @@ async def panel_regen(ctx: Context) -> None:
         )
         prompt_box = [
             build_panel_regen_prompt(
-                shot, render_style=render_style, character_labels=char_labels
+                shot,
+                render_style=render_style,
+                character_labels=char_labels,
+                story_characters=story_characters,
             )
         ]
         entry["image_prompt"] = prompt_box[0]
@@ -1172,8 +1219,25 @@ async def panel_regen(ctx: Context) -> None:
         )
 
         def _soften(_err: str, attempt: int) -> None:
+            from .reference_led_identity import (
+                log_provider_sensitivity_failure,
+                normalize_provider_identity_language,
+            )
+
             before = prompt_box[0]
-            prompt_box[0] = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            log_provider_sensitivity_failure(
+                prompt_class="panel_regen_named_reference",
+                retry_route="soften_moderation_prompt",
+                provider=panel_provider,
+            )
+            softened = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            prompt_box[0] = normalize_provider_identity_language(
+                softened,
+                characters=story_characters,
+                character_ids=char_ids,
+                has_character_reference=bool(char_ids),
+                preserve_safe_presentation=True,
+            )
             if prompt_box[0] != before:
                 entry["image_prompt"] = prompt_box[0]
 
@@ -1250,6 +1314,7 @@ async def panel_regen(ctx: Context) -> None:
                         shot,
                         render_style=render_style,
                         character_labels=char_labels,
+                        story_characters=story_characters,
                     ),
                     aggressive=True,
                 )

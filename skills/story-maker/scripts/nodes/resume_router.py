@@ -62,6 +62,8 @@ async def resume_router(ctx: Context) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     if fresh:
+        # Wipe only part-level planning files under output_dir — never shared
+        # asset_root dirs (characters / locations / backgrounds).
         for fname in _FRESH_FILES:
             p = os.path.join(output_dir, fname)
             if os.path.exists(p):

@@ -116,12 +116,46 @@ def sanitize_workflow_inputs(api_workflow: dict[str, dict]) -> None:
             director["inputs"].pop("optional_latent", None)
 
 
-def patch_server_model_names(api_workflow: dict[str, dict]) -> None:
-    """Align loader filenames with models present on the ComfyUI host."""
+def patch_server_model_names(
+    api_workflow: dict[str, dict],
+    *,
+    available_clip_names: list[str] | None = None,
+) -> None:
+    """Align DualCLIPLoader filenames with models present on the ComfyUI host.
+
+    Older hosts shipped ``comfy_gemma_3_12B_it.safetensors``; current LTX 2.3
+    pods expose ``gemma_3_12B_it_fp4_mixed.safetensors``. Only rewrite when the
+    workflow name is missing and a known alias is available.
+    """
     clip = api_workflow.get("12")
-    if clip and clip.get("class_type") == "DualCLIPLoader":
-        if clip["inputs"].get("clip_name1") == "gemma_3_12B_it_fp4_mixed.safetensors":
-            clip["inputs"]["clip_name1"] = "comfy_gemma_3_12B_it.safetensors"
+    if not clip or clip.get("class_type") != "DualCLIPLoader":
+        return
+    name1 = clip["inputs"].get("clip_name1")
+    if not name1:
+        return
+    available = list(available_clip_names or [])
+    if not available:
+        try:
+            info = curl_json("GET", "/object_info/DualCLIPLoader")
+            available = list(
+                info["DualCLIPLoader"]["input"]["required"]["clip_name1"][0]
+            )
+        except Exception:
+            return
+    if name1 in available:
+        return
+    aliases = {
+        "gemma_3_12B_it_fp4_mixed.safetensors": (
+            "comfy_gemma_3_12B_it.safetensors",
+        ),
+        "comfy_gemma_3_12B_it.safetensors": (
+            "gemma_3_12B_it_fp4_mixed.safetensors",
+        ),
+    }
+    for alt in aliases.get(str(name1), ()):
+        if alt in available:
+            clip["inputs"]["clip_name1"] = alt
+            return
 
 
 def patch_director_node(
@@ -201,7 +235,16 @@ def load_hotfix_api_workflow(*, refresh: bool = False) -> dict[str, dict]:
     for ntype in node_types:
         object_info.update(curl_json("GET", f"/object_info/{ntype}"))
     api_workflow = ui_workflow_to_api(ui_workflow, object_info)
-    patch_server_model_names(api_workflow)
+    clip_choices = None
+    dual = object_info.get("DualCLIPLoader")
+    if dual:
+        try:
+            clip_choices = list(
+                dual["input"]["required"]["clip_name1"][0]
+            )
+        except Exception:
+            clip_choices = None
+    patch_server_model_names(api_workflow, available_clip_names=clip_choices)
     sanitize_workflow_inputs(api_workflow)
     _API_WORKFLOW_CACHE = api_workflow
     return json.loads(json.dumps(api_workflow))
@@ -360,6 +403,7 @@ def generate_ltx_director_from_clip(
     first_frame_path: str,
     output_path: str,
     last_frame_path: str | None = None,
+    guide_frame_paths: dict[str, str] | None = None,
     global_prompt: str = "",
     fps: int = DIRECTOR_FPS,
     width: int | None = None,
@@ -371,27 +415,62 @@ def generate_ltx_director_from_clip(
     start_id = clip.get("start_panel_id") or clip.get("first_panel_id")
     end_id = clip.get("end_panel_id") or clip.get("last_panel_id") or start_id
     workflow = (clip.get("workflow") or clip.get("mode") or "i2v").lower()
+    guides = list(clip.get("guide_frames") or [])
     if workflow in ("i2v_hold", "i2v") or start_id == end_id:
-        workflow = "i2v"
+        if any(bool(g.get("is_end_frame") or g.get("placement") == "end") for g in guides if isinstance(g, dict)) and len(guides) > 1:
+            workflow = "flf2v"
+        else:
+            workflow = "i2v"
     else:
         workflow = "flf2v"
     resolved_global = (global_prompt or clip.get("global_prompt") or "").strip()
+    width = int(
+        width
+        if width is not None
+        else getattr(config, "DIRECTOR_VIDEO_WIDTH", config.VIDEO_WIDTH)
+    )
+    height = int(
+        height
+        if height is not None
+        else getattr(config, "DIRECTOR_VIDEO_HEIGHT", config.VIDEO_HEIGHT)
+    )
 
     try:
-        first_file = _upload_image_file(first_frame_path)
-        last_file = None
-        if workflow == "flf2v":
-            if not last_frame_path:
-                return {
-                    "status": "error",
-                    "message": "FLF clip requires last_frame_path",
-                }
+        guide_paths = dict(guide_frame_paths or {})
+        if start_id and first_frame_path:
+            guide_paths.setdefault(str(start_id), first_frame_path)
+        if end_id and last_frame_path:
+            guide_paths.setdefault(str(end_id), last_frame_path)
+        for g in guides:
+            if not isinstance(g, dict):
+                continue
+            pid = str(g.get("panel_id") or "").strip()
+            if pid and pid not in guide_paths:
+                # Caller should pass all paths via guide_frame_paths; skip missing.
+                continue
+
+        uploaded: dict[str, str] = {}
+        for panel_id, path in guide_paths.items():
+            if path:
+                uploaded[panel_id] = _upload_image_file(path)
+
+        first_file = uploaded.get(str(start_id or "")) or (
+            _upload_image_file(first_frame_path) if first_frame_path else ""
+        )
+        last_file = uploaded.get(str(end_id or ""))
+        if workflow == "flf2v" and not last_file and last_frame_path:
             last_file = _upload_image_file(last_frame_path)
+        if workflow == "flf2v" and not guides and not last_file:
+            return {
+                "status": "error",
+                "message": "FLF clip requires last_frame_path",
+            }
 
         timeline_payload = build_timeline_from_director_clip(
             clip,
             first_image_file=first_file,
             last_image_file=last_file,
+            guide_image_files=uploaded,
             global_prompt=resolved_global,
             fps=fps,
             render=render,
@@ -414,6 +493,8 @@ def generate_ltx_director_from_clip(
                     "i2v_strength": render["i2v_strength"],
                     "cfg": render["cfg"],
                     "last_frame_strength": render["last_frame_strength"],
+                    "width": width,
+                    "height": height,
                 }
             )
         return result

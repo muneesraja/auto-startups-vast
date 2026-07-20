@@ -22,6 +22,26 @@ def _output_dir(ctx: Context) -> str:
     return out
 
 
+def _asset_root(ctx: Context) -> str:
+    """Shared identity root (characters/locations/backgrounds).
+
+    Defaults to ``output_dir`` for legacy flat runs. Series mode sets
+    ``asset_root`` to the story root so parts reuse the same locks.
+    """
+    root = (ctx.state.get("asset_root") or ctx.state.get("output_dir") or "").strip()
+    if not root:
+        raise ValueError("asset_root/output_dir not set in state")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _asset_dir(ctx: Context, name: str) -> str:
+    """Return ``join(asset_root, name)`` and ensure the directory exists."""
+    path = os.path.join(_asset_root(ctx), name)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def _stamp_planning_meta(data: dict, **model_fields: str) -> dict:
     if not isinstance(data, dict):
         return data

@@ -90,13 +90,14 @@ class TestStoryboardSheetBuilder(unittest.TestCase):
         self.assertIn("lush forest sanctuary", block.lower())
         self.assertIn("Wooden treehouse", block)
 
-    def test_panel_lines_include_duration(self):
+    def test_panel_lines_include_board_beat(self):
         lines = build_panel_lines(
             [{"camera_intent": "Close Up", "description": "Naila sleeps", "duration_seconds": 2}],
             start_index=3,
         )
         self.assertIn("Panel 3", lines)
-        self.assertIn("Duration: ~2s", lines)
+        self.assertIn("board beat ~2s", lines)
+        self.assertIn("grid row", lines)
 
     def test_build_storyboard_sheet_prompt_forbids_blank_cells(self):
         scene = {

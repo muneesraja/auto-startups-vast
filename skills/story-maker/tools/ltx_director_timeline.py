@@ -318,6 +318,122 @@ def flatten_motion_segments_prompt(motion_segments: list[dict] | None) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _placement_ratio(guide: dict) -> float:
+    placement = str(guide.get("placement") or "").strip().lower()
+    if placement == "start":
+        return 0.0
+    if placement == "middle":
+        try:
+            raw = guide.get("start_ratio")
+            return float(raw) if raw is not None else 0.5
+        except (TypeError, ValueError):
+            return 0.5
+    if placement == "end":
+        return 1.0
+    try:
+        return max(0.0, min(1.0, float(guide.get("start_ratio", 0.0))))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def normalize_guide_frames(raw_guides: list | None) -> list[dict]:
+    """Normalize AD guide frames into sorted ratio placements."""
+    out: list[dict] = []
+    for item in raw_guides or []:
+        if not isinstance(item, dict):
+            continue
+        panel_id = str(item.get("panel_id") or "").strip()
+        image_file = str(item.get("image_file") or item.get("imageFile") or "").strip()
+        if not panel_id and not image_file:
+            continue
+        ratio = _placement_ratio(item)
+        placement = str(item.get("placement") or "").strip().lower() or None
+        is_end = bool(item.get("is_end_frame") or item.get("isEndFrame"))
+        if placement == "end" or ratio >= 0.999:
+            is_end = True
+            ratio = 1.0
+            placement = placement or "end"
+        elif placement == "start":
+            ratio = 0.0
+            is_end = False
+        elif placement == "middle":
+            is_end = False
+        strength = item.get("guide_strength", item.get("guideStrength"))
+        try:
+            strength_f = float(strength) if strength is not None else None
+        except (TypeError, ValueError):
+            strength_f = None
+        out.append(
+            {
+                "panel_id": panel_id,
+                "image_file": image_file,
+                "placement": placement,
+                "start_ratio": ratio,
+                "is_end_frame": is_end,
+                "guide_strength": strength_f,
+            }
+        )
+    out.sort(key=lambda g: (g["start_ratio"], 1 if g["is_end_frame"] else 0))
+    return out
+
+
+def guide_frames_to_image_segments(
+    guides: list[dict],
+    *,
+    duration_frames: int,
+    start_frame: int = 0,
+    default_start_strength: float = 0.7,
+    default_middle_strength: float = 0.55,
+    default_end_strength: float = 0.85,
+    anchor_frames: int = 24,
+) -> list[dict]:
+    """Convert normalized guide frames into LTX Director image segments."""
+    if not guides:
+        return []
+    anchor = max(1, min(anchor_frames, max(1, duration_frames // 4)))
+    image_segments: list[dict] = []
+    for guide in guides:
+        image_file = guide.get("image_file") or ""
+        if not image_file:
+            continue
+        ratio = float(guide.get("start_ratio", 0.0))
+        is_end = bool(guide.get("is_end_frame"))
+        strength = guide.get("guide_strength")
+        if strength is None:
+            if is_end or ratio >= 0.999:
+                strength = default_end_strength
+            elif ratio <= 0.001:
+                strength = default_start_strength
+            else:
+                strength = default_middle_strength
+
+        if is_end or ratio >= 0.999:
+            seg_start = start_frame + max(0, duration_frames - anchor)
+            length = min(anchor, duration_frames)
+            is_end = True
+        elif ratio <= 0.001:
+            seg_start = start_frame
+            length = 1 if len(guides) == 1 else max(1, min(anchor, duration_frames // 3))
+        else:
+            seg_start = start_frame + int(round(ratio * (duration_frames - 1)))
+            seg_start = max(start_frame, min(start_frame + duration_frames - 1, seg_start))
+            length = 1
+
+        image_segments.append(
+            {
+                "id": _seg_id(),
+                "type": "image",
+                "start": seg_start,
+                "length": length,
+                "prompt": "",
+                "imageFile": image_file,
+                "guideStrength": float(strength),
+                "isEndFrame": is_end,
+            }
+        )
+    return image_segments
+
+
 def build_guided_timeline(
     *,
     image_segments: list[dict],
@@ -376,21 +492,26 @@ def build_timeline_from_director_clip(
     *,
     first_image_file: str,
     last_image_file: str | None = None,
+    guide_image_files: dict[str, str] | None = None,
     global_prompt: str = "",
     fps: int = 24,
     render: dict | None = None,
 ) -> dict:
-    """Map an Assistant Director clip dict onto an LTX Director timeline payload.
+    """Map an Assistant Director clip/render-unit onto an LTX Director timeline.
 
-    Prefers ``motion_segments`` (Prompt Relay beats) when present; otherwise uses
-    a single full-duration ``motion_prompt``. ``global_prompt`` comes from the
-    clip when the caller does not override it.
+    Prefers explicit ``guide_frames`` (start/middle/end stills) when present.
+    Otherwise falls back to classic I2V / FLF start+end guides.
+    Prefers ``motion_segments`` for Prompt Relay; otherwise uses flat ``motion_prompt``.
     """
     start_id = clip.get("start_panel_id") or clip.get("first_panel_id")
     end_id = clip.get("end_panel_id") or clip.get("last_panel_id") or start_id
     workflow = (clip.get("workflow") or clip.get("mode") or "i2v").lower()
+    guides_preview = normalize_guide_frames(clip.get("guide_frames"))
     if workflow in ("i2v_hold", "i2v") or start_id == end_id:
-        workflow = "i2v"
+        if any(g.get("is_end_frame") for g in guides_preview) and len(guides_preview) > 1:
+            workflow = "flf2v"
+        else:
+            workflow = "i2v"
     else:
         workflow = "flf2v"
 
@@ -411,14 +532,63 @@ def build_timeline_from_director_clip(
 
     first_strength = float(render.get("i2v_strength", 0.7))
     last_strength = float(render.get("last_frame_strength", 0.85))
+    middle_strength = max(0.45, min(first_strength - 0.15, 0.6))
 
     text_segments = ratios_to_text_segments(
         motion_segments,
         duration_frames=duration_frames,
         start_frame=start_frame,
     )
+
+    guides = guides_preview
+    uploaded = guide_image_files or {}
+    if guides:
+        resolved_guides = []
+        for g in guides:
+            panel = g.get("panel_id") or ""
+            image_file = (
+                g.get("image_file")
+                or uploaded.get(panel)
+                or (
+                    first_image_file
+                    if panel == start_id
+                    else (last_image_file if panel == end_id else "")
+                )
+            )
+            if not image_file:
+                continue
+            item = dict(g)
+            item["image_file"] = image_file
+            resolved_guides.append(item)
+        image_segments = guide_frames_to_image_segments(
+            resolved_guides,
+            duration_frames=duration_frames,
+            start_frame=start_frame,
+            default_start_strength=first_strength,
+            default_middle_strength=middle_strength,
+            default_end_strength=last_strength,
+        )
+        if image_segments:
+            if not text_segments:
+                text_segments = [
+                    {
+                        "id": _seg_id(),
+                        "type": "text",
+                        "start": start_frame,
+                        "length": duration_frames,
+                        "prompt": motion_prompt,
+                    }
+                ]
+            return build_guided_timeline(
+                image_segments=image_segments,
+                text_segments=text_segments,
+                global_prompt=resolved_global,
+                duration_frames=duration_frames,
+                fps=fps,
+                start_frame=start_frame,
+            )
+
     if not text_segments:
-        # Legacy / fallback: one full-clip relay beat.
         if workflow == "flf2v":
             if not last_image_file:
                 raise ValueError("FLF timeline requires last_image_file")
@@ -441,7 +611,7 @@ def build_timeline_from_director_clip(
             fps=fps,
         )
 
-    image_segments: list[dict] = [
+    image_segments = [
         {
             "id": _seg_id(),
             "type": "image",

@@ -23,6 +23,7 @@ from .plan_io import (
 from .save_artifact_nodes import (
     _apply_render_style,
     _normalize_video_shot_plan,
+    _asset_dir,
     _output_dir,
     _stamp_planning_meta,
 )
@@ -124,6 +125,195 @@ def _repair_characters(characters: list) -> list[dict]:
     return out
 
 
+def _coerce_director_transition(value) -> str | None:
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if raw in ("continue", "continuous", "cont"):
+        return "continue"
+    if raw in ("match_cut", "matchcut", "cut", "hard_cut", "transition"):
+        return "match_cut"
+    return None
+
+
+def _coerce_director_guide_role(value) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in ("start", "middle", "end"):
+        return raw
+    if raw in ("hold", "waypoint"):
+        return "middle"
+    return None
+
+
+def _cast_set(shot: dict) -> frozenset[str]:
+    return frozenset(str(c).strip() for c in (shot.get("characters_present") or []) if c)
+
+
+def migrate_director_panel_metadata(shots: list[dict]) -> list[dict]:
+    """Fill director_* fields for legacy plans; preserve authored values.
+
+    Defaults:
+    - director_transition_after: continue when next panel cast ⊆ current and camera
+      is compatible; else match_cut. Last panel defaults to match_cut.
+    - director_chain_group / guide_role: derived from continue runs when missing.
+    - director_continuity_note: left empty when unknown.
+    """
+    if not shots:
+        return shots
+    out = [dict(s) for s in shots]
+    # Normalize / derive transition edges.
+    for i, shot in enumerate(out):
+        authored = _coerce_director_transition(shot.get("director_transition_after"))
+        if authored:
+            shot["director_transition_after"] = authored
+            continue
+        if i >= len(out) - 1:
+            shot["director_transition_after"] = "match_cut"
+            continue
+        nxt = out[i + 1]
+        cur_cast, next_cast = _cast_set(shot), _cast_set(nxt)
+        same_cam = (
+            str(shot.get("camera_intent") or "").strip().lower()
+            == str(nxt.get("camera_intent") or "").strip().lower()
+        )
+        cont_from = bool(nxt.get("continuity_from_previous"))
+        if cont_from:
+            shot["director_transition_after"] = "continue"
+        elif not cur_cast and next_cast:
+            shot["director_transition_after"] = "match_cut"
+        elif next_cast and next_cast.issubset(cur_cast):
+            shot["director_transition_after"] = "continue"
+        elif cur_cast == next_cast and (same_cam or not shot.get("camera_intent")):
+            shot["director_transition_after"] = "continue"
+        else:
+            shot["director_transition_after"] = "match_cut"
+
+    # Derive chain groups + guide roles when missing on the whole scene.
+    has_any_group = any(s.get("director_chain_group") for s in out)
+    if not has_any_group:
+        group = 1
+        run: list[int] = []
+
+        def _flush_run(indices: list[int]) -> None:
+            nonlocal group
+            if not indices:
+                return
+            # Soft-cap continuous runs at 4 panels per group (one multi-guide unit).
+            # Shared boundary between units is applied later in chain construction.
+            for start in range(0, len(indices), 4):
+                chunk = indices[start : start + 4]
+                for j, idx in enumerate(chunk):
+                    out[idx]["director_chain_group"] = group
+                    if len(chunk) == 1:
+                        role = "start"
+                    elif j == 0:
+                        role = "start"
+                    elif j == len(chunk) - 1:
+                        role = "end"
+                    else:
+                        role = "middle"
+                    if not _coerce_director_guide_role(out[idx].get("director_guide_role")):
+                        out[idx]["director_guide_role"] = role
+                group += 1
+
+        for i, shot in enumerate(out):
+            run.append(i)
+            is_cut = shot.get("director_transition_after") == "match_cut" or i == len(out) - 1
+            if is_cut:
+                _flush_run(run)
+                run = []
+    else:
+        for shot in out:
+            if shot.get("director_chain_group") is not None:
+                try:
+                    shot["director_chain_group"] = max(1, int(shot["director_chain_group"]))
+                except (TypeError, ValueError):
+                    shot["director_chain_group"] = None
+            role = _coerce_director_guide_role(shot.get("director_guide_role"))
+            shot["director_guide_role"] = role
+            note = shot.get("director_continuity_note")
+            shot["director_continuity_note"] = str(note or "").strip()
+
+    for shot in out:
+        if shot.get("director_continuity_note") is None:
+            shot["director_continuity_note"] = ""
+        else:
+            shot["director_continuity_note"] = str(shot.get("director_continuity_note") or "").strip()
+        role = _coerce_director_guide_role(shot.get("director_guide_role"))
+        if role:
+            shot["director_guide_role"] = role
+        if shot.get("director_chain_group") is not None:
+            try:
+                shot["director_chain_group"] = max(1, int(shot["director_chain_group"]))
+            except (TypeError, ValueError):
+                shot["director_chain_group"] = None
+    return out
+
+
+def validate_director_panel_metadata(shots: list[dict]) -> list[str]:
+    """Return repair/reject messages for authored director metadata."""
+    issues: list[str] = []
+    if not shots:
+        return issues
+    by_group: dict[int, list[tuple[int, dict]]] = {}
+    for i, shot in enumerate(shots):
+        gid = shot.get("director_chain_group")
+        if gid is None:
+            continue
+        try:
+            gid_i = int(gid)
+        except (TypeError, ValueError):
+            issues.append(f"{shot.get('shot_id')}: invalid director_chain_group")
+            continue
+        by_group.setdefault(gid_i, []).append((i, shot))
+
+    for gid, members in sorted(by_group.items()):
+        idxs = [i for i, _ in members]
+        if idxs != list(range(idxs[0], idxs[-1] + 1)):
+            issues.append(f"group {gid}: panels are not consecutive")
+        roles = []
+        for _, shot in members:
+            role = _coerce_director_guide_role(shot.get("director_guide_role"))
+            if role:
+                roles.append(role)
+        # Guide roles should not put end before start within order.
+        if "start" in roles and "end" in roles:
+            if roles.index("end") < roles.index("start"):
+                issues.append(f"group {gid}: guide-role order conflicts with panel order")
+        # continue interiors should carry a continuity note or spatial lock.
+        for pos, (i, shot) in enumerate(members):
+            if pos >= len(members) - 1:
+                continue
+            edge = shot.get("director_transition_after") or "continue"
+            if edge == "continue":
+                note = str(shot.get("director_continuity_note") or "").strip()
+                spatial = any(
+                    str(shot.get(k) or "").strip()
+                    for k in (
+                        "subject_position",
+                        "facing_direction",
+                        "camera_intent",
+                        "background_region",
+                    )
+                )
+                if not note and not spatial:
+                    issues.append(
+                        f"{shot.get('shot_id')}: continue edge lacks continuity note "
+                        "or spatial/camera lock"
+                    )
+    # match_cut should not orphan the next panel — shared boundary is the current panel.
+    for i, shot in enumerate(shots[:-1]):
+        if shot.get("director_transition_after") == "match_cut":
+            # Shared boundary handoff is implicit (this panel ends unit, next starts).
+            # Flag only if next panel jumps group without sharing this panel as start.
+            g_cur = shot.get("director_chain_group")
+            g_next = shots[i + 1].get("director_chain_group")
+            if g_cur is not None and g_next is not None and g_cur == g_next:
+                issues.append(
+                    f"{shot.get('shot_id')}: match_cut inside same chain group "
+                    "(expected group boundary)"
+                )
+    return issues
+
+
 def _repair_shot_fields(shot: dict, scene_id: str) -> dict:
     item = dict(shot)
     item.setdefault("scene_id", scene_id)
@@ -171,6 +361,35 @@ def _repair_shot_fields(shot: dict, scene_id: str) -> dict:
     except (TypeError, ValueError):
         item["duration_seconds"] = 2
     item["duration_seconds"] = max(1, min(16, item["duration_seconds"]))
+
+    # Preserve optional Director metadata aliases from scene-paper style keys.
+    if item.get("director_transition_after") is None:
+        alias = item.get("continuity") or item.get("transition_after")
+        coerced = _coerce_director_transition(alias)
+        if coerced:
+            item["director_transition_after"] = coerced
+    else:
+        coerced = _coerce_director_transition(item.get("director_transition_after"))
+        item["director_transition_after"] = coerced
+    if item.get("director_guide_role") is None:
+        alias = item.get("guide_role")
+        coerced_role = _coerce_director_guide_role(alias)
+        if coerced_role:
+            item["director_guide_role"] = coerced_role
+    else:
+        item["director_guide_role"] = _coerce_director_guide_role(
+            item.get("director_guide_role")
+        )
+    if not item.get("director_continuity_note"):
+        note = item.get("director_note") or item.get("continuity_note") or ""
+        item["director_continuity_note"] = str(note).strip()
+    else:
+        item["director_continuity_note"] = str(item.get("director_continuity_note") or "").strip()
+    if item.get("director_chain_group") is not None:
+        try:
+            item["director_chain_group"] = max(1, int(item["director_chain_group"]))
+        except (TypeError, ValueError):
+            item["director_chain_group"] = None
     return item
 
 
@@ -380,6 +599,9 @@ def normalize_production_plan(plan: dict, ctx: Context) -> dict:
             for s in (updated.get("shots") or [])
             if isinstance(s, dict)
         ]
+        updated["shots"] = migrate_director_panel_metadata(updated["shots"])
+        for issue in validate_director_panel_metadata(updated["shots"]):
+            print(f"⚠️ [normalize_production_plan] director metadata: {issue}")
         if updated.get("duration_budget_seconds") is None:
             updated["duration_budget_seconds"] = sum(
                 int(s.get("duration_seconds", 0) or 0) for s in updated["shots"]
@@ -432,14 +654,17 @@ def normalize_production_plan(plan: dict, ctx: Context) -> dict:
     plan["meta"]["total_scenes"] = len(scenes)
     plan["meta"]["total_duration_seconds"] = duration_sum
 
-    # Authoritative scene budgets from scene_paper.md (reel_v2)
+    # Authoritative scene budgets from scene_paper.md (reel_v2) —
+    # skip when assistant-director owns wall-clock durations.
     if pipeline_mode == "storyboard":
+        from scripts.nodes.storyboard_director_nodes import is_director_video_mode
+
         scene_paper = (
             ctx.state.get("scene_paper_text")
             or ctx.state.get("scene_paper_content")
             or ""
         )
-        if scene_paper:
+        if scene_paper and not is_director_video_mode(ctx):
             from scripts.nodes.flf_storyboard_planner import apply_scene_paper_budgets_to_plan
 
             plan = apply_scene_paper_budgets_to_plan(plan, scene_paper)
@@ -580,6 +805,7 @@ async def build_generation_specs_from_plan(ctx: Context) -> None:
     shot_raw = clean_json_str(ctx.state.get("shot_image_specs_content") or "{}")
 
     character_sheets = {}
+    chars_dir = _asset_dir(ctx, "characters")
     if profile.character_sheet_mode == "template":
         character_sheets = build_character_sheet_specs(
             [c for c in story.get("characters", []) if isinstance(c, dict)],
@@ -600,6 +826,16 @@ async def build_generation_specs_from_plan(ctx: Context) -> None:
                 "fal_image_url": None,
                 "status": "pending",
             }
+
+    # Seed character sheet paths under asset_root; reuse existing PNGs across parts.
+    for cid, entry in list(character_sheets.items()):
+        if not isinstance(entry, dict):
+            continue
+        out_path = os.path.join(chars_dir, f"{cid}.png")
+        entry["output_path"] = out_path
+        if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+            entry["status"] = "completed"
+            entry.setdefault("fal_image_url", None)
 
     story_shots: dict[str, dict] = {}
     for scene in story.get("scenes", []):
@@ -682,8 +918,7 @@ async def build_generation_specs_from_plan(ctx: Context) -> None:
 
     location_sheets = {}
     if pipeline_mode == "storyboard":
-        output_dir = _output_dir(ctx)
-        locs_dir = os.path.join(output_dir, "locations")
+        locs_dir = _asset_dir(ctx, "locations")
         for loc in plan.get("locations") or []:
             if not isinstance(loc, dict):
                 continue
@@ -693,13 +928,28 @@ async def build_generation_specs_from_plan(ctx: Context) -> None:
             prompt = _build_location_sheet_prompt(
                 loc, render_style=render_style, style_id=style_id
             )
+            out_path = os.path.join(locs_dir, f"{lid}.png")
+            status = "pending"
+            if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+                status = "completed"
             location_sheets[lid] = {
                 "location_id": lid,
                 "sheet_prompt": _apply_render_style(prompt, render_style),
-                "output_path": os.path.join(locs_dir, f"{lid}.png"),
+                "output_path": out_path,
                 "fal_image_url": None,
-                "status": "pending",
+                "status": status,
             }
+
+    # Seed background paths under asset_root when used.
+    if backgrounds:
+        bg_dir = _asset_dir(ctx, "backgrounds")
+        for sid, entry in backgrounds.items():
+            if not isinstance(entry, dict):
+                continue
+            out_path = os.path.join(bg_dir, f"{sid}.png")
+            entry["output_path"] = out_path
+            if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+                entry["status"] = "completed"
 
     specs = {
         "character_sheets": character_sheets,

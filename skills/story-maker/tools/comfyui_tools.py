@@ -105,6 +105,47 @@ def curl_json(method, endpoint, base_url=None, data=None, timeout=60, auth=None)
         raise RuntimeError(f"Non-JSON response from {endpoint}: {stdout[:200]!r}") from e
 
 
+def interrupt_and_clear_queue(base_url=None, auth=None) -> dict:
+    """Best-effort stop of active Comfy execution + pending queue."""
+    if base_url is None:
+        base_url = config.COMFYUI_URL
+    if auth is None:
+        auth = config.COMFYUI_AUTH
+
+    results: dict[str, object] = {"base_url": base_url, "interrupt": None, "queue": None}
+    base = base_url.rstrip("/")
+    def _post_maybe_empty(endpoint: str, payload: dict | None = None) -> dict:
+        cmd = ["curl", "-s", "-X", "POST", f"{base}{endpoint}"]
+        cmd.extend(_resolve_args(base))
+        cmd.extend(_auth_args(auth))
+        if payload is not None:
+            cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(payload)])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(f"curl failed ({result.returncode}): {result.stderr.strip()}")
+        body = (result.stdout or "").strip()
+        if not body:
+            return {"ok": True, "empty_body": True}
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return {"ok": True, "raw": body[:300]}
+
+    try:
+        results["interrupt"] = _post_maybe_empty("/interrupt")
+    except Exception as e:  # pragma: no cover - network/runtime dependent
+        results["interrupt"] = {"error": str(e)}
+
+    # Comfy queue payload shape differs by build; try common variants.
+    for payload in ({"clear": True}, {"clear_pending": True}, {"delete_queue": True}):
+        try:
+            results["queue"] = {"payload": payload, "response": _post_maybe_empty("/queue", payload)}
+            break
+        except Exception as e:  # pragma: no cover - network/runtime dependent
+            results["queue"] = {"payload": payload, "error": str(e)}
+    return results
+
+
 def wait_for_prompt(prompt_id, base_url=None, poll_interval=5, max_wait=2400, auth=None):
     if not prompt_id:
         raise ValueError("Invalid prompt_id")

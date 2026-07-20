@@ -35,7 +35,7 @@ Environment (match the location lock world geometry and lighting):
 Storyboard Sheet {sheet_number} includes these shots (paint in order; do not letter them onto the page):
 {shot_listing}
 
-Panel-by-panel direction (must match grid order; do not letter onto the page):
+Panel-by-panel direction (must match grid order; board-beat timing is editorial only — do not letter onto the page; do not treat board beats as LTX render durations):
 {panel_lines}
 
 Visual style:

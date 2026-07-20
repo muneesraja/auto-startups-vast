@@ -150,6 +150,21 @@ def _run_from_spec(args: argparse.Namespace) -> int:
         end_id = clip.get("end_panel_id") or clip.get("last_panel_id") or start_id
         first_path = stills.get(start_id or "")
         last_path = stills.get(end_id or "")
+        guide_paths: dict[str, str] = {}
+        for g in clip.get("guide_frames") or []:
+            if not isinstance(g, dict):
+                continue
+            pid = str(g.get("panel_id") or "").strip()
+            if pid and pid in stills:
+                guide_paths[pid] = stills[pid]
+        if start_id and first_path:
+            guide_paths.setdefault(str(start_id), first_path)
+        if end_id and last_path:
+            guide_paths.setdefault(str(end_id), last_path)
+        if not first_path and guide_paths:
+            first_path = next(iter(guide_paths.values()))
+        if not last_path and end_id in guide_paths:
+            last_path = guide_paths[str(end_id)]
         if not first_path:
             print(f"❌ {clip_id}: missing still {start_id}")
             errors += 1
@@ -157,11 +172,18 @@ def _run_from_spec(args: argparse.Namespace) -> int:
 
         render = resolve_clip_render_params(clip, prefer_stored=True)
         workflow = (clip.get("workflow") or "i2v").lower()
+        guides = [g for g in (clip.get("guide_frames") or []) if isinstance(g, dict)]
+        has_end_guide = any(
+            bool(g.get("is_end_frame") or g.get("placement") == "end") for g in guides
+        )
         if workflow in ("i2v_hold", "i2v") or start_id == end_id:
-            workflow = "i2v"
+            if len(guide_paths) > 1 and has_end_guide:
+                workflow = "flf2v"
+            else:
+                workflow = "i2v"
         else:
             workflow = "flf2v"
-            if not last_path:
+            if not last_path and len(guide_paths) < 2:
                 print(f"❌ {clip_id}: missing still {end_id}")
                 errors += 1
                 continue
@@ -171,7 +193,7 @@ def _run_from_spec(args: argparse.Namespace) -> int:
             f"▶ {clip_id} [{workflow}] {start_id} → {end_id} "
             f"dur={clip.get('duration_seconds')}s "
             f"class={render['motion_class']} strength={render['i2v_strength']} "
-            f"cfg={render['cfg']}"
+            f"cfg={render['cfg']} guides={','.join(guide_paths.keys())}"
         )
         print(f"  stills: {first_path}" + (f" | {last_path}" if workflow == "flf2v" else ""))
 
@@ -179,6 +201,7 @@ def _run_from_spec(args: argparse.Namespace) -> int:
             clip,
             first_frame_path=first_path,
             last_frame_path=last_path if workflow == "flf2v" else None,
+            guide_frame_paths=guide_paths,
             output_path=str(out_path),
             global_prompt=args.global_prompt,
             fps=args.fps,
@@ -266,10 +289,14 @@ def main() -> int:
         help="Manual-mode output mp4 path "
         "(default: outputs/story-maker/_smoke/ltx_director_{mode}_smoke.mp4)",
     )
-    parser.add_argument("--width", type=int, default=config.VIDEO_WIDTH)
-    parser.add_argument("--height", type=int, default=config.VIDEO_HEIGHT)
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if args.width is None:
+        args.width = config.DIRECTOR_VIDEO_WIDTH
+    if args.height is None:
+        args.height = config.DIRECTOR_VIDEO_HEIGHT
 
     if args.from_spec:
         return _run_from_spec(args)

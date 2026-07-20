@@ -163,10 +163,20 @@ def build_flf_planner_user_text(
     beat_lines = []
     grid = panel_grid_map(panel_ids, columns=grid_columns)
     grid_by_id = {str(c["panel_id"]): c for c in grid}
-    for i, shot in enumerate(scene.get("shots") or [], start=1):
-        sid = shot.get("shot_id")
-        if sid not in panel_ids:
-            continue
+    shot_by_id = {
+        str(s.get("shot_id")): s
+        for s in (scene.get("shots") or [])
+        if isinstance(s, dict) and s.get("shot_id")
+    }
+    ordered_shots = [shot_by_id[pid] for pid in panel_ids if pid in shot_by_id]
+    has_director_meta = any(
+        s.get("director_chain_group") is not None
+        or s.get("director_transition_after")
+        or s.get("director_guide_role")
+        for s in ordered_shots
+    )
+    for i, sid in enumerate(panel_ids, start=1):
+        shot = shot_by_id.get(sid) or {}
         still = (still_paths or {}).get(sid) or ""
         cell = grid_by_id.get(sid) or {}
         loc = (
@@ -174,10 +184,52 @@ def build_flf_planner_user_text(
             if cell
             else f"index {i}"
         )
+        dir_bits = []
+        if shot.get("director_chain_group") is not None:
+            dir_bits.append(f"group={shot.get('director_chain_group')}")
+        if shot.get("director_guide_role"):
+            dir_bits.append(f"guide={shot.get('director_guide_role')}")
+        if shot.get("director_transition_after"):
+            dir_bits.append(f"after={shot.get('director_transition_after')}")
+        if shot.get("director_continuity_note"):
+            dir_bits.append(f"note={shot.get('director_continuity_note')}")
+        spatial = []
+        for key in (
+            "subject_position",
+            "facing_direction",
+            "eyeline",
+            "background_region",
+            "pace",
+            "audio_intent",
+            "frame_strategy",
+        ):
+            val = shot.get(key)
+            if val:
+                spatial.append(f"{key}={val}")
+        # Cast delta vs previous panel
+        cast_delta = ""
+        if i > 1:
+            prev = shot_by_id.get(panel_ids[i - 2]) or {}
+            prev_cast = set(prev.get("characters_present") or [])
+            cur_cast = set(shot.get("characters_present") or [])
+            added = sorted(cur_cast - prev_cast)
+            removed = sorted(prev_cast - cur_cast)
+            if added or removed:
+                cast_delta = f" | cast_delta=+{added}/-{removed}"
+        # Cross-row adjacency hint
+        cross_row = ""
+        if cell and i < len(panel_ids):
+            nxt_cell = grid_by_id.get(panel_ids[i]) or {}
+            if cell.get("row") != nxt_cell.get("row") and nxt_cell:
+                cross_row = " | cross_row_next=true"
         beat_lines.append(
             f"  {i}. [{loc}] {sid}: chars={list(shot.get('characters_present') or [])} | "
             f"{shot.get('description', '')} | motion={shot.get('motion_intent', '')} | "
             f"camera={shot.get('camera_intent', '')}"
+            + (f" | director[{', '.join(dir_bits)}]" if dir_bits else "")
+            + (f" | spatial[{', '.join(spatial)}]" if spatial else "")
+            + cast_delta
+            + cross_row
             + (f" | still={still}" if still else "")
         )
     pair_lines = [
@@ -187,13 +239,36 @@ def build_flf_planner_user_text(
     grid_lines = [
         f"  row {c['row']} col {c['col']}: {c['panel_id']}" for c in grid
     ]
+    # Soft video_shots hints (non-authoritative)
+    vshot_lines: list[str] = []
+    for vs in scene.get("video_shots") or []:
+        if not isinstance(vs, dict):
+            continue
+        vshot_lines.append(
+            f"  - {vs.get('video_shot_id')}: panels={list(vs.get('panel_ids') or [])} "
+            f"anchor={vs.get('anchor_panel_id')} dur={vs.get('duration_seconds')} "
+            f"(soft hint only)"
+        )
+    staging_block = (
+        f"staging: {scene.get('staging') or '(none)'}\n"
+        f"blocking: {json.dumps(scene.get('blocking') or [], ensure_ascii=False)}"
+    )
     paper = scene_paper_block.strip() or "(scene paper block unavailable — use plan beats)"
+    authored_block = ""
+    if has_director_meta:
+        authored_block = """
+## Authored Director metadata (AUTHORITATIVE unless contradicted by the sheet)
+- Prefer `director_chain_group` + `director_transition_after` over cast/camera heuristics.
+- Build one multi-guide render_unit per chain group.
+- On `match_cut`, keep the shared boundary panel (`end(K) == start(K+1)`).
+- Fold `director_continuity_note` into unit rationale / Prompt Relay planning — do not dump into global_prompt.
+"""
     return f"""## Scene agenda (from scene_paper.md — editorial intent only)
 {paper}
 
 Ignore any "Duration budget" line in the scene paper for LTX clip timing.
 You decide each clip's duration_seconds and the scene total.
-
+{authored_block}
 ## Plan metadata
 scene_id: {scene.get('scene_id')}
 title: {scene.get('title')}
@@ -202,6 +277,7 @@ time_of_day: {scene.get('time_of_day')}
 lighting: {scene.get('lighting')}
 location_id: {scene.get('location_id')}
 audio_scene: {json.dumps(scene.get('audio_scene') or {}, ensure_ascii=False)}
+{staging_block}
 
 ## Storyboard grid (5×2 album — row-major)
 columns: {grid_columns}
@@ -210,28 +286,31 @@ columns: {grid_columns}
 ## Same-row FLF candidate pairs
 {chr(10).join(pair_lines) if pair_lines else "  (none)"}
 
-Prefer FLF2V on same-row pairs when action continues OR a motivated camera pan/turn
-bridges them (e.g. child points in row4 col1 → camera pans along the gesture to deer in row4 col2).
-Put the camera move into a timed motion_segments beat (not only global_prompt).
+Prefer continuous FLF / multi-guide units on same-row pairs when action continues OR a
+motivated camera pan/turn bridges them. Put the camera move into timed motion_segments.
+Hard cuts start a new render_unit with cut_before=true.
 
-## Duration guidance (LTX 2.3 / Director)
-- Prefer 6–10s per clip (best quality): use {{6, 8, 10}}.
-- 3s only for a truly super-short beat; never above 10s.
-- You choose the scene runtime as the sum of clip durations.
-- Each clip is one Director timeline: global_prompt + motion_segments + panel guides.
+## video_shots (soft / non-authoritative suggestions)
+{chr(10).join(vshot_lines) if vshot_lines else "  (none)"}
 
-## Render knobs (required every clip)
+## Duration guidance (LTX Director)
+- Prefer 12–15s per render unit (use {{12, 15}}; 15s for multi-guide / late beats).
+- Never below 9s (first→last needs time to land); never above 15s.
+- YOU choose duration_total_seconds as the sum of unit durations (ignore scene-paper caps).
+- Each render_unit is one Director timeline: guide_frames + motion_segments + global_prompt.
+
+## Render knobs (required every unit)
 Pick enums only — do not invent floats:
 - motion_class: talking | walking | horse_riding | forest_exploration | large_reveal | fast_action | general
-  (talking=hold face; fast_action/large_reveal=more motion freedom / guide strength)
 - guidance: balanced | prompt_follow | strong
-  (default balanced; prompt_follow if timed beats are ignored; strong rarely)
 
-## Director prompt layers (required every clip)
-- global_prompt: 1–2 sentences of look/lighting/location context only
-- motion_segments: 2–4 timed beats with start_ratio/end_ratio covering 0.0→1.0
-  (action + camera + audio per window; ≥~2s per distinct beat when possible)
-- motion_prompt: flat join of those beats + pace closing line (legacy fallback)
+## Director layers (required every render_unit)
+- guide_frames: start-only, start+end, or start+middle+end panel stills
+- motion_segments: 2–4 timed beats covering 0.0→1.0
+- global_prompt: look/lighting only
+- motion_prompt: flat join of beats + pace closing line
+
+Prefer top-level render_units[] (scene-first). segments/clips remain acceptable.
 
 ## Allowed panel ids (story order)
 {json.dumps(panel_ids, ensure_ascii=False)}
@@ -240,27 +319,32 @@ Pick enums only — do not invent floats:
 {chr(10).join(beat_lines)}
 
 Attached image is the full storyboard sheet for this scene.
-Act as assistant director for LTX Director: segment into I2V standalones and FLF2V
-continuous chains with timed motion_segments.
-Hard cuts start new segments — never FLF across unmotivated jumps.
+Act as assistant director for LTX Director: plan the whole scene, then emit ordered
+render_units with guides + Prompt Relay.
 Return JSON only.
 """
 
 
 def snap_director_clip_duration(raw_dur: int, *, fps: int = 25) -> int:
-    """Snap AD clip durations into LTX-friendly 3–10s (prefer 6/8/10)."""
-    value = int(raw_dur or 6)
-    value = max(3, min(10, value))
-    if value <= 5:
-        # Keep super-short band only when AD explicitly chose ≤5.
-        value = snap_ltx_duration(
-            value, prefer_primary=False, allowed_min=3, allowed_max=5
-        )
-    else:
-        value = snap_ltx_duration(
-            value, prefer_primary=True, primary=(6, 8, 10), allowed_min=6, allowed_max=10
-        )
+    """Snap AD clip durations into LTX-friendly 9–15s (prefer 12/15)."""
+    value = int(raw_dur or 15)
+    value = max(9, min(15, value))
+    value = snap_ltx_duration(
+        value,
+        prefer_primary=True,
+        primary=(12, 15),
+        allowed_min=9,
+        allowed_max=15,
+    )
     return snap_duration_seconds(value, fps=fps)
+
+
+def director_chain_mode_enabled() -> bool:
+    raw = os.getenv("STORY_MAKER_DIRECTOR_CHAIN")
+    if raw is not None:
+        return str(raw).strip().lower() not in ("0", "false", "off", "no")
+    mode = str(os.getenv("STORYBOARD_VIDEO_MODE", "fallback")).strip().lower()
+    return mode == "director"
 
 
 def _order_index(panel_id: str, panel_ids: list[str]) -> int:
@@ -347,6 +431,52 @@ def allows_flf_continuous(
         return False
     # Adjacent pair: trust AD continuous flag for camera-motivated reveals.
     # Prefer same-row, but allow any adjacent story-order step.
+    return True
+
+
+def allows_multi_guide_continuous(
+    first_id: str,
+    last_id: str,
+    guide_frames: list[dict],
+    panel_ids: list[str],
+    cast_by_panel: dict[str, frozenset[str]],
+) -> bool:
+    """Whether an explicit start/middle/end guide stack may stay one continuous unit.
+
+    Requires ordered guides within the endpoint span, at least one strict mid
+    waypoint, no empty→cast jump, and each adjacent guide hop to be allowable.
+    """
+    if first_id == last_id or len(guide_frames) < 3:
+        return False
+    first_cast = cast_by_panel.get(first_id, frozenset())
+    last_cast = cast_by_panel.get(last_id, frozenset())
+    if not first_cast and last_cast:
+        return False
+    fi, li = _order_index(first_id, panel_ids), _order_index(last_id, panel_ids)
+    if fi < 0 or li < 0 or li <= fi:
+        return False
+
+    hops: list[str] = []
+    for g in guide_frames:
+        pid = str(g.get("panel_id") or "").strip()
+        if not pid:
+            return False
+        idx = _order_index(pid, panel_ids)
+        if idx < fi or idx > li:
+            return False
+        if hops and _order_index(hops[-1], panel_ids) > idx:
+            return False
+        if not hops or hops[-1] != pid:
+            hops.append(pid)
+    if hops[0] != first_id or hops[-1] != last_id:
+        return False
+    if not any(fi < _order_index(p, panel_ids) < li for p in hops):
+        return False
+    for a, b in zip(hops, hops[1:]):
+        if not allows_flf_continuous(
+            a, b, panel_ids, cast_by_panel, continuous=True
+        ):
+            return False
     return True
 
 
@@ -437,6 +567,14 @@ def _normalize_motion_segments(
 
 
 def _clip_start(clip: dict) -> str:
+    guides = clip.get("guide_frames") or []
+    if isinstance(guides, list) and guides:
+        ordered = sorted(
+            [g for g in guides if isinstance(g, dict) and g.get("panel_id")],
+            key=lambda g: float(g.get("start_ratio") or (0.0 if g.get("placement") == "start" else 0.5)),
+        )
+        if ordered:
+            return str(ordered[0].get("panel_id") or "").strip()
     return str(
         clip.get("start_panel_id")
         or clip.get("first_panel_id")
@@ -445,6 +583,27 @@ def _clip_start(clip: dict) -> str:
 
 
 def _clip_end(clip: dict) -> str:
+    guides = clip.get("guide_frames") or []
+    if isinstance(guides, list) and guides:
+        endish = [
+            g
+            for g in guides
+            if isinstance(g, dict)
+            and g.get("panel_id")
+            and (
+                g.get("is_end_frame")
+                or g.get("placement") == "end"
+                or float(g.get("start_ratio") or 0) >= 0.999
+            )
+        ]
+        if endish:
+            return str(endish[-1].get("panel_id") or "").strip()
+        ordered = sorted(
+            [g for g in guides if isinstance(g, dict) and g.get("panel_id")],
+            key=lambda g: float(g.get("start_ratio") or 0.0),
+        )
+        if ordered:
+            return str(ordered[-1].get("panel_id") or "").strip()
     start = _clip_start(clip)
     return str(
         clip.get("end_panel_id")
@@ -453,13 +612,109 @@ def _clip_end(clip: dict) -> str:
     ).strip()
 
 
+def _normalize_guide_frames_for_clip(
+    raw_guides: Any,
+    *,
+    first: str,
+    last: str,
+    panel_ids: list[str],
+    clip_id: str,
+    repairs: list[str],
+) -> list[dict]:
+    if not isinstance(raw_guides, list) or not raw_guides:
+        # Synthesize classic start/end guides for legacy plans.
+        if first == last:
+            return [{"panel_id": first, "placement": "start", "start_ratio": 0.0, "is_end_frame": False}]
+        return [
+            {"panel_id": first, "placement": "start", "start_ratio": 0.0, "is_end_frame": False},
+            {"panel_id": last, "placement": "end", "start_ratio": 1.0, "is_end_frame": True},
+        ]
+
+    cleaned: list[dict] = []
+    for item in raw_guides:
+        if not isinstance(item, dict):
+            continue
+        panel_id = str(item.get("panel_id") or "").strip()
+        if panel_id not in panel_ids:
+            repairs.append(f"drop unknown guide panel {panel_id} on {clip_id}")
+            continue
+        placement = str(item.get("placement") or "").strip().lower() or None
+        try:
+            ratio = item.get("start_ratio")
+            ratio_f = float(ratio) if ratio is not None else None
+        except (TypeError, ValueError):
+            ratio_f = None
+        is_end = bool(item.get("is_end_frame"))
+        if placement == "start":
+            ratio_f = 0.0
+            is_end = False
+        elif placement == "middle":
+            ratio_f = 0.5 if ratio_f is None else max(0.05, min(0.95, ratio_f))
+            is_end = False
+        elif placement == "end":
+            ratio_f = 1.0
+            is_end = True
+        elif ratio_f is None:
+            ratio_f = 0.0
+        ratio_f = max(0.0, min(1.0, float(ratio_f)))
+        if ratio_f >= 0.999:
+            is_end = True
+            placement = placement or "end"
+        cleaned.append(
+            {
+                "panel_id": panel_id,
+                "placement": placement,
+                "start_ratio": round(ratio_f, 4),
+                "is_end_frame": is_end,
+            }
+        )
+    cleaned.sort(key=lambda g: (g["start_ratio"], 1 if g["is_end_frame"] else 0))
+    if not cleaned:
+        return _normalize_guide_frames_for_clip(
+            None, first=first, last=last, panel_ids=panel_ids, clip_id=clip_id, repairs=repairs
+        )
+    if cleaned[0]["start_ratio"] > 0.05 and cleaned[0]["placement"] != "start":
+        cleaned[0]["placement"] = cleaned[0]["placement"] or "start"
+        cleaned[0]["start_ratio"] = 0.0
+    return cleaned
+
+
+def _render_unit_to_clip(unit: dict, *, scene_id: str, index: int) -> dict:
+    """Convert a scene-level render_unit into a clip-shaped dict."""
+    unit_id = str(unit.get("unit_id") or unit.get("clip_id") or f"{scene_id}_unit_{index:02d}")
+    guides = list(unit.get("guide_frames") or [])
+    item = dict(unit)
+    item["clip_id"] = unit_id
+    item["guide_frames"] = guides
+    item["_cut_before"] = bool(unit.get("cut_before", index > 1))
+    item["_segment_id"] = str(unit.get("segment_id") or "")
+    # Derive start/end from guides when omitted.
+    if not item.get("start_panel_id") and guides:
+        item["start_panel_id"] = _clip_start(item)
+    if not item.get("end_panel_id") and guides:
+        item["end_panel_id"] = _clip_end(item)
+    return item
+
+
 def _flatten_raw_clips(raw: dict | list) -> tuple[list[dict], list[str]]:
-    """Accept segments[] or flat clips[]; return (clips, repairs)."""
+    """Accept render_units[], segments[], or flat clips[]; return (clips, repairs)."""
     repairs: list[str] = []
     if isinstance(raw, list):
         return [c for c in raw if isinstance(c, dict)], repairs
     if not isinstance(raw, dict):
         return [], repairs
+
+    # Prefer scene-level render_units when present.
+    render_units = raw.get("render_units")
+    if isinstance(render_units, list) and render_units:
+        scene_id = str(raw.get("scene_id") or "scene")
+        flat = []
+        for idx, unit in enumerate(render_units, start=1):
+            if not isinstance(unit, dict):
+                repairs.append(f"skip non-object render_unit at index {idx}")
+                continue
+            flat.append(_render_unit_to_clip(unit, scene_id=scene_id, index=idx))
+        return flat, repairs
 
     segments = raw.get("segments")
     if isinstance(segments, list) and segments:
@@ -481,8 +736,6 @@ def _flatten_raw_clips(raw: dict | list) -> tuple[list[dict], list[str]]:
                 item["_segment_id"] = seg_id
                 item["_cut_before"] = cut_before if c_idx == 0 else False
                 item["_segment_brief"] = brief
-                # cut_before starts a new segment; do NOT clear continuous on FLF pairs
-                # (continuous describes the pair's physics, not the editorial cut).
                 flat.append(item)
         return flat, repairs
 
@@ -517,16 +770,34 @@ def _normalize_one_clip(
     workflow = _normalize_workflow(
         clip.get("workflow") or clip.get("mode"), first, last
     )
-    if first == last:
+    clip_id = str(clip.get("clip_id") or f"{scene_id}_clip_{index:02d}")
+    raw_guides = clip.get("guide_frames")
+    had_explicit_guides = isinstance(raw_guides, list) and len(raw_guides) >= 2
+    guide_frames = _normalize_guide_frames_for_clip(
+        raw_guides,
+        first=first,
+        last=last,
+        panel_ids=panel_ids,
+        clip_id=clip_id,
+        repairs=repairs,
+    )
+    multi_guide = len(guide_frames) >= 2
+    if first == last and not any(g.get("is_end_frame") for g in guide_frames):
         workflow = _MODE_I2V
         continuous = False
     else:
-        workflow = _MODE_FLF
+        workflow = _MODE_FLF if first != last or multi_guide else _MODE_I2V
         span = li - fi
-        if continuous and span > 1:
+        multi_ok = False
+        if had_explicit_guides and len(guide_frames) >= 3 and first != last:
+            multi_ok = allows_multi_guide_continuous(
+                first, last, guide_frames, panel_ids, cast_by
+            )
+        # Explicit multi-guide (3+) may span >1 panel; classic FLF pairs stay adjacent.
+        if continuous and span > 1 and not multi_ok:
             repairs.append(f"force cut for long span {first}→{last} (span={span})")
             continuous = False
-        if continuous and not allows_flf_continuous(
+        if continuous and not multi_ok and not allows_flf_continuous(
             first,
             last,
             panel_ids,
@@ -535,11 +806,14 @@ def _normalize_one_clip(
         ):
             repairs.append(f"force cut for cast jump {first}→{last}")
             continuous = False
-        # Non-continuous different-panel pairs are invalid FLF morphs —
-        # split into editorial cut: keep as non-continuous flag for segment break,
-        # but do not render FLF across the jump. Convert to two standalones later
-        # if still marked non-continuous with different panels.
-        if not continuous and first != last:
+        if multi_ok:
+            continuous = True
+            workflow = _MODE_FLF
+            repairs.append(
+                f"keep multi-guide continuous unit {first}→{last} "
+                f"({len(guide_frames)} guides)"
+            )
+        elif not continuous and first != last:
             repairs.append(
                 f"reject non-continuous FLF {first}→{last}; will split to I2V standalones"
             )
@@ -611,6 +885,7 @@ def _normalize_one_clip(
         "last_frame_strength": render["last_frame_strength"],
         "global_prompt": global_prompt,
         "motion_segments": motion_segments,
+        "guide_frames": guide_frames,
         "motion_prompt": prompt,
         "rationale": rationale,
         "_cut_before": bool(clip.get("_cut_before", False)),
@@ -624,14 +899,16 @@ def _split_invalid_flf_pairs(clips: list[dict], repairs: list[str], scene_id: st
     """Non-continuous different-panel pairs become two I2V standalones (editorial cut)."""
     out: list[dict] = []
     for clip in clips:
+        guides = clip.get("guide_frames") or []
+        keep_multi = bool(clip.get("continuous")) and len(guides) >= 3
         if (
             clip["start_panel_id"] != clip["end_panel_id"]
             and not clip["continuous"]
+            and not keep_multi
         ):
             a, b = clip["start_panel_id"], clip["end_panel_id"]
             repairs.append(f"split non-continuous pair {a}→{b} into I2V standalones")
             for pid in (a, b):
-                # Avoid duplicate if already covered as standalone later; still emit for now
                 half = dict(clip)
                 half["start_panel_id"] = pid
                 half["end_panel_id"] = pid
@@ -640,11 +917,48 @@ def _split_invalid_flf_pairs(clips: list[dict], repairs: list[str], scene_id: st
                 half["workflow"] = _MODE_I2V
                 half["mode"] = "i2v_hold"
                 half["continuous"] = False
+                half["guide_frames"] = [
+                    {
+                        "panel_id": pid,
+                        "placement": "start",
+                        "start_ratio": 0.0,
+                        "is_end_frame": False,
+                    }
+                ]
                 half["clip_id"] = f"{scene_id}_clip_split_{pid}"
                 out.append(half)
         else:
             out.append(clip)
     return out
+
+
+def sync_ad_durations_to_plan_scene(plan: dict, scene_plan: dict) -> dict:
+    """Write AD-chosen scene/shot wall-clock durations back onto plan.json scene."""
+    scene_id = scene_plan.get("scene_id")
+    if not scene_id or not isinstance(plan, dict):
+        return plan
+    total = int(scene_plan.get("duration_total_seconds") or 0)
+    clips = scene_plan.get("clips") or []
+    if not total and clips:
+        total = sum(int(c.get("duration_seconds") or 0) for c in clips)
+    for scene in plan.get("scenes") or []:
+        if scene.get("scene_id") != scene_id:
+            continue
+        if total > 0:
+            scene["duration_budget_seconds"] = total
+        # Attribute each panel's duration from covering start units.
+        by_start: dict[str, int] = {}
+        for clip in clips:
+            start = clip.get("start_panel_id") or clip.get("first_panel_id")
+            dur = int(clip.get("duration_seconds") or 0)
+            if start and dur > 0:
+                by_start[start] = by_start.get(start, 0) + dur
+        for shot in scene.get("shots") or []:
+            sid = shot.get("shot_id")
+            if sid in by_start:
+                shot["duration_seconds"] = by_start[sid]
+        break
+    return plan
 
 
 def _dedupe_standalones_prefer_chains(
@@ -717,7 +1031,7 @@ def _ensure_panel_coverage(
                     "continuous": True,
                     "workflow": _MODE_FLF,
                     "mode": _MODE_FLF,
-                    "duration_seconds": snap_director_clip_duration(6, fps=fps),
+                    "duration_seconds": snap_director_clip_duration(10, fps=fps),
                     "pace": "fast",
                     **default_render,
                     "motion_prompt": _default_pair_prompt(
@@ -743,7 +1057,7 @@ def _ensure_panel_coverage(
                     "continuous": False,
                     "workflow": _MODE_I2V,
                     "mode": "i2v_hold",
-                    "duration_seconds": snap_director_clip_duration(6, fps=fps),
+                    "duration_seconds": snap_director_clip_duration(10, fps=fps),
                     "pace": "fast",
                     **default_render,
                     "motion_prompt": _default_hold_prompt(shot_lookup.get(pid), "fast"),
@@ -756,6 +1070,312 @@ def _ensure_panel_coverage(
             )
             repairs.append(f"added i2v standalone for orphan {pid}")
     return clips
+
+
+def _clip_panel_path(clip: dict, panel_ids: list[str]) -> list[str]:
+    guides = [g for g in (clip.get("guide_frames") or []) if isinstance(g, dict)]
+    path: list[str] = []
+    if guides:
+        ordered = sorted(
+            guides,
+            key=lambda g: (
+                float(g.get("start_ratio", 0.0)),
+                1 if bool(g.get("is_end_frame")) else 0,
+            ),
+        )
+        for g in ordered:
+            pid = str(g.get("panel_id") or "").strip()
+            if pid in panel_ids and (not path or path[-1] != pid):
+                path.append(pid)
+    if not path:
+        first, last = clip.get("start_panel_id"), clip.get("end_panel_id")
+        if first in panel_ids:
+            path.append(first)
+        if last in panel_ids and last != first:
+            path.append(last)
+    return path
+
+
+def _authored_chain_groups(
+    panel_ids: list[str],
+    shot_lookup: dict[str, dict],
+) -> list[list[str]] | None:
+    """Build unit paths from authored director_chain_group / transition metadata.
+
+    Returns None when metadata is absent so callers fall back to heuristics.
+    Shared boundary: on match_cut / group change, next unit starts with previous end.
+    """
+    if not panel_ids:
+        return None
+    has_meta = any(
+        (shot_lookup.get(pid) or {}).get("director_chain_group") is not None
+        or (shot_lookup.get(pid) or {}).get("director_transition_after")
+        for pid in panel_ids
+    )
+    if not has_meta:
+        return None
+
+    groups: dict[int, list[str]] = {}
+    ungrouped: list[str] = []
+    for pid in panel_ids:
+        shot = shot_lookup.get(pid) or {}
+        gid = shot.get("director_chain_group")
+        if gid is None:
+            ungrouped.append(pid)
+            continue
+        try:
+            gid_i = int(gid)
+        except (TypeError, ValueError):
+            ungrouped.append(pid)
+            continue
+        groups.setdefault(gid_i, []).append(pid)
+
+    if not groups and ungrouped:
+        return None
+
+    # Prefer explicit groups in ascending group id, preserving panel order.
+    units: list[list[str]] = []
+    for gid in sorted(groups):
+        path = groups[gid]
+        if len(path) == 1:
+            # Single-panel group still becomes a hold unit via path of 1 — chain
+            # builder expects >=2, so borrow shared boundary from previous end.
+            if units:
+                path = [units[-1][-1], path[0]]
+            elif len(panel_ids) >= 2:
+                # Defer: keep as singleton for later pairing
+                pass
+        if len(path) >= 2:
+            # Cap complexity at 4 guides with shared middle overlaps.
+            while len(path) > 4:
+                units.append(path[:4])
+                path = [path[3], *path[4:]]
+            if len(path) >= 2:
+                units.append(path)
+
+    if ungrouped and units:
+        # Attach leftover panels via shared-boundary continue of last unit edge.
+        for pid in ungrouped:
+            if units[-1][-1] != pid:
+                if len(units[-1]) < 4:
+                    units[-1].append(pid)
+                else:
+                    units.append([units[-1][-1], pid])
+    elif ungrouped and not units:
+        return None
+
+    # Enforce shared boundary between consecutive units, then re-cap at 4 guides.
+    fixed: list[list[str]] = []
+    for path in units:
+        if not fixed:
+            fixed.append(path)
+            continue
+        if fixed[-1][-1] != path[0]:
+            path = [fixed[-1][-1], *path]
+        cleaned = [path[0]]
+        for p in path[1:]:
+            if p != cleaned[-1]:
+                cleaned.append(p)
+        while len(cleaned) > 4:
+            fixed.append(cleaned[:4])
+            cleaned = [cleaned[3], *cleaned[4:]]
+        if len(cleaned) >= 2:
+            fixed.append(cleaned)
+    return fixed or None
+
+
+def _build_chain_clips(
+    *,
+    scene_id: str,
+    panel_ids: list[str],
+    normalized: list[dict],
+    cast_by: dict[str, frozenset[str]],
+    shot_lookup: dict[str, dict],
+    scene_global: str,
+    fps: int,
+    repairs: list[str],
+) -> list[dict]:
+    """Build one full-scene chain of units with shared boundary stills."""
+    if len(panel_ids) < 2:
+        return normalized
+
+    edge_hint: dict[tuple[str, str], dict] = {}
+    for clip in normalized:
+        path = _clip_panel_path(clip, panel_ids)
+        if len(path) < 2:
+            continue
+        for a, b in zip(path, path[1:]):
+            if a == b:
+                continue
+            key = (a, b)
+            cont = bool(clip.get("continuous")) and clip.get("workflow") == _MODE_FLF
+            prev = edge_hint.get(key)
+            cand = {
+                "continuous": cont,
+                "motion_class": clip.get("motion_class"),
+                "guidance": clip.get("guidance"),
+                "global_prompt": clip.get("global_prompt") or scene_global or "",
+                "pace": clip.get("pace") or "medium",
+                "prompt": clip.get("motion_prompt") or "",
+            }
+            if prev is None or (not prev.get("continuous") and cont):
+                edge_hint[key] = cand
+
+    authored_units = _authored_chain_groups(panel_ids, shot_lookup)
+    if authored_units:
+        units = authored_units
+        repairs.append(f"authored director groups units={len(units)}")
+    else:
+        transitions: list[bool] = []
+        for a, b in zip(panel_ids, panel_ids[1:]):
+            cont = False
+            # Authored per-edge transition wins over cast heuristics when present.
+            a_shot = shot_lookup.get(a) or {}
+            authored_edge = str(a_shot.get("director_transition_after") or "").strip().lower()
+            if authored_edge == "continue":
+                cont = True
+            elif authored_edge == "match_cut":
+                cont = False
+            else:
+                if cast_allows_continuous(a, b, cast_by):
+                    cont = True
+                if allows_flf_continuous(a, b, panel_ids, cast_by, continuous=True):
+                    cont = True
+                hinted = edge_hint.get((a, b))
+                if hinted and hinted.get("continuous"):
+                    cont = True
+            transitions.append(not cont)
+
+        units = []
+        current = [panel_ids[0]]
+        for idx, nxt in enumerate(panel_ids[1:]):
+            edge_is_transition = transitions[idx]
+            # Keep continuation chains compact; split transitions into new units.
+            if edge_is_transition and len(current) >= 2:
+                units.append(current)
+                current = [current[-1], nxt]
+            else:
+                if nxt != current[-1]:
+                    current.append(nxt)
+                if len(current) > 4:  # Keep unit complexity bounded (<=4 guides)
+                    units.append(current[:-1])
+                    current = [current[-2], current[-1]]
+        if len(current) >= 2:
+            units.append(current)
+
+        if not units:
+            units = [[panel_ids[0], panel_ids[1]]]
+
+    default_render = resolve_clip_render_params({}, prefer_stored=False)
+    out: list[dict] = []
+    for i, path in enumerate(units, start=1):
+        start, end = path[0], path[-1]
+        cut_before = i > 1
+        # match_cut on previous unit's last panel marks editorial cut.
+        if i > 1:
+            prev_end = units[i - 2][-1]
+            prev_shot = shot_lookup.get(prev_end) or {}
+            if str(prev_shot.get("director_transition_after") or "").lower() == "match_cut":
+                cut_before = True
+        edge_prompts: list[str] = []
+        motion_class = default_render["motion_class"]
+        guidance = default_render["guidance"]
+        pace = "medium"
+        global_prompt = scene_global
+        continuity_notes: list[str] = []
+        for a, b in zip(path, path[1:]):
+            hint = edge_hint.get((a, b)) or {}
+            a_shot = shot_lookup.get(a) or {}
+            note = str(a_shot.get("director_continuity_note") or "").strip()
+            if note:
+                continuity_notes.append(note)
+            if hint.get("prompt"):
+                edge_prompts.append(str(hint["prompt"]).strip())
+            else:
+                edge_prompts.append(_default_pair_prompt(shot_lookup.get(a), shot_lookup.get(b), "medium"))
+            motion_class = hint.get("motion_class") or motion_class
+            guidance = hint.get("guidance") or guidance
+            pace = hint.get("pace") or pace
+            global_prompt = (hint.get("global_prompt") or global_prompt or "").strip()
+        motion_segments = []
+        n_edges = max(1, len(path) - 1)
+        for j, prompt in enumerate(edge_prompts or [_default_pair_prompt(shot_lookup.get(start), shot_lookup.get(end), pace)]):
+            s = j / n_edges
+            e = (j + 1) / n_edges
+            motion_segments.append({"start_ratio": round(s, 4), "end_ratio": round(e, 4), "prompt": prompt})
+        motion_prompt = " ".join(p for p in edge_prompts if p).strip() or " ".join(
+            str(s.get("prompt") or "").strip() for s in motion_segments
+        ).strip()
+        # Prefer the full 15s budget so multi-guide / late-scene beats have room.
+        # 2-panel bridges stay at 12s; 3+ panel units use 15s.
+        duration_seed = 15 if len(path) >= 3 else 12
+        duration = snap_director_clip_duration(duration_seed, fps=fps)
+
+        guides: list[dict] = []
+        denom = max(1, len(path) - 1)
+        for j, pid in enumerate(path):
+            authored_role = str(
+                (shot_lookup.get(pid) or {}).get("director_guide_role") or ""
+            ).strip().lower()
+            if j == 0:
+                placement = "start"
+                ratio = 0.0
+                is_end = False
+            elif j == len(path) - 1:
+                placement = "end"
+                ratio = 1.0
+                is_end = True
+            else:
+                placement = "middle" if authored_role != "end" else "middle"
+                ratio = round(j / denom, 4)
+                is_end = False
+            g = {"panel_id": pid, "placement": placement, "start_ratio": ratio, "is_end_frame": is_end}
+            if placement == "start" and cut_before:
+                g["guide_strength"] = 0.9
+            guides.append(g)
+
+        rationale = "scene chain unit"
+        if continuity_notes:
+            rationale = f"scene chain unit; continuity: {'; '.join(continuity_notes[:3])}"
+
+        out.append(
+            {
+                "clip_id": f"{scene_id}_seg_{i:02d}_clip_01",
+                "segment_id": f"{scene_id}_seg_{i:02d}",
+                "start_panel_id": start,
+                "end_panel_id": end,
+                "first_panel_id": start,
+                "last_panel_id": end,
+                "continuous": True,
+                "workflow": _MODE_FLF,
+                "mode": _MODE_FLF,
+                "duration_seconds": duration,
+                "pace": pace,
+                "motion_class": motion_class,
+                "guidance": guidance,
+                "i2v_strength": default_render["i2v_strength"],
+                "cfg": default_render["cfg"],
+                "last_frame_strength": default_render["last_frame_strength"],
+                "global_prompt": global_prompt or "",
+                "motion_segments": motion_segments,
+                "guide_frames": guides,
+                "motion_prompt": motion_prompt,
+                "rationale": rationale,
+                "_cut_before": cut_before,
+                "_segment_brief": "",
+                "status": "pending",
+                "output_path": None,
+            }
+        )
+
+    # Strengthen shared end boundary when followed by another unit.
+    for i in range(len(out) - 1):
+        last = out[i]["guide_frames"][-1]
+        if isinstance(last, dict) and last.get("placement") == "end":
+            last["guide_strength"] = max(float(last.get("guide_strength") or 0.0), 0.9)
+
+    repairs.append(f"chain mode units={len(out)} full_coverage={len(panel_ids)}")
+    return out
 
 
 def derive_segments_from_clips(clips: list[dict], scene_id: str) -> list[dict]:
@@ -931,6 +1551,9 @@ def normalize_flf_clip_plan(
                 except (TypeError, ValueError):
                     declared_total = None
                 break
+    scene_global = ""
+    if isinstance(raw, dict):
+        scene_global = _clean_prompt(str(raw.get("scene_global_prompt") or "").strip())
 
     normalized: list[dict] = []
     for idx, clip in enumerate(flat_in, start=1):
@@ -947,17 +1570,29 @@ def normalize_flf_clip_plan(
         if item:
             normalized.append(item)
 
-    normalized = _split_invalid_flf_pairs(normalized, repairs, scene_id)
-    normalized = _ensure_panel_coverage(
-        normalized,
-        scene_id=scene_id,
-        panel_ids=panel_ids,
-        cast_by=cast_by,
-        shot_lookup=shot_lookup,
-        fps=fps,
-        repairs=repairs,
-    )
-    normalized = _dedupe_standalones_prefer_chains(normalized, panel_ids)
+    if director_chain_mode_enabled() and len(panel_ids) >= 2:
+        normalized = _build_chain_clips(
+            scene_id=scene_id,
+            panel_ids=panel_ids,
+            normalized=normalized,
+            cast_by=cast_by,
+            shot_lookup=shot_lookup,
+            scene_global=scene_global,
+            fps=fps,
+            repairs=repairs,
+        )
+    else:
+        normalized = _split_invalid_flf_pairs(normalized, repairs, scene_id)
+        normalized = _ensure_panel_coverage(
+            normalized,
+            scene_id=scene_id,
+            panel_ids=panel_ids,
+            cast_by=cast_by,
+            shot_lookup=shot_lookup,
+            fps=fps,
+            repairs=repairs,
+        )
+        normalized = _dedupe_standalones_prefer_chains(normalized, panel_ids)
 
     # Sort story order before segmenting
     normalized.sort(
@@ -1003,13 +1638,40 @@ def normalize_flf_clip_plan(
             f"AD declared duration_total_seconds={declared_total}; "
             f"using snapped clip sum {total}s"
         )
+    # Propagate scene global into clips that omitted their own.
+    if scene_global:
+        for clip in clips:
+            if not (clip.get("global_prompt") or "").strip():
+                clip["global_prompt"] = scene_global
+        for seg in segments:
+            for clip in seg.get("clips") or []:
+                if not (clip.get("global_prompt") or "").strip():
+                    clip["global_prompt"] = scene_global
+
     return {
         "scene_id": scene_id,
+        "scene_global_prompt": scene_global,
         # duration_budget_seconds mirrors director-chosen scene total (not scene paper)
         "duration_budget_seconds": total,
         "duration_total_seconds": total,
         "segments": segments,
         "clips": clips,  # flat render order
+        "render_units": [
+            {
+                "unit_id": c["clip_id"],
+                "cut_before": bool(c.get("_cut_before")),
+                "duration_seconds": c["duration_seconds"],
+                "pace": c.get("pace") or "medium",
+                "motion_class": c.get("motion_class"),
+                "guidance": c.get("guidance"),
+                "global_prompt": c.get("global_prompt") or "",
+                "motion_segments": c.get("motion_segments") or [],
+                "guide_frames": c.get("guide_frames") or [],
+                "motion_prompt": c.get("motion_prompt") or "",
+                "rationale": c.get("rationale") or "",
+            }
+            for c in clips
+        ],
         "repairs": repairs,
         "status": "planned",
     }

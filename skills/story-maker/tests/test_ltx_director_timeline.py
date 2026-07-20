@@ -13,7 +13,11 @@ from tools.ltx_director_timeline import (
     build_timeline_from_director_clip,
     snap_ltx_frames,
 )
-from tools.ltx_director_workflow import patch_cfg_guiders, patch_director_node
+from tools.ltx_director_workflow import (
+    patch_cfg_guiders,
+    patch_director_node,
+    patch_server_model_names,
+)
 
 
 class TestSnapLtxFrames(unittest.TestCase):
@@ -185,6 +189,53 @@ class TestDirectorTimelines(unittest.TestCase):
         images = [s for s in timeline["segments"] if s["type"] == "image"]
         self.assertTrue(images[-1]["isEndFrame"])
 
+    def test_multi_guide_start_middle_end(self):
+        clip = {
+            "clip_id": "scene_07_unit_02",
+            "start_panel_id": "scene_07_shot_03",
+            "end_panel_id": "scene_07_shot_05",
+            "workflow": "flf2v",
+            "duration_seconds": 8,
+            "motion_class": "fast_action",
+            "i2v_strength": 0.55,
+            "last_frame_strength": 0.85,
+            "guide_frames": [
+                {"panel_id": "scene_07_shot_03", "placement": "start"},
+                {
+                    "panel_id": "scene_07_shot_04",
+                    "placement": "middle",
+                    "start_ratio": 0.55,
+                },
+                {"panel_id": "scene_07_shot_05", "placement": "end"},
+            ],
+            "motion_segments": [
+                {"start_ratio": 0.0, "end_ratio": 0.4, "prompt": "Dog races in."},
+                {"start_ratio": 0.4, "end_ratio": 1.0, "prompt": "Settles into bark."},
+            ],
+            "motion_prompt": "Dog races in. Settles into bark.",
+        }
+        payload = build_timeline_from_director_clip(
+            clip,
+            first_image_file="a.png",
+            last_image_file="c.png",
+            guide_image_files={
+                "scene_07_shot_03": "a.png",
+                "scene_07_shot_04": "b.png",
+                "scene_07_shot_05": "c.png",
+            },
+            fps=24,
+        )
+        timeline = json.loads(payload["timeline_data"])
+        images = [s for s in timeline["segments"] if s["type"] == "image"]
+        self.assertEqual(len(images), 3)
+        self.assertFalse(images[0]["isEndFrame"])
+        self.assertFalse(images[1]["isEndFrame"])
+        self.assertTrue(images[2]["isEndFrame"])
+        self.assertEqual(images[1]["imageFile"], "b.png")
+        self.assertEqual(payload["guide_strength"].count(","), 2)
+        lengths = [int(x) for x in payload["segment_lengths"].split(",")]
+        self.assertEqual(sum(lengths), payload["duration_frames"])
+
 
 class TestWorkflowPatches(unittest.TestCase):
     def test_patch_cfg_and_director(self):
@@ -216,6 +267,34 @@ class TestWorkflowPatches(unittest.TestCase):
         self.assertEqual(api["131"]["inputs"]["custom_width"], 1920)
         self.assertEqual(api["17"]["inputs"]["cfg"], 1.2)
         self.assertEqual(api["28"]["inputs"]["cfg"], 1.2)
+
+    def test_patch_server_model_names_adaptive(self):
+        api = {
+            "12": {
+                "class_type": "DualCLIPLoader",
+                "inputs": {"clip_name1": "comfy_gemma_3_12B_it.safetensors"},
+            }
+        }
+        patch_server_model_names(
+            api,
+            available_clip_names=[
+                "gemma_3_12B_it_fp4_mixed.safetensors",
+                "ltx-2.3_text_projection_bf16.safetensors",
+            ],
+        )
+        self.assertEqual(
+            api["12"]["inputs"]["clip_name1"],
+            "gemma_3_12B_it_fp4_mixed.safetensors",
+        )
+        # Already present: leave unchanged.
+        patch_server_model_names(
+            api,
+            available_clip_names=["gemma_3_12B_it_fp4_mixed.safetensors"],
+        )
+        self.assertEqual(
+            api["12"]["inputs"]["clip_name1"],
+            "gemma_3_12B_it_fp4_mixed.safetensors",
+        )
 
 
 if __name__ == "__main__":

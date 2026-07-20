@@ -29,6 +29,8 @@ LtxShotType = Literal[
 ]
 LtxComplexity = Literal["simple", "moderate", "complex"]
 FrameStrategy = Literal["empty_then_enter", "at_rest_then_react", "in_action_continuous"]
+DirectorTransitionAfter = Literal["continue", "match_cut"]
+DirectorGuideRole = Literal["start", "middle", "end"]
 
 
 class CharacterBlocking(BaseModel):
@@ -58,6 +60,11 @@ class ShotBrief(BaseModel):
     facing_direction: str = ""
     eyeline: str = ""
     background_region: str = ""
+    # Director-native panel handoff (optional on legacy plans).
+    director_transition_after: DirectorTransitionAfter | None = None
+    director_chain_group: int | None = Field(default=None, ge=1)
+    director_guide_role: DirectorGuideRole | None = None
+    director_continuity_note: str = ""
 
 
 class LocationDef(BaseModel):

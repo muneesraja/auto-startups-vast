@@ -123,11 +123,11 @@ async def generate_backgrounds(ctx: Context) -> None:
     # Repair reference_images on resume (planning path already ran this node).
     await reference_integrity(ctx)
 
-    output_dir = ctx.state["output_dir"]
+    from .save_artifact_nodes import _asset_dir
+
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
-    bg_dir = os.path.join(output_dir, "backgrounds")
-    os.makedirs(bg_dir, exist_ok=True)
+    bg_dir = _asset_dir(ctx, "backgrounds")
 
     from tools.grok_replicate import upload_local_image
 
@@ -204,8 +204,8 @@ async def generate_character_sheets(ctx: Context) -> None:
     from tools.grok_tools import generate_grok_t2i
 
     from profiles import get_profile
+    from .save_artifact_nodes import _asset_dir
 
-    output_dir = ctx.state["output_dir"]
     specs = _load_specs(ctx)
     only_scenes = _only_scenes(ctx)
     style_id = (ctx.state.get("style_id") or "cinematic").strip().lower()
@@ -221,8 +221,7 @@ async def generate_character_sheets(ctx: Context) -> None:
         else config.BACKGROUND_IMAGE_SIZE
     )
     chars_in_scope = _chars_in_scope(specs, only_scenes)
-    chars_dir = os.path.join(output_dir, "characters")
-    os.makedirs(chars_dir, exist_ok=True)
+    chars_dir = _asset_dir(ctx, "characters")
 
     def _upload_char_sheet(local_path: str) -> str:
         if sheet_provider == "fal":
@@ -526,15 +525,15 @@ async def generate_location_sheets(ctx: Context) -> None:
         print("ℹ️ [generate_location_sheets] Skipped (not storyboard mode)")
         return
 
-    output_dir = ctx.state["output_dir"]
+    from .save_artifact_nodes import _asset_dir
+
     specs = _load_specs(ctx)
     locs = specs.get("location_sheets") or {}
     if not locs:
         print("ℹ️ [generate_location_sheets] No location_sheets in specs")
         return
 
-    locs_dir = os.path.join(output_dir, "locations")
-    os.makedirs(locs_dir, exist_ok=True)
+    locs_dir = _asset_dir(ctx, "locations")
     sheet_quality = config.REPLICATE_SHEET_QUALITY
     sheet_size = config.BACKGROUND_IMAGE_SIZE
     smoke_max = int(os.getenv("SMOKE_MAX_LOCATION_SHEETS", "0") or "0")

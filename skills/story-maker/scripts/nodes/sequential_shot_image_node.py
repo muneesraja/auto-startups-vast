@@ -236,6 +236,15 @@ async def sequential_shot_image_generator(ctx: Context) -> None:
                         user_text,
                     )
                     entry["image_prompt"] = _apply_render_style(prompt, render_style)
+                    from .reference_led_identity import normalize_provider_identity_language
+
+                    entry["image_prompt"] = normalize_provider_identity_language(
+                        entry["image_prompt"],
+                        characters=story.get("characters") if isinstance(story, dict) else None,
+                        character_ids=list(shot.get("characters_present") or []),
+                        has_character_reference=bool(shot.get("characters_present")),
+                        preserve_safe_presentation=True,
+                    )
                     entry["sequential_prompt_source_image"] = previous_image_path
                     entry["sequential_prompt_source_shot"] = (
                         previous_shot.get("shot_id") if previous_shot else None

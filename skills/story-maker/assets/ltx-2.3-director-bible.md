@@ -84,18 +84,16 @@ Director assigns `pace: slow | medium | fast` per shot. Motion prompts must matc
 
 ## Shot duration (director / video_shots)
 
-**Primary (preferred):** `{6, 8, 10}` — default **8**.  
-**Optional:** `3–15` when budget math or a special beat requires it (not the default habit).  
-Snap planning values with `snap_ltx_duration` toward the primary set; keep optional values only when already in `3–15`.
+**Primary (preferred):** `{9, 10, 12, 15}` — default **10**. **Minimum 9s** so start→end / multi-guide landings are not rushed. Max **15s** per Director unit when Prompt Relay beats justify it.
+Snap planning values with `snap_ltx_duration` toward the primary set; clamp into `9–15`.
 
 | Case | Duration |
 |------|----------|
-| Default | **8** |
-| Brief action / reaction / cutaway | **6** |
-| Standard continuous action | **8** |
-| Slow / establishing / ambience | **10** |
-| Optional edge | 3–5 or 11–15 |
-| Multi major actions / subject change | **Split** into separate clips |
+| Default | **10** |
+| Dense continuous action | **9–10** |
+| Slow / establishing / multi-beat | **12** |
+| Long Prompt Relay arc | **15** |
+| Multi major actions / hard cut / subject change | **Split** into separate units |
 
 | Complexity | Prefer | Notes |
 |------------|--------|-------|
@@ -120,16 +118,21 @@ Per clip the AD picks enums; code maps to ComfyUI floats. Default output resolut
 
 **Renderer:** with `STORY_MAKER_VIDEO_BACKEND=director_v2`, clips render through **LTX Director** (guide keyframes + Prompt Relay). Legacy `templates` backend still accepts a flat `motion_prompt`.
 
+Director working resolution is **1280×704** (`DIRECTOR_VIDEO_WIDTH` / `DIRECTOR_VIDEO_HEIGHT`) — 1280×720 is invalid under the latent `divisible_by=32` grid. Template backends may still use `VIDEO_WIDTH`/`VIDEO_HEIGHT` (default 1920×1088).
+
 ### Director prompt layers (AD output)
 
 | Field | Role |
 |-------|------|
-| `global_prompt` | Look / lighting / location context (not beat-by-beat action) |
-| `motion_segments[]` | Timed Prompt Relay beats (`start_ratio`/`end_ratio`/`prompt`, covering 0→1) |
-| `motion_prompt` | Flat join of those beats — legacy fallback for template backend |
-| `start_panel_id` / `end_panel_id` | Guide images (I2V start; FLF start + end-frame) |
+| `scene_global_prompt` / `global_prompt` | Look / lighting / location context |
+| `motion_segments[]` | Timed Prompt Relay beats (`start_ratio`/`end_ratio`/`prompt`) |
+| `guide_frames[]` | Still guides with `placement`: `start` / `middle` / `end` |
+| `motion_prompt` | Flat join of beats — legacy fallback |
+| `render_units[]` | Preferred scene-level AD output (one unit = one Director job) |
 
-Prefer **2–4** motion segments on 6–10s clips; each distinct action ≈ **≥2s**. FLF last beat should settle toward the end panel composition.
+Prefer **2–5** motion segments on 9–15s units; each distinct action ≈ **≥2s**. Multi-guide units may place a middle panel as a waypoint; end guides settle the destination composition.
+
+AD owns **`duration_total_seconds`** and every unit’s `duration_seconds`. Scene-paper timing is editorial context only.
 
 ### `motion_class` → LTX Director guide strength
 

@@ -64,6 +64,9 @@ FLF_DURATION_TOLERANCE_PERCENT = int(os.getenv("FLF_DURATION_TOLERANCE_PERCENT",
 # LTX output resolution (must be divisible by 32 for latent math)
 VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1920"))
 VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1088"))
+# LTX Director Hotfix working resolution (1280x720 is invalid under ÷32)
+DIRECTOR_VIDEO_WIDTH = int(os.getenv("DIRECTOR_VIDEO_WIDTH", "1280"))
+DIRECTOR_VIDEO_HEIGHT = int(os.getenv("DIRECTOR_VIDEO_HEIGHT", "704"))
 
 DEFAULT_PLANNING_MODEL = "openai/gpt-5.4-mini"
 DEFAULT_PLANNING_TIMEOUT = int(os.getenv("PLANNING_MODEL_TIMEOUT", "600"))

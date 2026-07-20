@@ -121,7 +121,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         print(json.dumps(scene_plan, indent=2, ensure_ascii=False))
+        from scripts.nodes.flf_storyboard_planner import sync_ad_durations_to_plan_scene
+        from scripts.nodes.plan_io import save_plan_dict
+
         persist_scene_plan(specs, {**scene_plan, "status": "planned"})
+        plan = sync_ad_durations_to_plan_scene(plan, scene_plan)
+        save_plan_dict(output_dir, plan)
         _save_specs(output_dir, specs)
         print(f"Saved plan → generation_specs.storyboard_video_scenes.{scene_id}")
         print(

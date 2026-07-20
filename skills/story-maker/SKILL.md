@@ -235,7 +235,7 @@ After panel stills exist, vision acts as assistant director: reads the **full st
 
 Each clip is one **Director timeline**: `global_prompt` (look) + `motion_segments[]` (timed Prompt Relay beats) + panel guides. `motion_prompt` remains the flat fallback for the legacy template backend.
 
-The assistant director **chooses** each clip duration and the scene total (prefer LTX **6–10s**; **3s** only for super-short beats; max **10s**). Scene-paper duration lines are not used as a hard budget.
+The assistant director **chooses** each clip duration and the scene total (prefer LTX **9–15s**; default **10**; max **15s** with Prompt Relay). Scene-paper duration lines are not used as a hard budget.
 
 Per clip the AD also picks **`motion_class`** (guide strength) and **`guidance`** (CFG 1.0–1.5); the pipeline maps enums to floats. Default LTX resolution is **1920×1088** (`VIDEO_WIDTH` / `VIDEO_HEIGHT`).
 
@@ -290,6 +290,40 @@ Motion prompts are I2V-native: written from the actual starting frame — role +
 | `full_plate` | Static interiors | Char sheets + `scene_id` background plate |
 
 ## Output layout
+
+### Series mode (recommended for multi-part stories)
+
+```
+outputs/story-maker/<story-id>/          # story_root = asset_root
+├── characters/                          # shared identity locks
+├── locations/                           # shared world locks
+├── backgrounds/                         # shared (cinematic)
+├── part-1/                              # output_dir for episode 1
+│   ├── developed_story.md
+│   ├── scene_paper.md
+│   ├── plan.json
+│   ├── generation_specs.json
+│   ├── storyboard_sheets/
+│   ├── panel_crops/
+│   ├── images/
+│   ├── videos/
+│   └── final_film.mp4
+└── part-2/                              # next episode reuses shared sheets
+```
+
+Invoke with `--story-id story-naila --part 2 --story-file stories/story-naila/Story-Part-2.md`.
+Character/location sheets already present under the story root are **reused** (not regenerated).
+`--fresh` wipes only the current part’s planning files — never shared asset dirs.
+
+Migrate a flat live run:
+
+```bash
+.venv/bin/python scripts/migrate_story_series.py \
+  --source ../../outputs/story-maker/story-naila-5m-v2 \
+  --story-id story-naila --part 1
+```
+
+### Legacy flat mode (`--name`)
 
 ```
 outputs/story-maker/<name>/

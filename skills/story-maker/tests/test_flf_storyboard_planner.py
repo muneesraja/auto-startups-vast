@@ -10,9 +10,11 @@ from scripts.nodes.flf_storyboard_planner import (
     allows_flf_continuous,
     build_flf_planner_user_text,
     cast_allows_continuous,
+    director_chain_mode_enabled,
     derive_segments_from_clips,
     migrate_legacy_flf_scene,
     normalize_flf_clip_plan,
+    panel_ids_in_order,
     panel_cast_lookup,
     panel_grid_map,
     same_row_pairs,
@@ -77,6 +79,27 @@ _SCENE_PAPER = """# Scene Paper
 
 
 class TestFlfStoryboardPlanner(unittest.TestCase):
+    def test_chain_mode_default_follows_director_flag(self):
+        old_mode = os.environ.get("STORYBOARD_VIDEO_MODE")
+        old_chain = os.environ.get("STORY_MAKER_DIRECTOR_CHAIN")
+        try:
+            os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            os.environ["STORYBOARD_VIDEO_MODE"] = "fallback"
+            self.assertFalse(director_chain_mode_enabled())
+            os.environ["STORYBOARD_VIDEO_MODE"] = "director"
+            self.assertTrue(director_chain_mode_enabled())
+            os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = "0"
+            self.assertFalse(director_chain_mode_enabled())
+        finally:
+            if old_mode is None:
+                os.environ.pop("STORYBOARD_VIDEO_MODE", None)
+            else:
+                os.environ["STORYBOARD_VIDEO_MODE"] = old_mode
+            if old_chain is None:
+                os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            else:
+                os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = old_chain
+
     def test_cast_allows_continuous(self):
         cast = panel_cast_lookup(_scene())
         self.assertTrue(
@@ -333,12 +356,16 @@ class TestFlfStoryboardPlanner(unittest.TestCase):
         )
 
     def test_duration_snap_prefers_ltx_primary(self):
-        self.assertEqual(snap_director_clip_duration(8), 8)
-        self.assertEqual(snap_director_clip_duration(6), 6)
-        self.assertEqual(snap_director_clip_duration(10), 10)
-        self.assertEqual(snap_director_clip_duration(3), 3)
-        self.assertEqual(snap_director_clip_duration(12), 10)
-        self.assertIn(snap_director_clip_duration(7), (6, 8))
+        self.assertEqual(snap_director_clip_duration(10), 12)  # snaps to nearest primary
+        self.assertEqual(snap_director_clip_duration(9), 12)  # floor snaps up to primary
+        self.assertEqual(snap_director_clip_duration(12), 12)
+        self.assertEqual(snap_director_clip_duration(15), 15)
+        self.assertEqual(snap_director_clip_duration(16), 15)
+        self.assertEqual(snap_director_clip_duration(6), 12)  # floor then primary
+        self.assertEqual(snap_director_clip_duration(3), 12)  # floor then primary
+        self.assertIn(snap_director_clip_duration(11), (12, 15))
+        self.assertIn(snap_director_clip_duration(13), (12, 15))
+        self.assertIn(snap_director_clip_duration(14), (12, 15))
 
     def test_director_chooses_scene_total(self):
         raw = {
@@ -442,6 +469,177 @@ class TestFlfStoryboardPlanner(unittest.TestCase):
         self.assertEqual(len(clip["motion_segments"]), 2)
         self.assertEqual(clip["motion_segments"][0]["start_ratio"], 0.0)
         self.assertEqual(clip["motion_segments"][-1]["end_ratio"], 1.0)
+        self.assertTrue(clip.get("guide_frames"))
+
+    def test_normalize_render_units_multi_guide(self):
+        raw = {
+            "duration_total_seconds": 8,
+            "scene_global_prompt": "Meadow daylight, cinematic 3D.",
+            "render_units": [
+                {
+                    "unit_id": "scene_01_unit_01",
+                    "cut_before": False,
+                    "duration_seconds": 8,
+                    "pace": "medium",
+                    "motion_class": "walking",
+                    "guidance": "balanced",
+                    "guide_frames": [
+                        {"panel_id": "scene_01_shot_02", "placement": "start"},
+                        {
+                            "panel_id": "scene_01_shot_03",
+                            "placement": "middle",
+                            "start_ratio": 0.5,
+                        },
+                        {"panel_id": "scene_01_shot_04", "placement": "end"},
+                    ],
+                    "motion_segments": [
+                        {
+                            "start_ratio": 0.0,
+                            "end_ratio": 0.5,
+                            "prompt": "Family moves to the latch.",
+                        },
+                        {
+                            "start_ratio": 0.5,
+                            "end_ratio": 1.0,
+                            "prompt": "Gate begins to open; camera settles.",
+                        },
+                    ],
+                    "motion_prompt": "Family moves to the latch. Gate begins to open; camera settles.",
+                    "rationale": "Multi-guide continuous gate open.",
+                }
+            ],
+        }
+        out = normalize_flf_clip_plan(raw, _scene())
+        self.assertEqual(out["scene_global_prompt"], "Meadow daylight, cinematic 3D.")
+        clip = next(
+            c
+            for c in out["clips"]
+            if len(c.get("guide_frames") or []) >= 3
+            and c.get("start_panel_id") == "scene_01_shot_02"
+        )
+        self.assertEqual(clip["end_panel_id"], "scene_01_shot_04")
+        self.assertEqual(len(clip["guide_frames"]), 3)
+        self.assertTrue(clip["continuous"])
+        self.assertEqual(clip["workflow"], "flf2v")
+        self.assertGreaterEqual(out["duration_total_seconds"], 8)
+        self.assertTrue(
+            any(len(u.get("guide_frames") or []) >= 3 for u in out["render_units"])
+        )
+        self.assertTrue(any("keep multi-guide" in r for r in out["repairs"]))
+
+    def test_normalize_multi_guide_with_cast_reveal_chain(self):
+        """Adjacent guide hops can reveal new cast; first→last subset alone may fail."""
+        scene = {
+            "scene_id": "scene_07",
+            "shots": [
+                {
+                    "shot_id": "scene_07_shot_03",
+                    "characters_present": ["char_03"],
+                    "motion_intent": "Dog arrives",
+                    "camera_intent": "Track",
+                },
+                {
+                    "shot_id": "scene_07_shot_04",
+                    "characters_present": ["char_03", "char_02"],
+                    "motion_intent": "Looks to father",
+                    "camera_intent": "Widen",
+                },
+                {
+                    "shot_id": "scene_07_shot_05",
+                    "characters_present": ["char_03", "char_02"],
+                    "motion_intent": "Urgent bark",
+                    "camera_intent": "Close",
+                },
+            ],
+        }
+        raw = {
+            "duration_total_seconds": 8,
+            "render_units": [
+                {
+                    "unit_id": "scene_07_unit_multi",
+                    "cut_before": False,
+                    "duration_seconds": 8,
+                    "guide_frames": [
+                        {"panel_id": "scene_07_shot_03", "placement": "start"},
+                        {
+                            "panel_id": "scene_07_shot_04",
+                            "placement": "middle",
+                            "start_ratio": 0.55,
+                        },
+                        {"panel_id": "scene_07_shot_05", "placement": "end"},
+                    ],
+                    "motion_segments": [
+                        {
+                            "start_ratio": 0.0,
+                            "end_ratio": 1.0,
+                            "prompt": "Arrival into bark.",
+                        }
+                    ],
+                    "motion_prompt": "Arrival into bark.",
+                }
+            ],
+        }
+        from scripts.nodes.flf_storyboard_planner import allows_multi_guide_continuous
+
+        cast = panel_cast_lookup(scene)
+        panels = [s["shot_id"] for s in scene["shots"]]
+        self.assertFalse(
+            cast_allows_continuous(
+                "scene_07_shot_03", "scene_07_shot_05", cast
+            )
+        )
+        self.assertTrue(
+            allows_multi_guide_continuous(
+                "scene_07_shot_03",
+                "scene_07_shot_05",
+                raw["render_units"][0]["guide_frames"],
+                panels,
+                cast,
+            )
+        )
+        out = normalize_flf_clip_plan(raw, scene)
+        clip = next(c for c in out["clips"] if len(c.get("guide_frames") or []) >= 3)
+        self.assertTrue(clip["continuous"])
+        self.assertEqual(clip["workflow"], "flf2v")
+        self.assertEqual(clip["start_panel_id"], "scene_07_shot_03")
+        self.assertEqual(clip["end_panel_id"], "scene_07_shot_05")
+
+    def test_sync_ad_durations_to_plan_scene(self):
+        from scripts.nodes.flf_storyboard_planner import sync_ad_durations_to_plan_scene
+
+        plan = {
+            "scenes": [
+                {
+                    "scene_id": "scene_01",
+                    "duration_budget_seconds": 99,
+                    "shots": [
+                        {"shot_id": "scene_01_shot_01", "duration_seconds": 1},
+                        {"shot_id": "scene_01_shot_02", "duration_seconds": 1},
+                    ],
+                }
+            ]
+        }
+        scene_plan = {
+            "scene_id": "scene_01",
+            "duration_total_seconds": 14,
+            "clips": [
+                {
+                    "clip_id": "a",
+                    "start_panel_id": "scene_01_shot_01",
+                    "duration_seconds": 8,
+                },
+                {
+                    "clip_id": "b",
+                    "start_panel_id": "scene_01_shot_02",
+                    "duration_seconds": 6,
+                },
+            ],
+        }
+        synced = sync_ad_durations_to_plan_scene(plan, scene_plan)
+        scene = synced["scenes"][0]
+        self.assertEqual(scene["duration_budget_seconds"], 14)
+        self.assertEqual(scene["shots"][0]["duration_seconds"], 8)
+        self.assertEqual(scene["shots"][1]["duration_seconds"], 6)
 
     def test_normalize_synthesizes_motion_segments_from_flat_prompt(self):
         raw = {
@@ -507,6 +705,81 @@ class TestFlfStoryboardPlanner(unittest.TestCase):
         self.assertTrue(is_director_video_mode(_Ctx()))
         _Ctx.state = {"storyboard_video_mode": "fallback"}
         self.assertFalse(is_director_video_mode(_Ctx()))
+
+    def test_chain_mode_builds_shared_boundaries(self):
+        old_mode = os.environ.get("STORYBOARD_VIDEO_MODE")
+        old_chain = os.environ.get("STORY_MAKER_DIRECTOR_CHAIN")
+        try:
+            os.environ["STORYBOARD_VIDEO_MODE"] = "director"
+            os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            raw = {
+                "scene_global_prompt": "Warm sanctuary daylight.",
+                "clips": [
+                    {
+                        "start_panel_id": "scene_01_shot_01",
+                        "end_panel_id": "scene_01_shot_02",
+                        "workflow": "flf2v",
+                        "continuous": False,
+                        "duration_seconds": 10,
+                        "motion_prompt": "Reveal into family entrance.",
+                    },
+                    {
+                        "start_panel_id": "scene_01_shot_02",
+                        "end_panel_id": "scene_01_shot_03",
+                        "workflow": "flf2v",
+                        "continuous": True,
+                        "duration_seconds": 10,
+                        "motion_prompt": "Push to latch.",
+                    },
+                    {
+                        "start_panel_id": "scene_01_shot_03",
+                        "end_panel_id": "scene_01_shot_04",
+                        "workflow": "flf2v",
+                        "continuous": True,
+                        "duration_seconds": 10,
+                        "motion_prompt": "Gate opens.",
+                    },
+                    {
+                        "start_panel_id": "scene_01_shot_04",
+                        "end_panel_id": "scene_01_shot_05",
+                        "workflow": "flf2v",
+                        "continuous": False,
+                        "duration_seconds": 10,
+                        "motion_prompt": "Cut to meadow deer.",
+                    },
+                ],
+            }
+            out = normalize_flf_clip_plan(raw, _scene())
+            clips = out["clips"]
+            self.assertGreaterEqual(len(clips), 2)
+            covered: set[str] = set()
+            for c in clips:
+                self.assertEqual(c["workflow"], "flf2v")
+                self.assertTrue(c["continuous"])
+                self.assertGreaterEqual(c["duration_seconds"], 9)
+                self.assertLessEqual(c["duration_seconds"], 15)
+                covered.add(c["start_panel_id"])
+                covered.add(c["end_panel_id"])
+                for g in c.get("guide_frames") or []:
+                    pid = g.get("panel_id")
+                    if pid:
+                        covered.add(pid)
+            # Shared boundaries
+            for idx, (prev, cur) in enumerate(zip(clips, clips[1:]), start=1):
+                self.assertEqual(prev["end_panel_id"], cur["start_panel_id"])
+                self.assertTrue(out["segments"][idx]["cut_before"])
+                start_guide = (cur.get("guide_frames") or [{}])[0]
+                self.assertGreaterEqual(float(start_guide.get("guide_strength") or 0), 0.9)
+            self.assertEqual(covered, set(panel_ids_in_order(_scene())))
+        finally:
+            if old_mode is None:
+                os.environ.pop("STORYBOARD_VIDEO_MODE", None)
+            else:
+                os.environ["STORYBOARD_VIDEO_MODE"] = old_mode
+            if old_chain is None:
+                os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            else:
+                os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = old_chain
 
 
 if __name__ == "__main__":

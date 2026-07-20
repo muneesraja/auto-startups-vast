@@ -154,6 +154,24 @@ def persist_scene_plan(specs: dict, scene_plan: dict) -> dict:
     return specs
 
 
+def persist_scene_plan_with_plan_sync(
+    specs: dict,
+    scene_plan: dict,
+    *,
+    plan: dict | None = None,
+    output_dir: str | None = None,
+) -> dict:
+    """Persist AD scene plan and optionally sync AD durations into plan.json."""
+    persist_scene_plan(specs, scene_plan)
+    if plan is not None and output_dir:
+        from scripts.nodes.flf_storyboard_planner import sync_ad_durations_to_plan_scene
+        from scripts.nodes.plan_io import save_plan_dict
+
+        synced = sync_ad_durations_to_plan_scene(plan, scene_plan)
+        save_plan_dict(output_dir, synced)
+    return specs
+
+
 async def plan_storyboard_video_scene(
     *,
     output_dir: str,
@@ -256,7 +274,23 @@ def generate_storyboard_video_clips(
 
         first_path = stills.get(start_id or "")
         last_path = stills.get(end_id or "")
-        if not first_path or not last_path:
+        guide_paths: dict[str, str] = {}
+        for g in clip.get("guide_frames") or []:
+            if not isinstance(g, dict):
+                continue
+            pid = str(g.get("panel_id") or "").strip()
+            if pid and pid in stills:
+                guide_paths[pid] = stills[pid]
+        if start_id and first_path:
+            guide_paths.setdefault(start_id, first_path)
+        if end_id and last_path:
+            guide_paths.setdefault(end_id, last_path)
+
+        if not first_path and guide_paths:
+            first_path = next(iter(guide_paths.values()))
+        if not last_path and end_id in guide_paths:
+            last_path = guide_paths[end_id]
+        if not first_path:
             entry["status"] = "error"
             entry["message"] = f"Missing stills {start_id}/{end_id}"
             results.append(entry)
@@ -267,28 +301,47 @@ def generate_storyboard_video_clips(
         duration = int(clip.get("duration_seconds") or 6)
         workflow = (clip.get("workflow") or clip.get("mode") or "i2v").lower()
         if workflow in ("i2v_hold", "i2v") or start_id == end_id:
-            workflow = "i2v"
+            if len(guide_paths) > 1 and any(
+                bool(g.get("is_end_frame") or g.get("placement") == "end")
+                for g in (clip.get("guide_frames") or [])
+                if isinstance(g, dict)
+            ):
+                workflow = "flf2v"
+            else:
+                workflow = "i2v"
         else:
             workflow = "flf2v"
 
+        if workflow == "flf2v" and not last_path and len(guide_paths) < 2:
+            entry["status"] = "error"
+            entry["message"] = f"Missing stills {start_id}/{end_id}"
+            results.append(entry)
+            print(f"  ❌ {entry['message']}")
+            continue
+
         render = resolve_clip_render_params(clip, prefer_stored=True)
         entry.update(render)
+        guide_note = ",".join(guide_paths.keys()) if guide_paths else f"{start_id}->{end_id}"
 
         print(
-            f"  ▶ {clip_id} [{workflow}] backend={backend} {start_id} → {end_id} "
+            f"  ▶ {clip_id} [{workflow}] backend={backend} guides={guide_note} "
             f"continuous={clip.get('continuous')} dur={duration}s "
             f"class={render['motion_class']} strength={render['i2v_strength']} "
             f"cfg={render['cfg']}"
         )
 
         if use_director_v2:
+            scene_global = (scene_plan.get("scene_global_prompt") or "").strip()
             result = generate_ltx_director_from_clip(
                 clip,
                 first_frame_path=first_path,
                 last_frame_path=last_path if workflow == "flf2v" else None,
+                guide_frame_paths=guide_paths,
                 output_path=out_path,
-                global_prompt=(clip.get("global_prompt") or "").strip(),
+                global_prompt=(clip.get("global_prompt") or scene_global).strip(),
                 fps=DIRECTOR_FPS,
+                width=config.DIRECTOR_VIDEO_WIDTH,
+                height=config.DIRECTOR_VIDEO_HEIGHT,
             )
         elif workflow == "i2v":
             result = generate_ltx_i2v_video(
@@ -346,6 +399,7 @@ def generate_storyboard_video_clips(
                             "last_frame_strength",
                             "global_prompt",
                             "motion_segments",
+                            "guide_frames",
                             "render_backend",
                         )
                         if k in by_id[cid]
