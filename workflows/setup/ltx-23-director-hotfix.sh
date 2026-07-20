@@ -164,7 +164,19 @@ fi
 
 # 5. Text encoder: Gemma 3 12B FP4 mixed (~9.4GB) — DualCLIPLoader clip_name1
 echo "[5/7] Text encoder (Gemma 3 12B FP4 mixed)..."
-hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR/models/text_encoders"
+# Comfy-Org/ltx-2 stores this file under split_files/text_encoders/ (HF repo
+# browse-tree convention). Pass local_dir=$BASE_DIR so the helper creates
+# $BASE_DIR/split_files/text_encoders/<file>, then move into the final home.
+BLOB_PATH="$BASE_DIR/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
+FINAL_PATH="$BASE_DIR/models/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors"
+mkdir -p "$BASE_DIR/models/text_encoders"
+hf_download "Comfy-Org/ltx-2" "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/split_files/text_encoders" 2>/dev/null || true
+  rmdir "$BASE_DIR/split_files" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
 
 # 6. LTX text projection (~2.3GB) — DualCLIPLoader clip_name2
 echo "[6/7] LTX text projection (clip_name2)..."
