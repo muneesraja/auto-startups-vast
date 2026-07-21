@@ -207,6 +207,8 @@ echo "==> All downloads completed!"
 # vast-ai-script-runner skill pitfalls).
 echo "==> Restarting ComfyUI..."
 if command -v supervisorctl &> /dev/null; then
+    # NOTE: --lowvram flag added 2026-07-21 per muneesraja — keep all ComfyUI
+    # restarts (Vast supervisorctl + RunPod tmux fallback) consistent.
     supervisorctl restart comfyui 2>/dev/null \
         && echo "✅ ComfyUI restarted via supervisorctl" \
         || echo "⚠️  supervisorctl failed — restart ComfyUI manually"
@@ -223,7 +225,7 @@ else
     cat > /root/start_comfyui.sh << EOF
 #!/bin/bash
 cd $COMFYUI_DIR
-exec $COMFY_PYTHON main.py --listen 0.0.0.0 --port $COMFY_PORT --enable-cors-header 2>&1
+exec $COMFY_PYTHON main.py --listen 0.0.0.0 --port $COMFY_PORT --enable-cors-header --lowvram 2>&1
 EOF
     chmod +x /root/start_comfyui.sh
 
