@@ -185,5 +185,5 @@ fi
 
 echo "==> Done!"
 echo "👉 ComfyUI should now be loading the new models. Open the workflow and edit the"
-echo "   TextEncodeAceStepAudio1.5 node's `tags` and `lyrics` widgets, then hit Queue Prompt."
-echo "   Output audio lands at: <ComfyUI output>/audio/ComfyUI/V0*.mp3 (per SaveAudioMP3)."
+echo '   TextEncodeAceStepAudio1.5 node'\''s `tags` and `lyrics` widgets, then hit Queue Prompt.'
+echo '   Output audio lands at: <ComfyUI output>/audio/ComfyUI/V0*.mp3 (per SaveAudioMP3).'
