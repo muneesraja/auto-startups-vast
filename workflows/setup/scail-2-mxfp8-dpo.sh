@@ -71,7 +71,11 @@ if [ -d "$COMFYUI_DIR/.git" ]; then
             echo "  ComfyUI already at master HEAD ($CURRENT)"
         else
             echo "  Current: $CURRENT | Remote master HEAD: $REMOTE — pulling..."
-            git -C "$COMFYUI_DIR" stash --include-untracked || true
+            # Use `git stash` (NOT --include-untracked) to keep the untracked
+            # .venv-cu128/ in place. Bug 9 (2026-07-14): --include-untracked
+            # clobbered the venv, every subsequent $COMFY_PYTHON invocation
+            # silently failed, the script still printed ✅. Confirmed live
+            # on this pod (194.14.47.19) during the 2026-07-23 run.
             git -C "$COMFYUI_DIR" fetch --depth=1 origin master 2>&1 | tail -2
             git -C "$COMFYUI_DIR" reset --hard origin/master 2>&1 | tail -2
         fi
