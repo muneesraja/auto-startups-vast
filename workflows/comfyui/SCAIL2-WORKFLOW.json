@@ -418,35 +418,6 @@
       "widgets_values": []
     },
     {
-      "id": 30,
-      "type": "Note",
-      "pos": [
-        374.8715321558626,
-        1764.6151565347348
-      ],
-      "size": [
-        343.1919125570687,
-        98.92305536597792
-      ],
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.8",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "Width 1280 x Height 704 \nWidth 896 x Height 512\nWidth 832 x Height 480"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
       "id": 2,
       "type": "UNETLoader",
       "pos": [
