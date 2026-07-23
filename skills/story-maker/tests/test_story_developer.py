@@ -128,5 +128,28 @@ class TestScenePaperUsesDevelopedStory(unittest.TestCase):
         self.assertIn("{story_text}", src)
 
 
+class TestStoryDeveloperPromptExpansion(unittest.TestCase):
+    def test_prompt_has_expansion_and_anti_sameness(self):
+        path = os.path.join(_SKILL_DIR, "prompts", "story_developer.md")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("sub-scene architect", text.lower())
+        self.assertIn("Thin-story expansion playbook", text)
+        self.assertIn("Anti-sameness", text)
+        self.assertIn("must not look alike", text.lower())
+        self.assertIn("Tortoise and rabbit", text)
+        self.assertIn("scenes_target", text)
+        self.assertIn("**Purpose:**", text)
+        self.assertIn("drawable evolution", text)
+
+    def test_agent_extra_requires_distinct_expansion(self):
+        path = os.path.join(_SKILL_DIR, "agents", "story_developer.py")
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("distinct", src.lower())
+        self.assertIn("non-alike", src)
+        self.assertIn("Purpose line", src)
+
+
 if __name__ == "__main__":
     unittest.main()

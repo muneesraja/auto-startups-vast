@@ -23,8 +23,8 @@ class TestStyleProfiles(unittest.TestCase):
         self.assertEqual(reel_v2.pipeline_mode, "storyboard")
         self.assertEqual(reel_v2.min_shot_seconds, 6)
         self.assertEqual(reel_v2.max_shot_seconds, 10)
-        self.assertEqual(reel_v2.panels_per_sheet, 10)
-        self.assertEqual(reel_v2.min_panels_per_sheet, 10)
+        self.assertEqual(reel_v2.panels_per_sheet, 8)
+        self.assertEqual(reel_v2.min_panels_per_sheet, 8)
         self.assertFalse(reel_v2.use_backgrounds)
 
     def test_resolve_style_precedence(self):

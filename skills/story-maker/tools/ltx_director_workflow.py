@@ -195,6 +195,62 @@ def patch_director_node(
     )
 
 
+def patch_negative_prompt(api_workflow: dict[str, dict], negative_prompt: str) -> None:
+    """Replace the Hotfix graph's zeroed negative conditioning with real text.
+
+    The stock Hotfix graph has no text negative: every ``negative`` input is
+    wired to a ``ConditioningZeroOut`` node (an empty conditioning, since the
+    graph runs at low CFG where a real negative has little effect anyway).
+    When the AD supplies a non-empty ``negative_prompt`` (e.g. to suppress
+    "extra people, duplicated characters, background people running"), inject
+    one CLIPTextEncode node sharing the LTXDirector node's CLIP source and
+    repoint every ``negative`` link that currently targets a
+    ``ConditioningZeroOut`` node onto it — for both the base and upscale
+    passes. No-op (leaves the zeroed negative as-is) when ``negative_prompt``
+    is empty. Caveat: effect is weak on distilled checkpoints at low CFG;
+    this is a secondary defense behind the AD's cast-lock beats/prompts.
+    """
+    text = str(negative_prompt or "").strip()
+    if not text:
+        return
+
+    zero_out_ids = {
+        nid
+        for nid, node in api_workflow.items()
+        if node.get("class_type") == "ConditioningZeroOut"
+    }
+    if not zero_out_ids:
+        return
+
+    clip_source = None
+    director = api_workflow.get("131")
+    if director and director.get("class_type") == "LTXDirector":
+        clip_source = director.get("inputs", {}).get("clip")
+    if clip_source is None:
+        for node in api_workflow.values():
+            src = node.get("inputs", {}).get("clip")
+            if isinstance(src, list) and len(src) == 2:
+                clip_source = src
+                break
+    if clip_source is None:
+        return
+
+    new_id = str(max((int(nid) for nid in api_workflow if nid.isdigit()), default=0) + 1)
+    api_workflow[new_id] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"text": text, "clip": clip_source},
+    }
+
+    for node in api_workflow.values():
+        neg = node.get("inputs", {}).get("negative")
+        if (
+            isinstance(neg, list)
+            and len(neg) == 2
+            and str(neg[0]) in zero_out_ids
+        ):
+            node["inputs"]["negative"] = [new_id, 0]
+
+
 def patch_cfg_guiders(api_workflow: dict[str, dict], cfg: float) -> None:
     """Apply AD guidance CFG to every CFGGuider node in the Hotfix graph."""
     value = float(cfg)
@@ -218,6 +274,33 @@ def patch_save_prefix(api_workflow: dict[str, dict], prefix: str) -> None:
     # Hotfix SaveVideo node id is usually 37
     if "37" in api_workflow:
         api_workflow["37"].setdefault("inputs", {})["filename_prefix"] = prefix
+
+
+def patch_save_video_codec(
+    api_workflow: dict[str, dict],
+    *,
+    codec: str = "h264",
+    format: str = "mp4",
+) -> None:
+    """Force software H.264 encode (avoid RunPod NVENC OpenEncodeSessionEx failures)."""
+    for node in api_workflow.values():
+        if node.get("class_type") != "SaveVideo":
+            continue
+        inputs = node.setdefault("inputs", {})
+        inputs["codec"] = codec
+        inputs["format"] = format
+
+
+def is_aac_nan_error(message: str) -> bool:
+    """True when SaveVideo failed because LTX audio contained non-finite samples."""
+    m = (message or "").lower()
+    return "nan/+-inf" in m or ("aac" in m and "avcodec_send_frame" in m)
+
+
+# Back-compat alias used in plan / tests
+_is_aac_nan_error = is_aac_nan_error
+
+_AAC_NAN_MAX_RETRIES = 2
 
 
 def load_hotfix_api_workflow(*, refresh: bool = False) -> dict[str, dict]:
@@ -277,9 +360,68 @@ def queue_director_timeline(
     width: int | None = None,
     height: int | None = None,
     seed: int = 42,
+    negative_prompt: str = "",
+    client_id: str = "story-maker-director-v2",
+    max_aac_nan_retries: int = _AAC_NAN_MAX_RETRIES,
+) -> dict[str, Any]:
+    """Patch Hotfix with a timeline payload, queue, wait, and download.
+
+    On SaveVideo AAC NaN/+-Inf failures (intermittent LTX AudioVAE), re-queues
+    the same graph with a bumped seed up to ``max_aac_nan_retries`` times.
+    """
+    base_seed = int(seed)
+    last_error: dict[str, Any] | None = None
+
+    for attempt in range(max_aac_nan_retries + 1):
+        attempt_seed = base_seed + (1000 * attempt)
+        if attempt > 0:
+            print(
+                f"  AAC NaN SaveVideo — retrying seed={attempt_seed} "
+                f"(attempt {attempt}/{max_aac_nan_retries})",
+                flush=True,
+            )
+        result = _queue_director_timeline_once(
+            timeline_payload=timeline_payload,
+            output_path=output_path,
+            global_prompt=global_prompt,
+            cfg=cfg,
+            width=width,
+            height=height,
+            seed=attempt_seed,
+            negative_prompt=negative_prompt,
+            client_id=client_id,
+        )
+        if result.get("status") == "success":
+            result["seed"] = attempt_seed
+            if attempt > 0:
+                result["aac_nan_retries"] = attempt
+            return result
+        last_error = result
+        message = str(result.get("message") or "")
+        if attempt < max_aac_nan_retries and is_aac_nan_error(message):
+            continue
+        if last_error is not None:
+            last_error["seed"] = attempt_seed
+        return last_error
+
+    assert last_error is not None
+    last_error["seed"] = base_seed + (1000 * max_aac_nan_retries)
+    return last_error
+
+
+def _queue_director_timeline_once(
+    *,
+    timeline_payload: dict,
+    output_path: str,
+    global_prompt: str = "",
+    cfg: float = 1.0,
+    width: int | None = None,
+    height: int | None = None,
+    seed: int = 42,
+    negative_prompt: str = "",
     client_id: str = "story-maker-director-v2",
 ) -> dict[str, Any]:
-    """Patch Hotfix with a timeline payload, queue, wait, and download."""
+    """Single Hotfix queue attempt (no AAC-NaN retry)."""
     try:
         api_workflow = load_hotfix_api_workflow()
         patch_director_node(
@@ -291,11 +433,13 @@ def queue_director_timeline(
         )
         patch_cfg_guiders(api_workflow, cfg)
         patch_seed(api_workflow, seed)
+        patch_negative_prompt(api_workflow, negative_prompt)
         sanitize_workflow_inputs(api_workflow)
 
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         patch_save_prefix(api_workflow, f"director_v2/{out_path.stem}")
+        patch_save_video_codec(api_workflow)
 
         result = curl_json(
             "POST",
@@ -483,6 +627,7 @@ def generate_ltx_director_from_clip(
             width=width,
             height=height,
             seed=seed,
+            negative_prompt=str(clip.get("negative_prompt") or "").strip(),
         )
         if result.get("status") == "success":
             result.update(

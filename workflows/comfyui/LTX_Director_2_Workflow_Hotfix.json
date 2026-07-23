@@ -717,8 +717,8 @@
       },
       "widgets_values": [
         "video/LTX_Director",
-        "auto",
-        "auto"
+        "mp4",
+        "h264"
       ],
       "color": "#222",
       "bgcolor": "#000"

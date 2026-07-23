@@ -89,7 +89,8 @@ REPLICATE_PANEL_QUALITY = os.getenv("REPLICATE_PANEL_QUALITY", "low")
 # (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
 CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "1152x2048")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "2048x1152")
-STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "1152x2048")
+# 8:9 album (fal custom WxH) so packed 4×2 cells are true 16:9. Prefer fal provider.
+STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "1024x1152")
 # Panel crop: python (white-gutter detect → uniform grid) | vision | auto
 STORYBOARD_CROP_MODE = os.getenv("STORYBOARD_CROP_MODE", "python")
 PANEL_IMAGE_SIZE = os.getenv("PANEL_IMAGE_SIZE", "2048x1152")

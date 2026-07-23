@@ -115,9 +115,9 @@ If sequential shots are enabled, the agent also re-authors each shot still promp
 | `reels` | Short-form content; LTX-native clip lengths | `30s` | Primary `{6,8,10}` (optional 3–15) |
 | `reel_v2` | Storyboard-sheet consistency: multi-panel sheets → crop → regen | `30s` | Panels editorial; LTX via `video_shots` `{6,8,10}` |
 
-`reel_v2` does **not** use cinematic `backgrounds/` plates or per-shot parallel still prompting. It generates **location lock** plates (`locations/`), then per-scene 10-panel 5×2 photo-album sheets (9:16 page, 16:9 panels) **in story order** (each sheet after the first gets the previous sheet PNG as a continuity ref, plus location + character refs), uses Python white-gutter detection to crop panels (`STORYBOARD_CROP_MODE=python`; optional `vision`), then regenerates each panel at full resolution with character references only. LTX duration is planned on **`video_shots`** (primary `{6,8,10}`, default 8; optional 3–15) by grouping consecutive panels that stay **cast-coherent** to the anchor still — panels are editorial coverage, not 1s Pro clips. Empty establishing panels do not share a clip with character entrances.
+`reel_v2` does **not** use cinematic `backgrounds/` plates or per-shot parallel still prompting. It generates **location lock** plates (`locations/`), then per-scene 8-panel 4×2 photo-album sheets (**8:9** page / `1024x1152` so packed cells are ~**16:9**) **in story order** (each sheet after the first gets the previous sheet PNG as a continuity ref, plus location + character refs). Each album **row** is a preferred FLF start→end pair (left=start, right=end). It uses Python white-gutter detection to crop panels (`STORYBOARD_CROP_MODE=python`; optional `vision`), then regenerates each panel at full resolution with character references only. LTX duration is planned on **`video_shots`** (primary `{6,8,10}`, default 8; optional 3–15) by grouping consecutive panels that stay **cast-coherent** to the anchor still — panels are editorial coverage, not 1s Pro clips. Empty establishing panels do not share a clip with character entrances.
 
-**FLF2V / assistant-director alt path:** set `STORYBOARD_VIDEO_MODE=director` to plan I2V standalones + FLF2V continuous chains from the storyboard sheet, `scene_paper.md` agenda, and 5×2 grid row/col map after panel regen. Prefer same-row FLF; motivated camera pans may reveal new subjects. The assistant director chooses per-clip durations (prefer LTX 6–10s; 3s only for super-short beats) plus `motion_class` / `guidance` enums (mapped to image-lock strength and CFG). Default LTX resolution is **1920×1088**. Manual runner: `scripts/run_flf_scene.py`. Default remains the existing `video_shots` I2V path (`STORYBOARD_VIDEO_MODE=fallback`). See `SKILL.md` and `plans/ad-ltx-strength-cfg-resolution.md`.
+**FLF2V / assistant-director alt path:** set `STORYBOARD_VIDEO_MODE=director` to plan I2V standalones + FLF2V continuous chains from the storyboard sheet, `scene_paper.md` agenda, and 4×2 grid row/col map after panel regen. Prefer same-row FLF; motivated camera pans may reveal new subjects. The assistant director chooses per-clip durations (prefer LTX 6–10s; 3s only for super-short beats) plus `motion_class` / `guidance` enums (mapped to image-lock strength and CFG). Default LTX resolution is **1920×1088**. Manual runner: `scripts/run_flf_scene.py`. Default remains the existing `video_shots` I2V path (`STORYBOARD_VIDEO_MODE=fallback`). See `SKILL.md` and `plans/ad-ltx-strength-cfg-resolution.md`.
 
 
 
@@ -180,7 +180,7 @@ GROK_REPLICATE_MODEL=openai/gpt-image-2
 # Sheets: medium @ 2K; panel regen: low @ 2K
 # REPLICATE_SHEET_QUALITY=medium
 # CHARACTER_SHEET_SIZE=1152x2048
-# STORYBOARD_SHEET_SIZE=1152x2048
+# STORYBOARD_SHEET_SIZE=1024x1152
 # REPLICATE_PANEL_QUALITY=low
 # PANEL_IMAGE_SIZE=2048x1152
 # BACKGROUND_IMAGE_SIZE=2048x1152
@@ -212,7 +212,7 @@ Important env vars:
 | `REPLICATE_SHEET_QUALITY` | Quality for character + storyboard sheets (`medium`) |
 | `REPLICATE_PANEL_QUALITY` | Quality for panel regen / shot stills (`low`) |
 | `CHARACTER_SHEET_SIZE` | Char sheet `aspect_ratio` pixel enum (`1152x2048`) |
-| `STORYBOARD_SHEET_SIZE` | Storyboard sheet size portrait album (`1152x2048`) |
+| `STORYBOARD_SHEET_SIZE` | Storyboard sheet size 8:9 album (`1024x1152`) |
 | `PANEL_IMAGE_SIZE` | Panel regen / shot still size (`2048x1152`) |
 | `BACKGROUND_IMAGE_SIZE` | Background plate size when used (`2048x1152`) |
 | `IMAGE_REF_LIMIT` | Optional override for reference image cap |
@@ -271,7 +271,7 @@ python3 main.py \
   --fresh
 ```
 
-Recommended for `reel_v2`: `PROVIDER=replicate`, `STORYBOARD_IMAGE_PROVIDER=fal`, character sheets on fal (`FAL_KEY` set), `GROK_REPLICATE_MODEL=openai/gpt-image-2`, sheet quality `medium` @ storyboard `1152x2048` (9:16 album) / character `1152x2048`, panel regen quality `low` @ `2048x1152` on Replicate (no fal panel fallback).
+Recommended for `reel_v2`: `PROVIDER=replicate`, `STORYBOARD_IMAGE_PROVIDER=fal`, character sheets on fal (`FAL_KEY` set), `GROK_REPLICATE_MODEL=openai/gpt-image-2`, sheet quality `medium` @ storyboard `1024x1152` (8:9 album → ~16:9 panels) / character `1152x2048`, panel regen quality `low` @ `2048x1152` on Replicate (no fal panel fallback).
 
 ### Fast reel with stronger continuity
 

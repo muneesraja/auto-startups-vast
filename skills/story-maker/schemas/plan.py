@@ -65,6 +65,8 @@ class ShotBrief(BaseModel):
     director_chain_group: int | None = Field(default=None, ge=1)
     director_guide_role: DirectorGuideRole | None = None
     director_continuity_note: str = ""
+    # Edge recipe from this panel toward the next (Prompt Relay seed).
+    director_bridge_to_next: str = ""
 
 
 class LocationDef(BaseModel):
@@ -86,6 +88,8 @@ class StoryScene(BaseModel):
     background_population: str = ""
     staging: str = ""
     blocking: list[CharacterBlocking] = Field(default_factory=list)
+    # Ordered P01→…→PN motion narrative for AD Prompt Relay planning.
+    director_motion_spine: str = ""
     shots: list[ShotBrief]
 
 
@@ -314,6 +318,7 @@ class ProductionScene(BaseModel):
     background_population: str = ""
     staging: str = ""
     blocking: list[CharacterBlocking] = Field(default_factory=list)
+    director_motion_spine: str = ""
     duration_budget_seconds: int | None = None
     assets: NestedSceneAssets = Field(default_factory=NestedSceneAssets)
     audio_scene: NestedAudioScene = Field(default_factory=NestedAudioScene)

@@ -156,7 +156,7 @@ class TestStoryboardContinuityPlanner(unittest.IsolatedAsyncioTestCase):
                 {
                     "output_dir": tmp,
                     "style_id": "reel_v2",
-                    "panels_per_sheet": 10,
+                    "panels_per_sheet": 8,
                     "story_plan_content": json.dumps(story),
                     "generation_specs_content": json.dumps(specs),
                 }
@@ -354,6 +354,30 @@ class TestLocationEnvironmentBlock(unittest.TestCase):
         self.assertIn("1. LOCATION LOCK", text)
         self.assertIn("2. PREVIOUS STORYBOARD SHEET", text)
         self.assertIn("3. CHARACTER SHEETS", text)
+
+    def test_cross_scene_continuity_skips_prev_sheet_role(self):
+        from scripts.nodes.storyboard_sheet_builder import (
+            build_continuity_note,
+            continuity_mode_for,
+        )
+
+        mode = continuity_mode_for(
+            continuity_from_sheet_id="scene_01_sheet_01",
+            scene_id="scene_02",
+        )
+        self.assertEqual(mode, "cross_scene")
+        note = build_continuity_note(
+            continuity_from_sheet_id="scene_01_sheet_01",
+            continuity_mode=mode,
+        )
+        self.assertIn("CROSS-SCENE", note)
+        roles = build_reference_roles_block(
+            has_location=True,
+            has_previous_sheet=False,
+            character_ids=["char_01"],
+            continuity_mode=mode,
+        )
+        self.assertNotIn("PREVIOUS STORYBOARD SHEET", roles)
 
 
 class TestLocationSpecsPath(unittest.TestCase):

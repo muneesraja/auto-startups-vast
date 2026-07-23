@@ -782,5 +782,175 @@ class TestFlfStoryboardPlanner(unittest.TestCase):
                 os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = old_chain
 
 
+class TestBeatsTimelineNormalization(unittest.TestCase):
+    """AD free-form beats[] timeline: parsing, coverage, and the long-gap guard."""
+
+    def _beats_render_unit(self, *, bridge_role="bridge"):
+        return {
+            "unit_id": "scene_01_unit_01",
+            "cut_before": False,
+            "duration_seconds": 12,
+            "pace": "medium",
+            "motion_class": "large_reveal",
+            "guidance": "balanced",
+            "global_prompt": "sunlit meadow",
+            "negative_prompt": "extra people, duplicated characters",
+            "locked_cast": ["char_01"],
+            "beats": [
+                {"kind": "guide", "panel_id": "scene_01_shot_01", "role": "start"},
+                {
+                    "kind": "text",
+                    "duration_seconds": 4,
+                    "prompt": "camera pushes in; figure lifts an object",
+                },
+                {"kind": "guide", "panel_id": "scene_01_shot_02", "role": bridge_role},
+                {
+                    "kind": "text",
+                    "duration_seconds": 4,
+                    "prompt": "camera whip-pans right off empty ground; no new figures enter",
+                },
+                {"kind": "guide", "panel_id": "scene_01_shot_04", "role": "end"},
+            ],
+        }
+
+    def test_beats_clip_normalized_and_preserved(self):
+        raw = {
+            "scene_id": "scene_01",
+            "scene_global_prompt": "sunlit meadow",
+            "render_units": [self._beats_render_unit()],
+        }
+        out = normalize_flf_clip_plan(raw, _scene())
+        clips = out["clips"]
+        beats_clips = [c for c in clips if c.get("beats")]
+        self.assertEqual(len(beats_clips), 1)
+        clip = beats_clips[0]
+        self.assertEqual(clip["start_panel_id"], "scene_01_shot_01")
+        self.assertEqual(clip["end_panel_id"], "scene_01_shot_04")
+        self.assertEqual(clip["workflow"], "flf2v")
+        self.assertTrue(clip["continuous"])
+        self.assertEqual(clip["negative_prompt"], "extra people, duplicated characters")
+        self.assertEqual(clip["locked_cast"], ["char_01"])
+        # duration_seconds must be >= sum(text) so DirectorClip validation holds.
+        text_total = sum(
+            b["duration_seconds"] for b in clip["beats"] if b["kind"] == "text"
+        )
+        self.assertGreaterEqual(clip["duration_seconds"], text_total)
+        # Bridge panel is covered via the beats path, not double-filled.
+        self.assertNotIn(
+            "scene_01_shot_02",
+            [
+                r
+                for r in out["repairs"]
+                if "coverage missing" in r and "scene_01_shot_02" in r
+            ],
+        )
+        all_panels = set()
+        for c in clips:
+            all_panels.add(c["start_panel_id"])
+            all_panels.add(c["end_panel_id"])
+            for g in c.get("guide_frames") or []:
+                if g.get("panel_id"):
+                    all_panels.add(g["panel_id"])
+        self.assertEqual(all_panels, set(panel_ids_in_order(_scene())))
+
+    def test_beats_unknown_guide_panel_falls_back_gracefully(self):
+        raw = {
+            "scene_id": "scene_01",
+            "clips": [
+                {
+                    "clip_id": "bad_clip",
+                    "beats": [
+                        {"kind": "guide", "panel_id": "not_a_real_panel", "role": "start"},
+                        {"kind": "text", "duration_seconds": 4, "prompt": "drifts"},
+                    ],
+                }
+            ],
+        }
+        # Should not raise; unknown-only-guide beats drop the clip entirely
+        # and full coverage is still produced via the normal fallback path.
+        out = normalize_flf_clip_plan(raw, _scene())
+        self.assertTrue(
+            any("no usable guide" in r or "drop" in r for r in out["repairs"])
+        )
+        covered = {c["start_panel_id"] for c in out["clips"]} | {
+            c["end_panel_id"] for c in out["clips"]
+        }
+        self.assertTrue(set(panel_ids_in_order(_scene())).issubset(covered))
+
+    def test_beats_preserved_under_chain_mode_with_gap_fill(self):
+        old_mode = os.environ.get("STORYBOARD_VIDEO_MODE")
+        old_chain = os.environ.get("STORY_MAKER_DIRECTOR_CHAIN")
+        try:
+            os.environ["STORYBOARD_VIDEO_MODE"] = "director"
+            os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            raw = {
+                "scene_id": "scene_01",
+                "scene_global_prompt": "sunlit meadow",
+                "render_units": [self._beats_render_unit()],
+            }
+            out = normalize_flf_clip_plan(raw, _scene())
+            clips = out["clips"]
+            beats_clips = [c for c in clips if c.get("beats")]
+            # The beats-authored unit must survive untouched under chain mode
+            # (never rebuilt from cast heuristics), and any remaining panel
+            # (shot_03, shot_05) is filled by the heuristic gap-fill path.
+            self.assertEqual(len(beats_clips), 1)
+            self.assertEqual(beats_clips[0]["start_panel_id"], "scene_01_shot_01")
+            self.assertEqual(beats_clips[0]["end_panel_id"], "scene_01_shot_04")
+            self.assertTrue(
+                any("beats-authored units cover" in r for r in out["repairs"])
+            )
+            all_panels = set()
+            for c in clips:
+                all_panels.add(c["start_panel_id"])
+                all_panels.add(c["end_panel_id"])
+                for g in c.get("guide_frames") or []:
+                    if g.get("panel_id"):
+                        all_panels.add(g["panel_id"])
+            self.assertEqual(all_panels, set(panel_ids_in_order(_scene())))
+        finally:
+            if old_mode is None:
+                os.environ.pop("STORYBOARD_VIDEO_MODE", None)
+            else:
+                os.environ["STORYBOARD_VIDEO_MODE"] = old_mode
+            if old_chain is None:
+                os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            else:
+                os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = old_chain
+
+    def test_long_gap_guard_caps_unauthored_chains_at_three_guides(self):
+        old_mode = os.environ.get("STORYBOARD_VIDEO_MODE")
+        old_chain = os.environ.get("STORY_MAKER_DIRECTOR_CHAIN")
+        try:
+            os.environ["STORYBOARD_VIDEO_MODE"] = "director"
+            os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            # Same cast on every shot so cast heuristics want to chain the
+            # whole scene continuous -- the guard must still cap at 3 guides
+            # instead of morphing through all 5 panels in one unit.
+            scene = {
+                "scene_id": "scene_09",
+                "shots": [
+                    {"shot_id": f"scene_09_shot_{i:02d}", "characters_present": ["father"]}
+                    for i in range(1, 6)
+                ],
+            }
+            out = normalize_flf_clip_plan({"scene_id": "scene_09", "clips": []}, scene)
+            self.assertTrue(
+                any("long-gap guard" in r for r in out["repairs"])
+            )
+            for clip in out["clips"]:
+                n_guides = len(clip.get("guide_frames") or [])
+                self.assertLessEqual(n_guides, 3)
+        finally:
+            if old_mode is None:
+                os.environ.pop("STORYBOARD_VIDEO_MODE", None)
+            else:
+                os.environ["STORYBOARD_VIDEO_MODE"] = old_mode
+            if old_chain is None:
+                os.environ.pop("STORY_MAKER_DIRECTOR_CHAIN", None)
+            else:
+                os.environ["STORY_MAKER_DIRECTOR_CHAIN"] = old_chain
+
+
 if __name__ == "__main__":
     unittest.main()

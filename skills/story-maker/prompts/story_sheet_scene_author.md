@@ -23,26 +23,26 @@ Use this structure exactly:
 # Storyboard Sheet Map: YOUR STORY TITLE
 
 **Source:** scene_paper.md
-**Panels per sheet (max):** 10
+**Panels per sheet (max):** {panels_per_sheet}
 **Total sheets:** 2
 
 ---
 
 ## Sheet 01
-**Source scene:** Scene 01 (panels 1–10 of 10) — part 1/1
+**Source scene:** Scene 01 (panels 1–{panels_per_sheet} of {panels_per_sheet}) — part 1/1
 **Subtitle:** SCENE SUBTITLE
 **Duration budget:** 10s
-**Panel count:** 10
-**Panel range:** Panel 01 – Panel 10 (all panels from Scene 01)
+**Panel count:** {panels_per_sheet}
+**Panel range:** Panel 01 – Panel {panels_per_sheet} (all panels from Scene 01)
 
 ---
 
 ## Sheet 02
-**Source scene:** Scene 02 (panels 1–10 of 10) — part 1/1
+**Source scene:** Scene 02 (panels 1–{panels_per_sheet} of {panels_per_sheet}) — part 1/1
 **Subtitle:** SCENE SUBTITLE
 **Duration budget:** 10s
-**Panel count:** 10
-**Panel range:** Panel 01 – Panel 10 (all panels from Scene 02)
+**Panel count:** {panels_per_sheet}
+**Panel range:** Panel 01 – Panel {panels_per_sheet} (all panels from Scene 02)
 ```
 
 ## Rules

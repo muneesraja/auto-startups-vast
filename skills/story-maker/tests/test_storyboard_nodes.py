@@ -13,6 +13,7 @@ from scripts.nodes.storyboard_nodes import (  # noqa: E402
     _grid_bbox_row_major,
     _normalize_panels,
     _panel_line,
+    _prioritize_panel_regen_chars,
     build_panel_regen_prompt,
     build_storyboard_sheet_prompt,
     detect_album_panel_bboxes,
@@ -23,10 +24,10 @@ from scripts.nodes.sequential_shot_image_node import image_generation_router  # 
 
 class TestStoryboardHelpers(unittest.TestCase):
     def test_chunk_shots(self):
-        shots = [{"shot_id": f"s{i}"} for i in range(12)]
-        chunks = _chunk_shots(shots, 10)
+        shots = [{"shot_id": f"s{i}"} for i in range(10)]
+        chunks = _chunk_shots(shots, 8)
         self.assertEqual(len(chunks), 2)
-        self.assertEqual(len(chunks[0]), 10)
+        self.assertEqual(len(chunks[0]), 8)
         self.assertEqual(len(chunks[1]), 2)
 
     def test_panel_line_includes_staging(self):
@@ -40,10 +41,10 @@ class TestStoryboardHelpers(unittest.TestCase):
         }
         line = _panel_line(shot, 1)
         self.assertIn("Panel 1", line)
-        self.assertIn("Duration: ~1s", line)
+        self.assertIn("board beat ~1s", line)
         self.assertIn("CAM: close-up", line)
         self.assertIn("Visual:", line)
-        self.assertIn("Motion: quick smile bloom", line)
+        self.assertIn("Motion (toward next panel): quick smile bloom", line)
         self.assertIn("subject_position", line)
 
     def test_build_storyboard_sheet_prompt(self):
@@ -69,6 +70,7 @@ class TestStoryboardHelpers(unittest.TestCase):
             "Light: {lighting}\n"
             "Staging: {staging}\n"
             "Panels: {panel_count}\n"
+            "{motion_spine}\n"
             "{panel_lines}\n"
             "{render_style}"
         )
@@ -101,28 +103,28 @@ class TestStoryboardHelpers(unittest.TestCase):
         ]
         prompt = build_storyboard_sheet_prompt(scene, shots, render_style="Pixar CGI")
         self.assertIn("Storyboard Sheet 01 includes these shots", prompt)
-        self.assertIn("5 rows × 2 columns", prompt)
+        self.assertIn("4 rows × 2 columns", prompt)
         self.assertIn("photo album", prompt.lower())
 
-    def test_grid_bbox_row_major_5x2(self):
-        first = _grid_bbox_row_major(0)
+    def test_grid_bbox_row_major_4x2(self):
+        first = _grid_bbox_row_major(0, panel_count=8)
         self.assertAlmostEqual(first["x"], 0.0)
         self.assertAlmostEqual(first["y"], 0.0)
         self.assertAlmostEqual(first["w"], 0.5)
-        self.assertAlmostEqual(first["h"], 0.2)
-        third = _grid_bbox_row_major(2)  # second row, left
+        self.assertAlmostEqual(first["h"], 0.25)
+        third = _grid_bbox_row_major(2, panel_count=8)  # second row, left
         self.assertAlmostEqual(third["x"], 0.0)
-        self.assertAlmostEqual(third["y"], 0.2)
+        self.assertAlmostEqual(third["y"], 0.25)
         self.assertAlmostEqual(third["w"], 0.5)
-        self.assertAlmostEqual(third["h"], 0.2)
-        right = _grid_bbox_row_major(1)
+        self.assertAlmostEqual(third["h"], 0.25)
+        right = _grid_bbox_row_major(1, panel_count=8)
         self.assertAlmostEqual(right["x"], 0.5)
 
     def test_detect_album_panel_bboxes_synthetic(self):
         from PIL import Image, ImageDraw
 
-        width, height = 200, 500
-        cols, rows = 2, 5
+        width, height = 200, 400
+        cols, rows = 2, 4
         gutter = 4
         cell_w = (width - gutter) // cols
         cell_h = (height - (rows - 1) * gutter) // rows
@@ -137,8 +139,6 @@ class TestStoryboardHelpers(unittest.TestCase):
             (40, 160, 200),
             (120, 80, 40),
             (80, 120, 160),
-            (200, 80, 120),
-            (80, 200, 120),
         ]
         for idx, color in enumerate(colors):
             col = idx % cols
@@ -150,36 +150,36 @@ class TestStoryboardHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "sheet.png")
             img.save(path)
-            bboxes = detect_album_panel_bboxes(path, 10, inset_px=1)
+            bboxes = detect_album_panel_bboxes(path, 8, inset_px=1)
             self.assertIsNotNone(bboxes)
-            self.assertEqual(len(bboxes), 10)
-            # First panel should be top-left and roughly half width / fifth height
+            self.assertEqual(len(bboxes), 8)
+            # First panel should be top-left and roughly half width / quarter height
             self.assertLess(bboxes[0]["x"], 0.05)
             self.assertLess(bboxes[0]["y"], 0.05)
             self.assertAlmostEqual(bboxes[0]["w"], 0.5, delta=0.08)
-            self.assertAlmostEqual(bboxes[0]["h"], 0.2, delta=0.08)
+            self.assertAlmostEqual(bboxes[0]["h"], 0.25, delta=0.08)
             # Second panel starts near vertical gutter
             self.assertGreater(bboxes[1]["x"], 0.45)
             # Partial expected count
             four = detect_album_panel_bboxes(path, 4, inset_px=1)
             self.assertEqual(len(four), 4)
 
-            boxes, method = resolve_panel_bboxes(path, 10, mode="python")
+            boxes, method = resolve_panel_bboxes(path, 8, mode="python")
             self.assertEqual(method, "gutter")
-            self.assertEqual(len(boxes), 10)
+            self.assertEqual(len(boxes), 8)
 
     def test_detect_album_panel_bboxes_no_gutters_returns_none(self):
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "flat.png")
-            Image.new("RGB", (200, 500), (30, 80, 120)).save(path)
-            self.assertIsNone(detect_album_panel_bboxes(path, 10))
-            boxes, method = resolve_panel_bboxes(path, 10, mode="python")
+            Image.new("RGB", (200, 400), (30, 80, 120)).save(path)
+            self.assertIsNone(detect_album_panel_bboxes(path, 8))
+            boxes, method = resolve_panel_bboxes(path, 8, mode="python")
             self.assertEqual(method, "grid")
-            self.assertEqual(len(boxes), 10)
+            self.assertEqual(len(boxes), 8)
             self.assertAlmostEqual(boxes[0]["w"], 0.5)
-            self.assertAlmostEqual(boxes[0]["h"], 0.2)
+            self.assertAlmostEqual(boxes[0]["h"], 0.25)
 
     def test_detect_album_panel_bboxes_smoke_sheet_if_present(self):
         repo_root = os.path.dirname(os.path.dirname(_SKILL_DIR))
@@ -187,15 +187,15 @@ class TestStoryboardHelpers(unittest.TestCase):
             repo_root,
             "outputs",
             "story-maker",
-            "smoke_album_5x2",
+            "smoke_album_4x2",
             "storyboard_sheets",
             "scene_01_sheet_01.png",
         )
         if not os.path.isfile(sheet):
-            self.skipTest("smoke_album_5x2 sheet not present")
-        boxes, method = resolve_panel_bboxes(sheet, 10, mode="python")
+            self.skipTest("smoke_album_4x2 sheet not present")
+        boxes, method = resolve_panel_bboxes(sheet, 8, mode="python")
         self.assertEqual(method, "gutter")
-        self.assertEqual(len(boxes), 10)
+        self.assertEqual(len(boxes), 8)
         self.assertLess(boxes[0]["x"], 0.02)
         self.assertGreater(boxes[1]["x"], 0.4)
 
@@ -209,6 +209,36 @@ class TestStoryboardHelpers(unittest.TestCase):
         panels = _normalize_panels(data, 2)
         self.assertEqual(len(panels), 2)
         self.assertAlmostEqual(panels[0]["w"], 0.2)
+
+    def test_prioritize_drops_unused_animals_on_profile(self):
+        roster = [
+            {"id": "char_01", "name": "Naila", "appearance": "girl"},
+            {"id": "char_02", "name": "Father", "appearance": "man"},
+            {"id": "char_03", "name": "Azhagi", "appearance": "golden retriever dog"},
+            {"id": "char_04", "name": "Neju", "appearance": "green parrot bird"},
+        ]
+        out = _prioritize_panel_regen_chars(
+            ["char_01", "char_02", "char_03", "char_04"],
+            roster,
+            budget=4,
+            description="Father glancing while Naila follows his gaze.",
+            camera_intent="MEDIUM PROFILE, controlled pan",
+        )
+        self.assertEqual(out, ["char_01", "char_02"])
+
+    def test_prioritize_keeps_named_animal_on_wide(self):
+        roster = [
+            {"id": "char_01", "name": "Naila", "appearance": "girl"},
+            {"id": "char_03", "name": "Azhagi", "appearance": "golden retriever dog"},
+        ]
+        out = _prioritize_panel_regen_chars(
+            ["char_01", "char_03"],
+            roster,
+            budget=4,
+            description="Naila walks with Azhagi along the path.",
+            camera_intent="WIDE AMBIENT HOLD",
+        )
+        self.assertEqual(out, ["char_01", "char_03"])
 
     def test_build_panel_regen_prompt(self):
         shot = {
@@ -230,7 +260,8 @@ class TestStoryboardHelpers(unittest.TestCase):
         self.assertIn("do not add", prompt.lower())
         self.assertIn("expression", prompt.lower())
         self.assertIn("footwear", prompt.lower())
-        self.assertIn("REPLACE", prompt)
+        self.assertIn("IDENTITY-ONLY", prompt)
+        self.assertIn("carry/ride", prompt.lower())
         self.assertIn("Pixar CGI", prompt)
 
     def test_build_panel_regen_prompt_empty_stage(self):
@@ -257,7 +288,7 @@ class TestStoryboardHelpers(unittest.TestCase):
         self.assertIn("close-up", prompt.lower())
         self.assertIn("Pixar CGI", prompt)
         self.assertIn("footwear", prompt.lower())
-        self.assertIn("sheet identity wins", prompt.lower())
+        self.assertIn("retexture identity", prompt.lower())
         self.assertIn("expression", prompt.lower())
 
 

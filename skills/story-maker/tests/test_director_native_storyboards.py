@@ -42,6 +42,7 @@ def _shot(
     role: str | None = None,
     after: str | None = None,
     note: str = "",
+    bridge: str = "",
 ) -> dict:
     return {
         "shot_id": f"scene_02_shot_{n:02d}",
@@ -57,6 +58,7 @@ def _shot(
         "director_guide_role": role,
         "director_transition_after": after,
         "director_continuity_note": note,
+        "director_bridge_to_next": bridge,
     }
 
 
@@ -71,10 +73,12 @@ class TestDirectorPanelSchema(unittest.TestCase):
             director_chain_group=1,
             director_guide_role="start",
             director_continuity_note="Naila stays frame-left",
+            director_bridge_to_next="Morph: continue. Camera tracks L→R.",
         )
         self.assertEqual(shot.director_transition_after, "continue")
         self.assertEqual(shot.director_chain_group, 1)
         self.assertEqual(shot.director_guide_role, "start")
+        self.assertIn("tracks", shot.director_bridge_to_next)
 
     def test_legacy_migrate_derives_continue_and_groups(self):
         shots = [
@@ -346,13 +350,25 @@ class TestPanelLinesDirector(unittest.TestCase):
                     role="middle",
                     after="continue",
                     note="basket in right hand",
-                )
+                    bridge="Morph: continue. Naila lowers; Azhagi leans in.",
+                ),
+                _shot(
+                    2,
+                    group=1,
+                    role="end",
+                    after="match_cut",
+                    note="shared boundary",
+                ),
             ]
         )
         self.assertIn("Director guide role: middle", lines)
         self.assertIn("Continuity edge after panel: continue", lines)
         self.assertIn("Director note: basket in right hand", lines)
         self.assertIn("board beat", lines)
+        self.assertIn("Motion (toward next panel):", lines)
+        self.assertIn("Outgoing bridge → next panel:", lines)
+        self.assertIn("Incoming bridge", lines)
+        self.assertIn("Naila lowers", lines)
 
 
 class TestDirectorPanelRegenAll(unittest.TestCase):
@@ -366,6 +382,24 @@ class TestDirectorPanelRegenAll(unittest.TestCase):
         ctx.state = {"storyboard_video_mode": "fallback"}
         self.assertFalse(is_director_video_mode(ctx))
 
+    def test_panel_regen_includes_bridge_and_motion(self):
+        prompt = build_panel_regen_prompt(
+            {
+                "shot_id": "scene_02_shot_01",
+                "description": "Naila on shoulders",
+                "camera_intent": "medium",
+                "characters_present": ["naila", "father"],
+                "director_guide_role": "start",
+                "director_continuity_note": "Naila frame-left",
+                "director_bridge_to_next": "Morph: continue. Camera tracks forward.",
+                "motion_intent": "From wide to medium: Father walks L→R with Naila.",
+            },
+            render_style="Pixar CGI",
+        )
+        self.assertIn("Outgoing bridge toward next panel", prompt)
+        self.assertIn("Connecting motion intent", prompt)
+        self.assertIn("Camera tracks forward", prompt)
+
 
 class TestUpstreamPromptContracts(unittest.TestCase):
     def test_story_developer_is_director_continuity(self):
@@ -374,6 +408,14 @@ class TestUpstreamPromptContracts(unittest.TestCase):
         self.assertIn("continuity beats", text.lower())
         self.assertNotIn("one continuous I2V clip", text)
         self.assertIn("Naila", text)
+        self.assertIn("drawable evolution", text)
+        self.assertIn("sub-scene architect", text.lower())
+        self.assertIn("Thin-story expansion playbook", text)
+        self.assertIn("must not look alike", text.lower())
+        self.assertIn("Worked example", text)
+        self.assertIn("scenes_target", text)
+        self.assertIn("**Purpose:**", text)
+        self.assertIn("Hubris pause", text)
 
     def test_scene_paper_has_director_keyframe_lines(self):
         path = os.path.join(_SKILL_DIR, "prompts", "reel_v2", "scene_paper_author.md")
@@ -382,14 +424,137 @@ class TestUpstreamPromptContracts(unittest.TestCase):
         self.assertIn("Guide role", text)
         self.assertIn("Director note", text)
         self.assertIn("match_cut", text)
+        self.assertIn("### Motion spine", text)
+        self.assertIn("#### Bridge → Panel", text)
+        self.assertIn("### Director chain sketch", text)
+        self.assertIn("Prompt Relay", text)
 
     def test_production_plan_requires_director_fields(self):
         path = os.path.join(_SKILL_DIR, "prompts", "reel_v2", "production_plan_author.md")
         text = Path(path).read_text(encoding="utf-8")
         self.assertIn("director_transition_after", text)
         self.assertIn("director_chain_group", text)
+        self.assertIn("director_motion_spine", text)
+        self.assertIn("director_bridge_to_next", text)
         self.assertIn("12–15s", text)
+        self.assertIn("from this still into the next still", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestMotionSpineNormalize(unittest.TestCase):
+    def test_aliases_normalize_spine_and_bridge(self):
+        plan = {
+            "meta": {
+                "story_title": "Test",
+                "style": "reel",
+                "aesthetic": "pixar",
+                "target_duration_seconds": 30,
+            },
+            "characters": [
+                {
+                    "id": "naila",
+                    "name": "Naila",
+                    "appearance": "girl",
+                    "voice_profile": "bright",
+                }
+            ],
+            "locations": [
+                {
+                    "id": "loc_01",
+                    "name": "Path",
+                    "description": "path",
+                    "establishing_prompt": "empty path",
+                }
+            ],
+            "scenes": [
+                {
+                    "scene_id": "scene_01",
+                    "title": "Walk",
+                    "environment": "path",
+                    "time_of_day": "day",
+                    "lighting": "sun",
+                    "location_id": "loc_01",
+                    "motion_spine": "P01→P02: Father walks with Naila.",
+                    "shots": [
+                        {
+                            "shot_id": "scene_01_shot_01",
+                            "scene_id": "scene_01",
+                            "duration_seconds": 2,
+                            "characters_present": ["naila"],
+                            "description": "Wide path",
+                            "motion_intent": "Walk toward next panel",
+                            "camera_intent": "wide",
+                            "bridge_to_next": "Morph: continue. Track L→R.",
+                            "director_transition_after": "continue",
+                            "director_chain_group": 1,
+                            "director_guide_role": "start",
+                        },
+                        {
+                            "shot_id": "scene_01_shot_02",
+                            "scene_id": "scene_01",
+                            "duration_seconds": 2,
+                            "characters_present": ["naila"],
+                            "description": "Medium walk",
+                            "motion_intent": "Match-cut handoff",
+                            "camera_intent": "medium",
+                            "director_transition_after": "match_cut",
+                            "director_chain_group": 1,
+                            "director_guide_role": "end",
+                        },
+                    ],
+                }
+            ],
+        }
+        ctx = MagicMock()
+        ctx.state = {
+            "style_id": "reel_v2",
+            "pipeline_mode": "storyboard",
+            "storyboard_video_mode": "director",
+        }
+        out = normalize_production_plan(plan, ctx)
+        scene = out["scenes"][0]
+        self.assertIn("Father walks", scene["director_motion_spine"])
+        self.assertIn("Track L→R", scene["shots"][0]["director_bridge_to_next"])
+        draft = ProductionPlanDraft(
+            meta=out["meta"],
+            characters=out["characters"],
+            locations=out["locations"],
+            scenes=out["scenes"],
+        )
+        validated = draft.to_plan()
+        self.assertIn("Father walks", validated.scenes[0].director_motion_spine)
+        self.assertIn(
+            "Track",
+            validated.scenes[0].shots[0].director_bridge_to_next,
+        )
+
+
+class TestAdPayloadSpine(unittest.TestCase):
+    def test_user_text_includes_motion_spine_and_bridges(self):
+        scene = {
+            "scene_id": "scene_02",
+            "title": "Walk",
+            "environment": "path",
+            "time_of_day": "day",
+            "lighting": "sun",
+            "location_id": "loc_01",
+            "director_motion_spine": "P01→P02: Father walks with Naila on shoulders.",
+            "shots": [
+                _shot(
+                    1,
+                    group=1,
+                    role="start",
+                    after="continue",
+                    bridge="Morph: continue. Track forward.",
+                ),
+                _shot(2, group=1, role="end", after="match_cut"),
+            ],
+        }
+        text = build_flf_planner_user_text(
+            scene,
+            [s["shot_id"] for s in scene["shots"]],
+        )
+        self.assertIn("Director motion spine", text)
+        self.assertIn("Father walks with Naila", text)
+        self.assertIn("Panel bridges + connecting motion", text)
+        self.assertIn("bridge_to_next=", text)
+        self.assertIn("Track forward", text)

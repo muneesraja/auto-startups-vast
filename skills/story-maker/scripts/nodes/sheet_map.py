@@ -53,7 +53,7 @@ def count_panels(body: str) -> list[int]:
 def build_sheet_chunks(
     scene_paper: str,
     *,
-    panels_per_sheet: int = 10,
+    panels_per_sheet: int = 8,
 ) -> list[SheetChunk]:
     if panels_per_sheet <= 0:
         return []
@@ -97,7 +97,7 @@ def build_sheet_chunks(
 def render_sheet_map_markdown(
     scene_paper: str,
     *,
-    panels_per_sheet: int = 10,
+    panels_per_sheet: int = 8,
 ) -> str:
     title_match = _TITLE_RE.search(scene_paper)
     title = (title_match.group(1).strip() if title_match else "Story").removeprefix(
@@ -141,15 +141,19 @@ def render_sheet_map_markdown(
 def sheet_map_context_for_prompt(
     scene_paper: str,
     *,
-    panels_per_sheet: int = 10,
+    panels_per_sheet: int = 8,
 ) -> str:
     """Compact sheet constraints injected into the production plan prompt."""
     chunks = build_sheet_chunks(scene_paper, panels_per_sheet=panels_per_sheet)
     if not chunks:
         return ""
+    rows = max(1, (panels_per_sheet + 1) // 2)
     lines = [
         f"Deterministic sheet map (law): exactly {len(chunks)} storyboard scene(s)/sheet(s).",
-        f"Each sheet defaults to {panels_per_sheet} panels in a 5×2 photo-album grid (9:16 page, 16:9 panels).",
+        (
+            f"Each sheet defaults to {panels_per_sheet} panels in a "
+            f"{rows}×2 photo-album grid (8:9 page, 16:9 panels)."
+        ),
         "",
     ]
     for chunk in chunks:

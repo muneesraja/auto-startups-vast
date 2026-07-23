@@ -117,6 +117,8 @@ def fal_image_size_from_size(size: str | None) -> dict[str, int] | str:
         return {"width": w, "height": h}
     if raw in {"9:16", "2:3", "3:4"}:
         return {"width": 1152, "height": 2048}
+    if raw in {"8:9"}:
+        return {"width": 1024, "height": 1152}
     if raw in {"16:9", "3:2", "4:3"}:
         return {"width": 2048, "height": 1152}
     if raw in {"1:1"}:

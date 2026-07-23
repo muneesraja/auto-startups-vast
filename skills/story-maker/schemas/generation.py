@@ -107,6 +107,41 @@ class DirectorGuideFrame(BaseModel):
         return self
 
 
+class DirectorBeat(BaseModel):
+    """One ordered element of a free-form LTX Director timeline.
+
+    Durations live on ``text`` beats (motion windows). ``guide`` beats are
+    instants (an optional short ``anchor_seconds`` hold for guide strength),
+    not durations. A timeline is: optional leading text, then any mix of
+    guide/text beats in story order, then optional trailing text.
+    """
+
+    kind: Literal["text", "guide"]
+    # text beat fields
+    duration_seconds: float | None = Field(default=None, gt=0.0, le=20.0)
+    prompt: str = ""
+    # guide beat fields
+    panel_id: str | None = None
+    role: Literal["start", "bridge", "end"] | None = None
+    guide_strength: float | None = Field(default=None, ge=0.3, le=1.0)
+    anchor_seconds: float = Field(default=0.0, ge=0.0, le=3.0)
+    is_end_frame: bool = False
+
+    @model_validator(mode="after")
+    def validate_kind(self) -> DirectorBeat:
+        if self.kind == "text":
+            if self.duration_seconds is None:
+                raise ValueError("text beat requires duration_seconds")
+            if not str(self.prompt or "").strip():
+                raise ValueError("text beat prompt must be non-empty")
+        elif self.kind == "guide":
+            if not str(self.panel_id or "").strip():
+                raise ValueError("guide beat requires panel_id")
+            if self.role == "end":
+                self.is_end_frame = True
+        return self
+
+
 class DirectorClip(BaseModel):
     """One render unit: one LTX Director (or legacy template) queue job."""
 
@@ -116,7 +151,7 @@ class DirectorClip(BaseModel):
     end_panel_id: str
     workflow: Literal["i2v", "flf2v"]
     continuous: bool = False
-    duration_seconds: int = Field(ge=9, le=15, default=10)
+    duration_seconds: int = Field(ge=9, le=20, default=10)
     pace: Literal["slow", "medium", "fast"] = "fast"
     motion_class: Literal[
         "talking",
@@ -138,11 +173,18 @@ class DirectorClip(BaseModel):
     guide_frames: list[DirectorGuideFrame] = Field(default_factory=list)
     motion_prompt: str = ""
     rationale: str = ""
+    # Free-form duration-based timeline (additive; preferred over
+    # motion_segments/guide_frames when present). See DirectorBeat.
+    beats: list[DirectorBeat] = Field(default_factory=list)
+    negative_prompt: str = ""
+    locked_cast: list[str] = Field(default_factory=list)
     output_path: str | None = None
     status: str = "pending"
 
     @model_validator(mode="after")
     def validate_workflow(self) -> DirectorClip:
+        if self.beats:
+            return self
         if self.start_panel_id == self.end_panel_id and self.workflow != "i2v":
             # Multi-guide units may still use flf2v semantics if end-frame is set;
             # allow when explicit guide_frames request an end landing on same panel.
@@ -152,13 +194,32 @@ class DirectorClip(BaseModel):
             raise ValueError("transition clip must use workflow=flf2v")
         return self
 
+    @model_validator(mode="after")
+    def validate_beats(self) -> DirectorClip:
+        if not self.beats:
+            return self
+        guide_beats = [b for b in self.beats if b.kind == "guide"]
+        if not guide_beats:
+            raise ValueError("beats timeline requires at least one guide beat")
+        if len(guide_beats) > 4:
+            raise ValueError("beats timeline supports at most 4 guide beats")
+        text_total = sum(
+            float(b.duration_seconds or 0.0) for b in self.beats if b.kind == "text"
+        )
+        budget = float(self.duration_seconds or 20)
+        if text_total > budget + 1e-6:
+            raise ValueError(
+                f"beats text duration total {text_total}s exceeds clip budget {budget}s"
+            )
+        return self
+
 
 class DirectorRenderUnit(BaseModel):
     """Scene-level AD render unit (one Director timeline / Comfy job)."""
 
     unit_id: str
     cut_before: bool = False
-    duration_seconds: int = Field(ge=9, le=15, default=10)
+    duration_seconds: int = Field(ge=9, le=20, default=10)
     pace: Literal["slow", "medium", "fast"] = "medium"
     motion_class: Literal[
         "talking",
@@ -175,11 +236,35 @@ class DirectorRenderUnit(BaseModel):
     guide_frames: list[DirectorGuideFrame] = Field(default_factory=list)
     motion_prompt: str = ""
     rationale: str = ""
+    # Free-form duration-based timeline (additive; preferred over
+    # motion_segments/guide_frames when present). See DirectorBeat.
+    beats: list[DirectorBeat] = Field(default_factory=list)
+    negative_prompt: str = ""
+    locked_cast: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_guides(self) -> DirectorRenderUnit:
-        if not self.guide_frames:
-            raise ValueError("render unit requires at least one guide_frame")
+        if self.beats or self.guide_frames:
+            return self
+        raise ValueError("render unit requires at least one guide_frame or beats guide")
+
+    @model_validator(mode="after")
+    def validate_beats(self) -> DirectorRenderUnit:
+        if not self.beats:
+            return self
+        guide_beats = [b for b in self.beats if b.kind == "guide"]
+        if not guide_beats:
+            raise ValueError("beats timeline requires at least one guide beat")
+        if len(guide_beats) > 4:
+            raise ValueError("beats timeline supports at most 4 guide beats")
+        text_total = sum(
+            float(b.duration_seconds or 0.0) for b in self.beats if b.kind == "text"
+        )
+        budget = float(self.duration_seconds or 20)
+        if text_total > budget + 1e-6:
+            raise ValueError(
+                f"beats text duration total {text_total}s exceeds unit budget {budget}s"
+            )
         return self
 
 

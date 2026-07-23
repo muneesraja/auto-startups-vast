@@ -52,6 +52,16 @@ class TestFalStoryboardAspect(unittest.TestCase):
         self.assertEqual(fal_aspect_ratio_from_size("1152x2048"), "9:16")
         self.assertEqual(fal_resolution_from_size("1152x2048"), "2k")
 
+    def test_size_1024x1152_maps_to_exact_8x9_pixels(self):
+        self.assertEqual(
+            fal_image_size_from_size("1024x1152"),
+            {"width": 1024, "height": 1152},
+        )
+        self.assertEqual(
+            fal_image_size_from_size("8:9"),
+            {"width": 1024, "height": 1152},
+        )
+
     def test_size_2048x1152_maps_to_landscape(self):
         self.assertEqual(
             fal_image_size_from_size("2048x1152"),
@@ -79,7 +89,7 @@ class TestFalStoryboardAspect(unittest.TestCase):
             },
         ):
             result = generate_grok_edit(
-                "5x2 portrait storyboard",
+                "4x2 portrait storyboard",
                 ["https://example.com/loc.png", "https://example.com/char.png"],
                 "/tmp/sheet.png",
                 size="1152x2048",

@@ -487,6 +487,128 @@ def build_guided_timeline(
     }
 
 
+def build_timeline_from_beats(
+    beats: list[dict],
+    *,
+    image_files: dict[str, str] | None = None,
+    global_prompt: str = "",
+    fps: int = 24,
+    start_frame: int = 0,
+    default_start_strength: float = 0.7,
+    default_bridge_strength: float = 0.55,
+    default_end_strength: float = 0.9,
+) -> dict:
+    """Assemble an LTX Director timeline from a free-form AD beat list.
+
+    Unlike the ratio-based ``guide_frames``/``motion_segments`` pair, durations
+    live on ``text`` beats (motion windows); ``guide`` beats are *instants*
+    (optionally held for ``anchor_seconds``) pinned wherever they fall in
+    story order. Clip duration = sum of the text beat durations — guide
+    beats do not consume timeline budget. Supports leading text (an
+    un-anchored, T2V-style opening before the first guide lands) and
+    trailing text (a beat after the last/end guide). ``role: "end"`` (or
+    ``is_end_frame``) pins that guide to the true final frames regardless of
+    story position, matching FLF last-frame convention.
+    """
+    if not beats:
+        raise ValueError("beats timeline requires at least one beat")
+
+    image_files = image_files or {}
+    text_total_seconds = sum(
+        float(b.get("duration_seconds") or 0.0) for b in beats if b.get("kind") == "text"
+    )
+    if text_total_seconds <= 0:
+        text_total_seconds = 1.0
+    duration_frames = snap_ltx_frames(text_total_seconds, fps=fps)
+    end_frame_total = start_frame + duration_frames
+
+    text_indices = [i for i, b in enumerate(beats) if b.get("kind") == "text"]
+    text_lengths: dict[int, int] = {}
+    if text_indices:
+        weights = [max(0.0, float(beats[i].get("duration_seconds") or 0.0)) for i in text_indices]
+        total_w = sum(weights) or float(len(weights))
+        remaining = duration_frames
+        for pos, idx in enumerate(text_indices):
+            if pos == len(text_indices) - 1:
+                text_lengths[idx] = max(1, remaining)
+            else:
+                w = weights[pos] if weights[pos] else (total_w / len(weights))
+                length = max(1, int(round(duration_frames * (w / total_w))))
+                length = min(length, max(1, remaining - (len(text_indices) - pos - 1)))
+                text_lengths[idx] = length
+                remaining -= length
+
+    image_segments: list[dict] = []
+    text_segments: list[dict] = []
+    cursor = start_frame
+
+    for i, beat in enumerate(beats):
+        if beat.get("kind") == "text":
+            length = text_lengths.get(i, 1)
+            prompt = str(beat.get("prompt") or "").strip()
+            if prompt:
+                text_segments.append(
+                    {
+                        "id": _seg_id(),
+                        "type": "text",
+                        "start": cursor,
+                        "length": length,
+                        "prompt": prompt,
+                    }
+                )
+            cursor += length
+            continue
+
+        panel_id = str(beat.get("panel_id") or "")
+        image_file = str(beat.get("image_file") or image_files.get(panel_id) or "")
+        if not image_file:
+            continue
+        role = str(beat.get("role") or "").strip().lower() or None
+        is_end = bool(beat.get("is_end_frame")) or role == "end"
+
+        strength = beat.get("guide_strength")
+        if strength is None:
+            if is_end:
+                strength = default_end_strength
+            elif role == "start":
+                strength = default_start_strength
+            else:
+                strength = default_bridge_strength
+
+        anchor_seconds = float(beat.get("anchor_seconds") or 0.0)
+        length = max(1, int(round(anchor_seconds * fps))) if anchor_seconds > 0 else 1
+
+        if is_end:
+            seg_start = max(start_frame, end_frame_total - length)
+        else:
+            seg_start = max(start_frame, min(cursor, end_frame_total - 1))
+
+        image_segments.append(
+            {
+                "id": _seg_id(),
+                "type": "image",
+                "start": seg_start,
+                "length": length,
+                "prompt": "",
+                "imageFile": image_file,
+                "guideStrength": float(strength),
+                "isEndFrame": is_end,
+            }
+        )
+
+    if not image_segments:
+        raise ValueError("beats timeline resolved no usable guide image segments")
+
+    return build_guided_timeline(
+        image_segments=image_segments,
+        text_segments=text_segments,
+        global_prompt=global_prompt,
+        duration_frames=duration_frames,
+        fps=fps,
+        start_frame=start_frame,
+    )
+
+
 def build_timeline_from_director_clip(
     clip: dict,
     *,
@@ -499,10 +621,37 @@ def build_timeline_from_director_clip(
 ) -> dict:
     """Map an Assistant Director clip/render-unit onto an LTX Director timeline.
 
-    Prefers explicit ``guide_frames`` (start/middle/end stills) when present.
-    Otherwise falls back to classic I2V / FLF start+end guides.
-    Prefers ``motion_segments`` for Prompt Relay; otherwise uses flat ``motion_prompt``.
+    Prefers the free-form ``beats`` timeline when present (durations on text
+    beats, guides as instants — see ``build_timeline_from_beats``). Otherwise
+    prefers explicit ``guide_frames`` (start/middle/end stills). Otherwise
+    falls back to classic I2V / FLF start+end guides. Prefers
+    ``motion_segments`` for Prompt Relay; otherwise uses flat ``motion_prompt``.
     """
+    if clip.get("beats"):
+        start_id = clip.get("start_panel_id") or clip.get("first_panel_id")
+        end_id = clip.get("end_panel_id") or clip.get("last_panel_id") or start_id
+        uploaded = dict(guide_image_files or {})
+        if start_id and first_image_file:
+            uploaded.setdefault(start_id, first_image_file)
+        if end_id and last_image_file:
+            uploaded.setdefault(end_id, last_image_file)
+        if render is None:
+            from tools.ltx_render_params import resolve_clip_render_params
+
+            render = resolve_clip_render_params(clip, prefer_stored=True)
+        first_strength = float(render.get("i2v_strength", 0.7))
+        last_strength = float(render.get("last_frame_strength", 0.85))
+        bridge_strength = max(0.4, min(first_strength - 0.1, 0.6))
+        return build_timeline_from_beats(
+            clip.get("beats") or [],
+            image_files=uploaded,
+            global_prompt=(global_prompt or clip.get("global_prompt") or "").strip(),
+            fps=fps,
+            default_start_strength=first_strength,
+            default_bridge_strength=bridge_strength,
+            default_end_strength=last_strength,
+        )
+
     start_id = clip.get("start_panel_id") or clip.get("first_panel_id")
     end_id = clip.get("end_panel_id") or clip.get("last_panel_id") or start_id
     workflow = (clip.get("workflow") or clip.get("mode") or "i2v").lower()

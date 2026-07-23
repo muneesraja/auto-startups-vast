@@ -6,7 +6,8 @@ Return ONLY a valid JSON object. No markdown fences.
 
 ## Input context
 - Target runtime: **{target_duration_seconds}** seconds (flexible ±{duration_tolerance_percent}%)
-- Each storyboard sheet holds **10 panels** in a **5 rows × 2 columns** photo-album grid on a **9:16** page (row-major order); each panel is **16:9**
+- Each storyboard sheet holds **{min_panels_per_sheet} panels** in a **4 rows × 2 columns** photo-album grid on an **8:9** page (row-major order); each panel is **16:9**
+- The 4×2 coverage is designed as **four FLF start→end video pairs** (one pair per row: left=start, right=end); plan beats that can fill those pairs with progressive morphs
 - Do NOT write per-shot camera lines yet — plan acts, scenes, and beats that will become panel cards
 
 ## Storyboard sheet map — if provided, it is law
@@ -27,16 +28,16 @@ below to derive scene/sheet boundaries yourself.
 
 Think like a Pixar/Disney production board, not a loose shot list.
 
-1. Split the full story into **scenes** where each scene is designed to become **one storyboard sheet** (exactly 10 panels by default).
+1. Split the full story into **scenes** where each scene is designed to become **one storyboard sheet** (exactly {min_panels_per_sheet} panels by default).
 2. A scene is a mini-sequence with its own title/subtitle (e.g. "DISCOVERY", "THE CHASE", "REUNION").
-3. Each scene should have enough beats to fill **10 fast panels**. Avoid thin scenes.
-4. If the story needs more than 10 beats in one narrative beat, split into **scene_01**, **scene_02** (second sheet) rather than one under-filled scene.
+3. Each scene should have enough beats to fill **{min_panels_per_sheet} fast panels**. Avoid thin scenes.
+4. If the story needs more than {min_panels_per_sheet} beats in one narrative beat, split into **scene_01**, **scene_02** (second sheet) rather than one under-filled scene.
 
 ## Pacing reference (LTX-native wall-clock)
 
-Storyboard panels are **coverage cards**. LTX runtime is **not** “10 panels × 1s”.
+Storyboard panels are **coverage cards**. LTX runtime is **not** “{min_panels_per_sheet} panels × 1s”.
 
-A typical 10-panel sheet-scene budgets **~24–32s** wall-clock (≈ **3–4 LTX clips** at primary **{6, 8, 10}**, default **8**), scaled to target runtime.
+A typical 8-panel sheet-scene budgets **~20–28s** wall-clock (≈ **3–4 LTX clips** at primary **{6, 8, 10}**, default **8**), scaled to target runtime.
 
 Scale to target runtime:
 - Prefer scene budgets that are multiples of 6/8/10 when possible.
@@ -45,10 +46,10 @@ Scale to target runtime:
 
 Shot/panel budget math (coverage, not LTX seconds):
 - `scenes_target ≈ ceil(target_duration_seconds / 28)` as a starting heuristic (≈ one ~28s sheet-scene)
-- Each scene still has **exactly {min_panels_per_sheet} beats/panels** for the 5×2 sheet
-- Each scene `duration_budget_seconds` is **LTX wall-clock** for that sheet (often 24–32 for a full sheet)
+- Each scene still has **exactly {min_panels_per_sheet} beats/panels** for the 4×2 sheet
+- Each scene `duration_budget_seconds` is **LTX wall-clock** for that sheet (often 20–28 for a full sheet)
 
-Example for ~30s: **1 scene × ~30s budget × 10 panels** (later grouped into ~3–4 video shots of 6/8/10), OR **2 shorter sheet-scenes** if the map requires it.
+Example for ~30s: **1 scene × ~30s budget × {min_panels_per_sheet} panels** (later grouped into ~3–4 video shots of 6/8/10), OR **2 shorter sheet-scenes** if the map requires it.
 
 ## Core directives
 1. Open with a clear hook in the first scene/sheet.
@@ -60,7 +61,7 @@ Example for ~30s: **1 scene × ~30s budget × 10 panels** (later grouped into ~3
 1. Split into **2-4 acts** with clear momentum shifts.
 2. Each act contains **1-3 scenes** with `duration_budget_seconds` (LTX wall-clock).
 3. Sum of all act and scene `duration_budget_seconds` must equal **`{target_duration_seconds}`**.
-4. Each scene has **exactly {min_panels_per_sheet} beats/panels** (5×2 storyboard matrix default).
+4. Each scene has **exactly {min_panels_per_sheet} beats/panels** (4×2 storyboard matrix default).
 5. Mark fast moments in beat text ("snap reveal", "sudden chase burst", "rapid reaction") **and** note when a beat must split for LTX.
 6. Each scene beat should be one drawable panel idea (CAM + action), not exposition paragraphs.
 
@@ -72,7 +73,7 @@ Example for ~30s: **1 scene × ~30s budget × 10 panels** (later grouped into ~3
     "target_duration_seconds": {target_duration_seconds},
     "duration_tolerance_percent": 15,
     "planned_act_count": 3,
-    "storyboard_panels_per_sheet": 10,
+    "storyboard_panels_per_sheet": {min_panels_per_sheet},
     "logline": "...",
     "theme": "...",
     "protagonist_want": "..."

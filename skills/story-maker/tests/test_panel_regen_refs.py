@@ -286,14 +286,14 @@ class TestPanelRegenPromptWording(unittest.TestCase):
             character_labels={"char_01": "Naila"},
         )
         self.assertIn("char_01", with_chars)
-        self.assertIn("REPLACE", with_chars)
+        self.assertIn("IDENTITY-ONLY", with_chars)
         self.assertIn("Image 2 = char_01 (Naila)", with_chars)
         self.assertIn("footwear", with_chars.lower())
         self.assertIn("accessories", with_chars.lower())
-        self.assertIn("height", with_chars.lower())
+        self.assertIn("cast count", with_chars.lower())
         self.assertIn("expression", with_chars.lower())
-        self.assertIn("do NOT replace the crop expression", with_chars)
-        self.assertIn("identity conflicts resolve", with_chars.lower())
+        self.assertIn("Keep the exact facial expression", with_chars)
+        self.assertIn("NEVER convert a carry/ride pose", with_chars)
 
     def test_preserves_expression_language(self):
         prompt = build_panel_regen_prompt(
@@ -307,11 +307,10 @@ class TestPanelRegenPromptWording(unittest.TestCase):
         self.assertIn("Image 2 = char_01", prompt)
         self.assertIn("Image 3 = char_02", prompt)
         self.assertIn("facial expression", prompt.lower())
-        self.assertIn("sheet identity wins", prompt.lower())
-        self.assertIn("laughing", prompt.lower())
-        self.assertIn("do NOT replace the crop expression", prompt)
+        self.assertIn("IDENTITY-ONLY", prompt)
+        self.assertIn("Keep the exact facial expression", prompt)
         self.assertIn("footwear", prompt.lower())
-        self.assertIn("proportions", prompt.lower())
+        self.assertIn("carry/ride", prompt.lower())
 
 
 class TestPanelRegenRuntimeRefs(unittest.IsolatedAsyncioTestCase):
@@ -414,9 +413,9 @@ class TestPanelRegenRuntimeRefs(unittest.IsolatedAsyncioTestCase):
                 ["https://example.com/crop.png", "https://example.com/char.png"],
             )
             self.assertNotIn("Motion arc", captured["prompt"])
-            self.assertIn("REPLACE", captured["prompt"])
+            self.assertIn("IDENTITY-ONLY", captured["prompt"])
             self.assertIn("footwear", captured["prompt"].lower())
-            self.assertIn("do NOT replace the crop expression", captured["prompt"])
+            self.assertIn("Keep the exact facial expression", captured["prompt"])
             self.assertIn("Image 2 = char_01", captured["prompt"])
             saved = json.loads(ctx.state["generation_specs_content"])
             entry = saved["shot_images"]["scene_01_shot_01"]

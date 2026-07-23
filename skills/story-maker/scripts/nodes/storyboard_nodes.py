@@ -33,7 +33,12 @@ from .generation_nodes import (
     _shot_in_scope,
     _url_reachable,
 )
-from .storyboard_sheet_builder import build_panel_lines, build_storyboard_sheet_prompt as build_template_storyboard_prompt
+from .storyboard_sheet_builder import (
+    album_grid_shape,
+    build_panel_lines,
+    build_storyboard_sheet_prompt as build_template_storyboard_prompt,
+    continuity_mode_for,
+)
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _MAX_SHEET_CONCURRENCY = int(os.getenv("STORYBOARD_SHEET_CONCURRENCY", "2"))
@@ -43,6 +48,42 @@ _PANEL_REGEN_ALLOW_SOFT_FAIL = os.getenv("PANEL_REGEN_ALLOW_SOFT_FAIL", "1").low
     "true",
     "yes",
 )
+
+
+def _soften_storyboard_contact_language(prompt: str) -> str:
+    """Make child/animal greeting boards resilient to GPT Image moderation.
+
+    The board retains the story beat, but avoids close-contact anatomy language
+    that GPT Image 2 can incorrectly flag in a multi-panel image-edit prompt.
+    """
+    text = prompt or ""
+    replacements = (
+        (r"\bintimate\b", "warm"),
+        (r"\btender\b", "gentle"),
+        (r"\bdelicate\b", "quiet"),
+        (
+            r"\b(?:the )?trunk tip nearing Naila['’]s cheek\b",
+            "a friendly elephant standing near Naila",
+        ),
+        (
+            r"\b(?:The )?character elephant softly touches Naila['’]s cheek\b",
+            "The character elephant greets Naila calmly",
+        ),
+        (
+            r"\bNaila['’]s hand rests lightly on the trunk\b",
+            "Naila and the character elephant share a calm moment",
+        ),
+        (
+            r"\bShe strokes the trunk slowly and carefully\b",
+            "She offers a calm friendly gesture toward the elephant",
+        ),
+        (r"\bsmall hand against (?:the )?trunk\b", "clear size contrast"),
+        (r"\b(?:first )?contact\b", "friendly greeting"),
+        (r"\bFather supports her securely\b", "Father stands nearby"),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    return text
 
 
 def _load_story(ctx: Context) -> dict:
@@ -85,7 +126,7 @@ def build_storyboard_sheet_prompt(
     render_style: str,
     template: str | None = None,
     sheet_number: int = 1,
-    panels_per_sheet: int = 10,
+    panels_per_sheet: int = 8,
     story_characters: list[dict] | None = None,
     global_shot_offset: int = 0,
     style_id: str | None = "reel_v2",
@@ -93,6 +134,7 @@ def build_storyboard_sheet_prompt(
     continuity_from_sheet_id: str | None = None,
     has_location_ref: bool = False,
     has_previous_sheet_ref: bool = False,
+    continuity_mode: str | None = None,
 ) -> str:
     return build_template_storyboard_prompt(
         scene,
@@ -108,6 +150,7 @@ def build_storyboard_sheet_prompt(
         continuity_from_sheet_id=continuity_from_sheet_id,
         has_location_ref=has_location_ref,
         has_previous_sheet_ref=has_previous_sheet_ref,
+        continuity_mode=continuity_mode,
     )
 
 
@@ -230,9 +273,16 @@ def build_storyboard_sheet_ref_urls(
         urls.append(loc_url)
 
     continuity_id = _resolve_continuity_sheet_id(specs, entry)
-    prev_url = _previous_sheet_ref_url(specs, continuity_id, provider=resolved)
-    if prev_url and prev_url not in urls:
-        urls.append(prev_url)
+    continuity_mode = (entry.get("continuity_mode") or "").strip().lower()
+    # Cross-scene sheets must not attach the previous sheet PNG — it causes
+    # composition echo (scene_N remixing scene_N-1 panel layouts).
+    attach_prev = continuity_mode != "cross_scene" and entry.get(
+        "attach_previous_sheet_ref", True
+    )
+    if attach_prev:
+        prev_url = _previous_sheet_ref_url(specs, continuity_id, provider=resolved)
+        if prev_url and prev_url not in urls:
+            urls.append(prev_url)
 
     if not include_character_sheets:
         return urls[:limit]
@@ -278,8 +328,13 @@ def _normalize_panels(data: dict, expected: int) -> list[dict]:
     return normalized
 
 
-def _grid_bbox_row_major(panel_index: int, *, cols: int = 2, rows: int = 5) -> dict[str, float]:
-    """Deterministic 5×2 row-major fallback when vision crop bboxes are invalid."""
+def _grid_bbox_row_major(
+    panel_index: int, *, cols: int = 2, rows: int | None = None, panel_count: int | None = None
+) -> dict[str, float]:
+    """Deterministic N×2 row-major fallback when vision crop bboxes are invalid."""
+    if rows is None:
+        count = panel_count if panel_count is not None else max(panel_index + 1, 1)
+        rows, cols = album_grid_shape(count, cols=cols)
     col = panel_index % cols
     row = panel_index // cols
     w = 1.0 / cols
@@ -289,12 +344,13 @@ def _grid_bbox_row_major(panel_index: int, *, cols: int = 2, rows: int = 5) -> d
 
 def _sanitize_panel_bboxes(bboxes: list[dict]) -> list[dict]:
     """Replace zero-area vision bboxes with grid fallbacks."""
+    rows, cols = album_grid_shape(len(bboxes))
     fixed: list[dict] = []
     for idx, bbox in enumerate(bboxes):
         w = float(bbox.get("w", 0))
         h = float(bbox.get("h", 0))
         if w <= 0 or h <= 0:
-            fallback = _grid_bbox_row_major(idx)
+            fallback = _grid_bbox_row_major(idx, cols=cols, rows=rows)
             print(
                 f"  ⚠️ Panel {idx + 1} bbox invalid ({bbox}) — using grid fallback {fallback}"
             )
@@ -420,8 +476,8 @@ def detect_album_panel_bboxes(
     image_path: str,
     expected: int,
     *,
-    cols: int = 2,
-    rows: int = 5,
+    cols: int | None = None,
+    rows: int | None = None,
     inset_px: int = 2,
     white_threshold: int = 240,
     white_fraction: float = 0.85,
@@ -436,6 +492,9 @@ def detect_album_panel_bboxes(
 
     if expected <= 0:
         return []
+    derived_rows, derived_cols = album_grid_shape(expected)
+    rows = derived_rows if rows is None else int(rows)
+    cols = derived_cols if cols is None else int(cols)
     max_panels = cols * rows
     if expected > max_panels:
         raise ValueError(f"expected={expected} exceeds {rows}x{cols} grid ({max_panels})")
@@ -589,6 +648,53 @@ def _filter_chars_with_sheets(specs: dict, character_ids: list[str]) -> list[str
     return out
 
 
+def _prioritize_panel_regen_chars(
+    character_ids: list[str],
+    story_characters: list[dict] | None,
+    *,
+    budget: int,
+    description: str = "",
+    camera_intent: str = "",
+) -> list[str]:
+    """Prefer human heroes; defer animals unless the beat names them.
+
+    Close father/child panels often trip moderation when unused animal sheets
+    are attached alongside the crop.
+    """
+    if budget <= 0 or not character_ids:
+        return []
+    by_id = {
+        str(ch.get("id") or "").strip(): ch
+        for ch in (story_characters or [])
+        if isinstance(ch, dict) and ch.get("id")
+    }
+    desc = (description or "").lower()
+    cam = (camera_intent or "").lower()
+    close_or_profile = any(
+        token in cam for token in ("close", "profile", "portrait", "reaction", "cu")
+    )
+    humans: list[str] = []
+    animals: list[str] = []
+    for cid in character_ids:
+        ch = by_id.get(cid) or {}
+        appearance = f"{ch.get('name', '')} {ch.get('appearance', '')}".lower()
+        name = str(ch.get("name") or cid).lower()
+        is_animal = any(
+            token in appearance
+            for token in ("dog", "parrot", "bird", "elephant", "retriever", "animal")
+        ) or cid in ("char_03", "char_04", "azhagi", "neju")
+        named_in_beat = bool(name and name in desc)
+        if is_animal and named_in_beat:
+            humans.append(cid)
+            continue
+        if is_animal and close_or_profile and not named_in_beat:
+            # Skip unused animals on close/profile panels (E005 risk).
+            continue
+        (animals if is_animal else humans).append(cid)
+    ordered = humans + [c for c in animals if c not in humans]
+    return ordered[:budget]
+
+
 def build_panel_regen_prompt(
     shot: dict,
     *,
@@ -606,6 +712,8 @@ def build_panel_regen_prompt(
     guide_role = str(shot.get("director_guide_role") or "").strip().lower()
     continuity = str(shot.get("director_continuity_note") or "").strip()
     transition = str(shot.get("director_transition_after") or "").strip().lower()
+    bridge = str(shot.get("director_bridge_to_next") or "").strip()
+    motion = str(shot.get("motion_intent") or "").strip()
 
     if char_ids:
         slot_lines: list[str] = []
@@ -618,19 +726,16 @@ def build_panel_regen_prompt(
         slots = "; ".join(slot_lines)
         char_line = (
             f"Attachment map: Image 1 = panel crop; {slots}. "
-            "REPLACE each named hero's appearance from their attached character sheet onto the "
-            "crop body pose — sheet identity wins over the crop whenever they disagree. "
-            "Sheet owns (override crop): face geometry, facial features, hair, skin tone, "
-            "full wardrobe, accessories (scarf, bag, vest details, jewelry), footwear "
-            "(shoes/boots — never keep wrong crop sandals/shoes), colors, silhouette, and "
-            "height / body proportions (correct the crop if height or scale is mismatched). "
-            "Crop owns only: composition, camera, environment layout, limb pose/gesture, "
-            "and emotional expression (laughing, crying, worried, smiling, etc.). "
-            "CRITICAL expression rule: keep the exact facial expression, mouth shape, eye "
-            "emotion, and emotional intensity already visible in the panel crop — do NOT "
-            "replace the crop expression with a sheet turnaround/neutral/default expression. "
-            "Apply sheet replacement only to characters already visible in the crop; "
-            "do not invent additional heroes or swap identities between characters."
+            "IDENTITY-ONLY edit: retexture face, hair, skin tone, wardrobe, accessories, "
+            "and footwear of each hero already visible in the crop using their character sheet. "
+            "CROP is absolute authority for: who is present, how many figures, composition, "
+            "camera, geography, limb pose, carry/ride relationships (including one person "
+            "carrying another), screen direction, and expression. "
+            "NEVER remove a person or animal visible in the crop. "
+            "NEVER convert a carry/ride pose into separate standing figures. "
+            "NEVER invent additional heroes or swap identities. "
+            "Do NOT restyle body proportions in a way that breaks the crop pose. "
+            "Keep the exact facial expression already visible in the crop."
         )
     else:
         char_line = (
@@ -660,19 +765,33 @@ def build_panel_regen_prompt(
         )
     if continuity:
         role_line += f"Continuity lock: {continuity}. "
+    if bridge:
+        role_line += (
+            f"Outgoing bridge toward next panel (keep this still a valid start for that morph): "
+            f"{bridge}. "
+        )
+    if motion:
+        role_line += f"Connecting motion intent: {motion}. "
+
+    # Name the cast in soft guidance so ambient descriptions don't drop heroes.
+    cast_names = []
+    for cid in char_ids:
+        cast_names.append(labels.get(cid) or cid)
+    cast_hint = ""
+    if cast_names:
+        cast_hint = f" Keep every visible cast member from the crop ({', '.join(cast_names)})."
 
     prompt = (
         "Upscale and recreate this storyboard panel as a single full-frame cinematic "
         "animation still at high resolution. "
         "The FIRST attached image is the panel crop — match its exact composition, "
-        "camera angle, framing, screen direction, body poses, and environment layout. "
-        "CRITICAL: do not add people, animals, props, landmarks, or objects that are "
-        "not already visible in the crop; do not change geography or invent new subjects. "
+        "camera angle, framing, screen direction, body poses, cast count, and environment. "
+        "CRITICAL: do not add or remove people, animals, props, landmarks, or objects; "
+        "do not change geography or invent new subjects. "
         f"Camera: {camera}. "
         f"{role_line}"
-        f"Soft visual guidance (crop wins for layout/pose only; identity conflicts resolve "
-        f"to the character sheet; expression stays from the crop): "
-        f"{description or 'as shown in crop'}. "
+        f"Soft visual guidance (crop wins for layout/pose/cast; sheets only retexture "
+        f"identity): {description or 'as shown in crop'}.{cast_hint} "
         f"{char_line} "
         "No text, labels, captions, shot numbers, or watermarks."
     )
@@ -705,17 +824,17 @@ def _build_safe_panel_regen_prompt(
             named.append(f"{cid} ({label})" if label != cid else cid)
         char_note = (
             f"Keep only characters already in the crop ({', '.join(named)}). "
-            "Replace face, wardrobe, accessories, footwear, and height/proportions from "
-            "attached character sheets when present. Preserve the crop's facial expression "
-            "and emotion exactly (laughing, crying, etc.)."
+            "Retexture face, wardrobe, accessories, and footwear from attached character "
+            "sheets when present. Preserve crop cast count, carry/ride pose, body pose, "
+            "and facial expression exactly."
         )
     else:
         char_note = "Empty-stage / environment panel — no people or animals."
     prompt = (
         "Recreate this single storyboard panel as a family-friendly stylized animated still. "
-        "Match the attached panel crop for composition, body pose, and expression. "
-        "When character sheets are attached, sheet identity wins over crop wardrobe/face/"
-        "accessories/footwear/height. "
+        "Match the attached panel crop for composition, body pose, cast, and expression. "
+        "When character sheets are attached, sheets retexture identity only — crop wins "
+        "for pose, cast count, and carry/ride relationships. "
         "Do not add people, animals, props, or landmarks not visible in the crop. "
         f"Camera: {camera}. Soft guidance: {description or 'as shown in crop'}. "
         f"{char_note} "
@@ -738,7 +857,7 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
     specs = _load_specs(ctx)
     story = _load_story(ctx)
     only_scenes = _only_scenes(ctx)
-    panels_per_sheet = int(ctx.state.get("panels_per_sheet") or 10)
+    panels_per_sheet = int(ctx.state.get("panels_per_sheet") or 8)
     style_id = (ctx.state.get("style_id") or "reel_v2").strip().lower()
     profile = get_profile(style_id)
     render_style = profile.render_style
@@ -746,15 +865,41 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
         ch for ch in story.get("characters", []) if isinstance(ch, dict)
     ]
     locations = [loc for loc in (story.get("locations") or []) if isinstance(loc, dict)]
-    global_shot_offset = 0
     previous_sheet_id: str | None = None
 
-    storyboard_sheets: dict[str, dict] = {}
+    # Preserve sheets for scenes outside --only-scenes so partial runs don't wipe them.
+    existing_sheets = {
+        sid: entry
+        for sid, entry in (specs.get("storyboard_sheets") or {}).items()
+        if isinstance(entry, dict)
+    }
+    storyboard_sheets: dict[str, dict] = {
+        sid: entry
+        for sid, entry in existing_sheets.items()
+        if only_scenes and not _scene_in_scope(str(entry.get("scene_id") or ""), only_scenes)
+    }
+    # Continuity: last sheet of the prior scene when that sheet already exists on disk/specs.
+    def _last_sheet_for_scene(scene_id: str) -> str | None:
+        matches = [
+            sid
+            for sid, entry in {**existing_sheets, **storyboard_sheets}.items()
+            if entry.get("scene_id") == scene_id
+        ]
+        return sorted(matches)[-1] if matches else None
+
+    previous_scene_id: str | None = None
     for scene in story.get("scenes", []):
         if not isinstance(scene, dict):
             continue
         scene_id = scene.get("scene_id")
-        if not scene_id or not _scene_in_scope(scene_id, only_scenes):
+        if not scene_id:
+            continue
+        if not _scene_in_scope(scene_id, only_scenes):
+            # Still advance continuity anchor from preserved sheets.
+            prev = _last_sheet_for_scene(scene_id)
+            if prev:
+                previous_sheet_id = prev
+                previous_scene_id = scene_id
             continue
         shots = [
             shot
@@ -765,6 +910,9 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
         ]
         if not shots:
             continue
+        # Cross-scene continuity from the previous scene's last sheet when present.
+        if previous_scene_id and previous_scene_id != scene_id and not previous_sheet_id:
+            previous_sheet_id = _last_sheet_for_scene(previous_scene_id)
         location_ref_id = (scene.get("location_id") or "").strip() or None
         for sheet_index, chunk in enumerate(_chunk_shots(shots, panels_per_sheet), start=1):
             sheet_id = f"{scene_id}_sheet_{sheet_index:02d}"
@@ -784,6 +932,12 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
                 location_ref_id and (specs.get("location_sheets") or {}).get(location_ref_id)
             )
             continuity_from = previous_sheet_id
+            cont_mode = continuity_mode_for(
+                continuity_from_sheet_id=continuity_from,
+                scene_id=str(scene_id),
+            )
+            # Cross-scene: keep text continuity note but do not attach prev sheet PNG.
+            attach_prev_ref = bool(continuity_from) and cont_mode != "cross_scene"
             sheet_prompt = build_storyboard_sheet_prompt(
                 scene,
                 chunk,
@@ -791,14 +945,16 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
                 sheet_number=sheet_index,
                 panels_per_sheet=panels_per_sheet,
                 story_characters=story_characters,
-                global_shot_offset=global_shot_offset,
                 style_id=style_id,
                 locations=locations,
                 continuity_from_sheet_id=continuity_from,
                 has_location_ref=has_location_ref,
-                has_previous_sheet_ref=bool(continuity_from),
+                has_previous_sheet_ref=attach_prev_ref,
+                continuity_mode=cont_mode,
             )
-            global_shot_offset += len(chunk)
+            # Keep completed sheet artifacts when re-planning the same id.
+            prior = existing_sheets.get(sheet_id) or {}
+            rows, cols = album_grid_shape(len(chunk))
             storyboard_sheets[sheet_id] = {
                 "sheet_id": sheet_id,
                 "scene_id": scene_id,
@@ -806,17 +962,24 @@ async def storyboard_sheet_planner(ctx: Context) -> None:
                 "character_ref_ids": char_ids,
                 "location_ref_id": location_ref_id,
                 "continuity_from_sheet_id": continuity_from,
+                "continuity_mode": cont_mode,
+                "attach_previous_sheet_ref": attach_prev_ref,
                 "panel_count": len(chunk),
-                "grid": "5x2",
+                "grid": f"{rows}x{cols}",
                 "sheet_prompt": sheet_prompt,
                 "output_path": os.path.join(
                     output_dir, "storyboard_sheets", f"{sheet_id}.png"
                 ),
-                "fal_image_url": None,
-                "panel_bboxes": [],
-                "status": "pending",
+                "fal_image_url": prior.get("fal_image_url"),
+                "panel_bboxes": prior.get("panel_bboxes") or [],
+                "status": prior.get("status") or "pending",
             }
+            if prior.get("output_path") and os.path.isfile(prior["output_path"]):
+                storyboard_sheets[sheet_id]["output_path"] = prior["output_path"]
+                if prior.get("status") == "completed":
+                    storyboard_sheets[sheet_id]["status"] = "completed"
             previous_sheet_id = sheet_id
+        previous_scene_id = scene_id
 
     specs["storyboard_sheets"] = storyboard_sheets
     _save_specs(ctx, specs)
@@ -873,7 +1036,9 @@ async def storyboard_sheet_generator(ctx: Context) -> None:
             entry["character_ref_ids"] = ref_ids
 
         # Soften before any paid call — age labels often trip GPT Image 2.
-        prompt = soften_moderation_prompt(entry.get("sheet_prompt", ""), aggressive=True)
+        prompt = _soften_storyboard_contact_language(
+            soften_moderation_prompt(entry.get("sheet_prompt", ""), aggressive=True)
+        )
         if prompt != (entry.get("sheet_prompt") or ""):
             entry["sheet_prompt"] = prompt
 
@@ -962,7 +1127,8 @@ async def storyboard_sheet_generator(ctx: Context) -> None:
 
 
 def _fallback_panel_bboxes(expected: int) -> list[dict[str, float]]:
-    return [_grid_bbox_row_major(i) for i in range(expected)]
+    rows, cols = album_grid_shape(expected)
+    return [_grid_bbox_row_major(i, cols=cols, rows=rows) for i in range(expected)]
 
 
 async def panel_crop(ctx: Context) -> None:
@@ -1012,11 +1178,12 @@ async def panel_crop(ctx: Context) -> None:
 
         print(f"  Panel crop ({crop_mode}): {sheet_id} ({expected} panels)")
         method = "grid"
+        rows, cols = album_grid_shape(expected)
         if crop_mode == "vision":
             user_text = json.dumps(
                 {
                     "expected_panels": expected,
-                    "grid": "5 rows x 2 columns, row-major order",
+                    "grid": f"{rows} rows x {cols} columns, row-major order",
                     "sheet_id": sheet_id,
                 },
                 ensure_ascii=False,
@@ -1043,7 +1210,10 @@ async def panel_crop(ctx: Context) -> None:
         else:
             bboxes, method = resolve_panel_bboxes(sheet_path, expected, mode=crop_mode)
             if method == "grid":
-                print(f"  ⚠️ Gutter detect missed for {sheet_id} — using uniform 5×2 grid")
+                print(
+                    f"  ⚠️ Gutter detect missed for {sheet_id} — "
+                    f"using uniform {rows}×{cols} grid"
+                )
             else:
                 print(f"  Panel crop gutters OK: {sheet_id}")
 
@@ -1131,8 +1301,15 @@ async def panel_regen(ctx: Context) -> None:
     except Exception:
         pass
     smoke_bypass_anchor = smoke_max_panels > 0 or smoke_per_sheet > 0 or regen_all
+    only_regen_shots = {
+        s.strip()
+        for s in (os.getenv("PANEL_REGEN_SHOTS") or "").split(",")
+        if s.strip()
+    }
     if regen_all:
         print("  ⏭️ PANEL_REGEN_ALL / director mode — generating all panels with crops (not anchors-only)")
+    if only_regen_shots:
+        print(f"  ⏭️ PANEL_REGEN_SHOTS={sorted(only_regen_shots)}")
     fb_label = fallback_provider or "none"
     print(
         f"  Panel regen provider={panel_provider} fallback={fb_label} "
@@ -1141,6 +1318,8 @@ async def panel_regen(ctx: Context) -> None:
 
     async def _one(shot_id: str, entry: dict) -> None:
         if not _shot_in_scope(shot_id, only_scenes):
+            return
+        if only_regen_shots and shot_id not in only_regen_shots:
             return
         if (
             not smoke_bypass_anchor
@@ -1184,9 +1363,16 @@ async def panel_regen(ctx: Context) -> None:
                 f"{dropped}"
             )
         # Cap character sheets so crop + chars stay within provider ref limit.
+        # Prefer humans named in the beat over unused animal sheets (E005 risk).
         primary_ref_limit = config.get_image_ref_limit(panel_provider)
         char_budget = max(0, primary_ref_limit - 1)
-        char_ids = available_char_ids[:char_budget]
+        char_ids = _prioritize_panel_regen_chars(
+            available_char_ids,
+            story_characters,
+            budget=char_budget,
+            description=str(shot.get("description") or ""),
+            camera_intent=str(shot.get("camera_intent") or ""),
+        )
         shot["characters_present"] = char_ids
         entry["characters_present"] = char_ids
         entry["reference_slots"] = _panel_regen_character_slots(char_ids)
@@ -1222,15 +1408,17 @@ async def panel_regen(ctx: Context) -> None:
             from .reference_led_identity import (
                 log_provider_sensitivity_failure,
                 normalize_provider_identity_language,
+                soften_carry_contact_language,
             )
 
             before = prompt_box[0]
             log_provider_sensitivity_failure(
                 prompt_class="panel_regen_named_reference",
-                retry_route="soften_moderation_prompt",
+                retry_route="soften_moderation_prompt+carry_safe",
                 provider=panel_provider,
             )
             softened = soften_moderation_prompt(before, aggressive=attempt >= 2)
+            softened = soften_carry_contact_language(softened)
             prompt_box[0] = normalize_provider_identity_language(
                 softened,
                 characters=story_characters,

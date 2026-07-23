@@ -237,6 +237,18 @@ def migrate_director_panel_metadata(shots: list[dict]) -> list[dict]:
             shot["director_continuity_note"] = ""
         else:
             shot["director_continuity_note"] = str(shot.get("director_continuity_note") or "").strip()
+        if not shot.get("director_bridge_to_next"):
+            bridge = (
+                shot.get("bridge_to_next")
+                or shot.get("bridge")
+                or shot.get("director_bridge")
+                or ""
+            )
+            shot["director_bridge_to_next"] = str(bridge).strip()
+        else:
+            shot["director_bridge_to_next"] = str(
+                shot.get("director_bridge_to_next") or ""
+            ).strip()
         role = _coerce_director_guide_role(shot.get("director_guide_role"))
         if role:
             shot["director_guide_role"] = role
@@ -385,6 +397,18 @@ def _repair_shot_fields(shot: dict, scene_id: str) -> dict:
         item["director_continuity_note"] = str(note).strip()
     else:
         item["director_continuity_note"] = str(item.get("director_continuity_note") or "").strip()
+    if not item.get("director_bridge_to_next"):
+        bridge = (
+            item.get("bridge_to_next")
+            or item.get("bridge")
+            or item.get("director_bridge")
+            or ""
+        )
+        item["director_bridge_to_next"] = str(bridge).strip()
+    else:
+        item["director_bridge_to_next"] = str(
+            item.get("director_bridge_to_next") or ""
+        ).strip()
     if item.get("director_chain_group") is not None:
         try:
             item["director_chain_group"] = max(1, int(item["director_chain_group"]))
@@ -592,6 +616,17 @@ def normalize_production_plan(plan: dict, ctx: Context) -> dict:
             updated["time_of_day"] = "day"
         if updated.get("lighting") in (None, ""):
             updated["lighting"] = "natural light"
+        if not updated.get("director_motion_spine"):
+            spine = (
+                updated.get("motion_spine")
+                or updated.get("director_spine")
+                or ""
+            )
+            updated["director_motion_spine"] = str(spine).strip()
+        else:
+            updated["director_motion_spine"] = str(
+                updated.get("director_motion_spine") or ""
+            ).strip()
         updated["assets"] = _default_assets_for_profile(profile, updated)
         updated["audio_scene"] = _coerce_audio_scene(updated.get("audio_scene"))
         updated["shots"] = [

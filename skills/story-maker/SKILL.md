@@ -24,9 +24,9 @@ Legacy split files (`narrative_outline.json`, `story_plan.json`, `audio_plan.jso
 
 ## Pipeline
 
-0. **Story Developer** — raw story → `developed_story.md` (expands thin sources; I2V co-presence rules). Skip with `--skip-story-developer`.
+0. **Story Developer** — raw story → `developed_story.md`. Expands thin sources into **distinct non-alike sub-scenes** (obstacles, contrast cuts, hubris, reversal, payoff) sized to target duration; anti-sameness vs repeated walk/run padding; I2V/Director co-presence rules. Skip with `--skip-story-developer`.
 0.5. **Scene Paper Author** — developed story → `scene_paper.md` (visual coverage, not new plot)
-0.6. **Sheet map (code)** — *`reel_v2` only* — deterministic 5×2 panel chunking from scene paper (in-memory; not a resume artifact)
+0.6. **Sheet map (code)** — *`reel_v2` only* — deterministic 4×2 panel chunking from scene paper (in-memory; not a resume artifact)
 1. **Production Plan Author** — scene paper (+ sheet map) → `plan.json` (shots + nested audio/assets + video_shots for storyboard)
 2. **Timeline Enricher + Duration Budget Validator** — offsets, continuity, scene budget reconcile
 3. **Build generation specs** — code for `reel_v2`; per-shot profiles still fan out char/shot LLM prompters into specs
@@ -45,7 +45,7 @@ See [`assets/ltx-2.3-director-bible.md`](assets/ltx-2.3-director-bible.md) for L
   - **`CHARACTER_SHEET_IMAGE_PROVIDER`** → defaults to `fal` when `FAL_KEY` is set (few sheet calls; keep volume shots on Replicate)
   - Model: `openai/gpt-image-2` (Replicate and fal)
   - Character sheets: quality `medium`, size `1152x2048`
-  - Storyboard sheets: quality `medium`, size `1152x2048` (9:16 album)
+  - Storyboard sheets: quality `medium`, size `1024x1152` (8:9 album → packed 16:9 panels)
   - Panel regen / shot stills: quality `low`, size `2048x1152`
   - Panel regen ladder: Replicate edit → Replicate crop-only → soft crop-copy last (fal panel fallback **off** by default; opt in with `PANEL_IMAGE_FALLBACK_PROVIDER=fal`)
   - Legacy global `PROVIDER=fal` (Grok Imagine) is optional only — not used for new runs
@@ -128,7 +128,7 @@ Selection precedence: `--style` CLI flag > `STORY_STYLE` in `.env` > `cinematic`
 | `REPLICATE_PANEL_QUALITY` | Quality for panel regen / shot stills | `low` |
 | `REPLICATE_IMAGE_QUALITY` | Fallback quality when a call omits quality | `low` |
 | `CHARACTER_SHEET_SIZE` | Char sheet Replicate `aspect_ratio` (pixel enum) | `1152x2048` |
-| `STORYBOARD_SHEET_SIZE` | Storyboard sheet size (portrait album) | `1152x2048` |
+| `STORYBOARD_SHEET_SIZE` | Storyboard sheet size (8:9 album for 16:9 panels) | `1024x1152` |
 | `PANEL_IMAGE_SIZE` | Panel regen / shot still size | `2048x1152` |
 | `BACKGROUND_IMAGE_SIZE` | Background plate size (when used) | `2048x1152` |
 | `STORY_STYLE` | Style profile fallback when `--style` is omitted | `cinematic` |
@@ -151,7 +151,7 @@ STORYBOARD_IMAGE_PROVIDER=fal
 # PANEL_IMAGE_FALLBACK_PROVIDER=none
 GROK_REPLICATE_MODEL=openai/gpt-image-2
 CHARACTER_SHEET_SIZE=1152x2048
-STORYBOARD_SHEET_SIZE=1152x2048
+STORYBOARD_SHEET_SIZE=1024x1152
 PANEL_IMAGE_SIZE=2048x1152
 BACKGROUND_IMAGE_SIZE=2048x1152
 
@@ -217,6 +217,8 @@ Resume is automatic: re-run the same `--name` and the `resume_router_node` picks
 
 `reel_v2` keeps dense storyboard **panels** for coverage; LTX clip duration lives on **`video_shots`**. Groups must be **cast-coherent** to the anchor still (`characters_present` ⊆ anchor cast; empty establishing panels are solo/env-only). Motion prompts must be dense timed physical arcs (anti-freeze) even at 6s — vision must not invent cast absent from the start frame.
 
+**Scene paper (reel_v2):** each scene must author a **Director chain sketch**, a **Motion spine** (P01→P02→…→PN connecting motion), and a **Bridge → next panel** after every panel except the last. Downstream stamps these into `director_motion_spine` / `director_bridge_to_next` / connecting `motion_intent` so the AD has high-level panel-to-panel interaction thought before writing Prompt Relay.
+
 Repair an existing run's `video_shots` without `--fresh`:
 
 ```bash
@@ -226,16 +228,16 @@ cd skills/story-maker
 
 ### Storyboard assistant director (LTX Director timeline)
 
-After panel stills exist, vision acts as assistant director: reads the **full storyboard sheet** + the scene block from `scene_paper.md` (editorial agenda) + **5×2 grid row/col map**, and returns hard-cut **segments** of clips:
+After panel stills exist, vision acts as assistant director: reads the **full storyboard sheet** + the scene block from `scene_paper.md` (editorial agenda) + **4×2 grid row/col map**, and returns hard-cut **segments** of clips:
 
 - `start == end` → standalone **I2V** (one start guide)
 - continuous adjacent panels with shared endpoints (`02→03`, then `03→04`) → **FLF2V** (start + end guides)
 - same-row pairs preferred for FLF; motivated **camera pans/turns** may bridge to a newly revealed subject (e.g. point → what she points at)
 - cast/subject jumps without a camera bridge → new segment (editorial cut)
 
-Each clip is one **Director timeline**: `global_prompt` (look) + `motion_segments[]` (timed Prompt Relay beats) + panel guides. `motion_prompt` remains the flat fallback for the legacy template backend.
+Each clip is one **Director timeline**: `global_prompt` (look) + `motion_segments[]` (timed Prompt Relay beats) + panel guides — or, for units bridging a long gap between dissimilar panels, a free-form `beats[]` list (ordered `text`/`guide` beats; durations live on `text` beats, guides are instants). `motion_prompt` remains the flat fallback for the legacy template backend. See `assets/ltx-2.3-director-bible.md` for the full beats model and long-gap bridge recipe.
 
-The assistant director **chooses** each clip duration and the scene total (prefer LTX **9–15s**; default **10**; max **15s** with Prompt Relay). Scene-paper duration lines are not used as a hard budget.
+The assistant director **chooses** each clip duration and the scene total (prefer LTX **9–15s**; default **10**; max **15s** with classic Prompt Relay, **20s** for a genuine `beats[]` arc). Scene-paper duration lines are not used as a hard budget.
 
 Per clip the AD also picks **`motion_class`** (guide strength) and **`guidance`** (CFG 1.0–1.5); the pipeline maps enums to floats. Default LTX resolution is **1920×1088** (`VIDEO_WIDTH` / `VIDEO_HEIGHT`).
 
@@ -274,8 +276,8 @@ Default `STORYBOARD_VIDEO_MODE=fallback` keeps the existing `video_shots` → vi
 `reel_v2` skips per-shot parallel still generation and background plates. Instead:
 
 1. Character sheets (GPT-image-2 `medium`, portrait `1024x1536`) are built from `Research/story-board/Character-sheet.md` via `prompts/reel_v2/character_sheet_template.md` — full profile, turnaround, expressions, scale, poses, and close-ups.
-2. Per-scene storyboard sheets (strict 10 panels, 5×2 album on 9:16; each panel 16:9) are built from `Research/story-board/Compiled-storyboard-sheet-prompt.md` via `prompts/reel_v2/storyboard_sheet_template.md`, with character consistency and environment canon from `Character-consistency.md`.
-3. Python detects thin white gutters on the 5×2 album sheet and crops each panel to `panel_crops/` (`STORYBOARD_CROP_MODE=python`, default). Uniform grid is the fallback; set `vision` to use `CROP_ANALYSIS_MODEL` instead.
+2. Per-scene storyboard sheets (strict 8 panels, 4×2 album on 8:9 / `1024x1152`; each panel ~16:9) are built from `Research/story-board/Compiled-storyboard-sheet-prompt.md` via `prompts/reel_v2/storyboard_sheet_template.md`, with character consistency and environment canon from `Character-consistency.md`. Each **row** is a preferred FLF pair (left = start frame, right = end frame); continue handoffs run across rows.
+3. Python detects thin white gutters on the 4×2 album sheet and crops each panel to `panel_crops/` (`STORYBOARD_CROP_MODE=python`, default). Uniform grid is the fallback; set `vision` to use `CROP_ANALYSIS_MODEL` instead.
 4. GPT-image-2 (`low` quality, `2048x1152`) regenerates each crop into `images/` using crop + character refs.
 
 Motion/video stages are unchanged.

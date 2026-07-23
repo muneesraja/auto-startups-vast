@@ -16,40 +16,42 @@ the raw story or duration math seems to suggest otherwise. The map's sheet count
 
 **One scene = one storyboard sheet** (unless the narrative outline explicitly splits a long beat across two scenes).
 
-Each sheet is a **5 rows × 2 columns** photo-album grid with **exactly 10 panels** (row-major: top-left → top-right → next row) on a **9:16** page; each panel is **16:9**.
+Each sheet is a **4 rows × 2 columns** photo-album grid with **exactly {min_panels_per_sheet} panels** (row-major: top-left → top-right → next row) on an **8:9** page; each panel is **16:9**.
+
+**FLF row pairs (default):** each row is one preferred continuous video unit — left cell = **start frame**, right cell = **end frame** (P01→P02, P03→P04, P05→P06, P07→P08). Paint progressive morphs within a row; on `continue`, hand off end-of-row → start-of-next-row. Use start→middle→end stacks only when a continuous arc needs a bridge panel.
 
 You are NOT planning loose shots — you are **filling panel slots** on a production board like MILO & PACK "DISCOVERY" or the sanctuary storyboard references.
 
 ### Sheet anatomy (what each panel must support)
-- Shot number (panel index 1–10 on the sheet)
+- Shot number (panel index 1–{min_panels_per_sheet} on the sheet)
 - Editorial timestamp within the scene (board rhythm only)
 - **CAM** label (WIDE ESTABLISHING, MEDIUM, CLOSE-UP, LOW ANGLE, TRACKING, OTS, DYNAMIC ACTION, FOLLOW, etc.)
 - **Visual** — the still frame composition (**start of a 6–8s action**, not a dead pose)
 - **Motion** — multi-step **physical** micro-arc that can merge with neighbors into an LTX clip
 - Short action caption
 
-### Panels per sheet: **10** (strict default)
+### Panels per sheet: **{min_panels_per_sheet}** (strict default)
 - **Always output {min_panels_per_sheet} panels** per scene/storyboard sheet.
-- Treat every storyboard scene as a full 5×2 matrix.
-- If a narrative beat needs more than 10 panels, split into another scene/sheet.
+- Treat every storyboard scene as a full 4×2 matrix.
+- If a narrative beat needs more than {min_panels_per_sheet} panels, split into another scene/sheet.
 
 ## Reels pacing (panels ≠ LTX clips)
 
 Panel `duration_seconds` is **editorial board rhythm** (typically **1–4**, often 1–2).  
 LTX wall-clock lives on scene `duration_budget_seconds` and later `video_shots` (**primary `{6,8,10}`**, default **8**; optional 3–15).
 
-A 10-panel sheet-scene usually carries a **~24–32s** duration budget (≈ 3–4 future LTX clips).
+An 8-panel sheet-scene usually carries a **~20–28s** duration budget (≈ 2–4 future LTX clips).
 
 Shot count per scene:
 ```
-panels_in_scene = 10  # strict storyboard matrix default
+panels_in_scene = {min_panels_per_sheet}  # strict storyboard matrix default
 ```
 
 ## Shot construction rules
 
 1. Panel `duration_seconds` may be **1–4** (board rhythm). Do **not** treat these as LTX Pro clip lengths.
 2. One primary visible state change per panel; `motion_intent` must be a **multi-step physical arc** (body/hands/face + environment micro-motion), not a vague verb.
-3. Write motion so adjacent panels can later merge into one continuous **6–10s** I2V idea.
+3. Write motion so each **row pair** can later merge into one continuous FLF / **6–10s** clip idea; keep row-to-row continue handoffs cast-coherent.
 4. Keep `pace` mostly `fast`.
 5. Alternate framing aggressively — never repeat the same CAM type on consecutive panels unless motivated.
 6. Scene `duration_budget_seconds` is LTX wall-clock; panel durations need not sum to it.
@@ -81,7 +83,7 @@ Example panel pair:
 ## Workflow
 
 1. Read narrative outline acts/scenes/beats.
-2. For each scene, expand beats into **up to 10 ordered panels** filling the sheet.
+2. For each scene, expand beats into **up to {min_panels_per_sheet} ordered panels** filling the sheet.
 3. Assign CAM variety and short editorial panel durations; keep scene budget as LTX wall-clock.
 4. Ensure the scene reads as one continuous mini-film when panels are read left-to-right, top-to-bottom.
 
@@ -111,7 +113,7 @@ Do NOT set `scene_time_offset_seconds` or `continuity_from_previous`.
     "color_palette": "...",
     "target_duration_seconds": {target_duration_seconds},
     "duration_tolerance_percent": 15,
-    "storyboard_panels_per_sheet": 10,
+    "storyboard_panels_per_sheet": {min_panels_per_sheet},
     "total_duration_seconds": 0,
     "total_scenes": 0,
     "total_shots": 0

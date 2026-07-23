@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import Any
@@ -150,6 +151,32 @@ def same_row_pairs(
     return pairs
 
 
+def _format_motion_spine(scene: dict) -> str:
+    spine = str(scene.get("director_motion_spine") or "").strip()
+    if spine:
+        return spine
+    return "(none authored — invent Prompt Relay from panel Visual/Action and sheet)"
+
+
+def _format_panel_bridges(scene: dict) -> str:
+    lines: list[str] = []
+    for shot in scene.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        sid = str(shot.get("shot_id") or "").strip() or "?"
+        bridge = str(shot.get("director_bridge_to_next") or "").strip()
+        motion = str(shot.get("motion_intent") or "").strip()
+        if not bridge and not motion:
+            continue
+        bits = [f"  - {sid}:"]
+        if motion:
+            bits.append(f"motion_intent={motion}")
+        if bridge:
+            bits.append(f"bridge_to_next={bridge}")
+        lines.append(" ".join(bits))
+    return "\n".join(lines) if lines else "  (none authored)"
+
+
 def build_flf_planner_user_text(
     scene: dict,
     panel_ids: list[str],
@@ -173,8 +200,10 @@ def build_flf_planner_user_text(
         s.get("director_chain_group") is not None
         or s.get("director_transition_after")
         or s.get("director_guide_role")
+        or s.get("director_bridge_to_next")
+        or s.get("director_continuity_note")
         for s in ordered_shots
-    )
+    ) or bool(str(scene.get("director_motion_spine") or "").strip())
     for i, sid in enumerate(panel_ids, start=1):
         shot = shot_by_id.get(sid) or {}
         still = (still_paths or {}).get(sid) or ""
@@ -193,6 +222,8 @@ def build_flf_planner_user_text(
             dir_bits.append(f"after={shot.get('director_transition_after')}")
         if shot.get("director_continuity_note"):
             dir_bits.append(f"note={shot.get('director_continuity_note')}")
+        if shot.get("director_bridge_to_next"):
+            dir_bits.append(f"bridge={shot.get('director_bridge_to_next')}")
         spatial = []
         for key in (
             "subject_position",
@@ -258,10 +289,12 @@ def build_flf_planner_user_text(
     if has_director_meta:
         authored_block = """
 ## Authored Director metadata (AUTHORITATIVE unless contradicted by the sheet)
-- Prefer `director_chain_group` + `director_transition_after` over cast/camera heuristics.
+- Prefer authored `director_chain_group` / `director_transition_after` / `director_guide_role` when present.
 - Build one multi-guide render_unit per chain group.
 - On `match_cut`, keep the shared boundary panel (`end(K) == start(K+1)`).
 - Fold `director_continuity_note` into unit rationale / Prompt Relay planning — do not dump into global_prompt.
+- Treat `director_motion_spine` and per-shot `director_bridge_to_next` / connecting `motion_intent` as **AUTHORITATIVE high-level scene thought** for Prompt Relay and `beats[]` transition text — do not dump them into `global_prompt`.
+- Prefer paper/plan `long_gap_bridge` edges for the bridge-guide / `beats[]` recipe; prefer `match_cut` when authored.
 """
     return f"""## Scene agenda (from scene_paper.md — editorial intent only)
 {paper}
@@ -279,7 +312,13 @@ location_id: {scene.get('location_id')}
 audio_scene: {json.dumps(scene.get('audio_scene') or {}, ensure_ascii=False)}
 {staging_block}
 
-## Storyboard grid (5×2 album — row-major)
+## Director motion spine (AUTHORITATIVE high-level P01→…→PN thought — Prompt Relay / beats only)
+{_format_motion_spine(scene)}
+
+## Panel bridges + connecting motion (AUTHORITATIVE edge recipes)
+{_format_panel_bridges(scene)}
+
+## Storyboard grid (4×2 album — row-major)
 columns: {grid_columns}
 {chr(10).join(grid_lines)}
 
@@ -326,15 +365,20 @@ Return JSON only.
 
 
 def snap_director_clip_duration(raw_dur: int, *, fps: int = 25) -> int:
-    """Snap AD clip durations into LTX-friendly 9–15s (prefer 12/15)."""
+    """Snap AD clip durations into LTX-friendly 9–20s (prefer 12/15/20).
+
+    20s is the ceiling for beats[] timelines with an AD-decided budget; plain
+    render_units still default toward 12/15 unless the AD explicitly asks
+    for a longer multi-beat arc.
+    """
     value = int(raw_dur or 15)
-    value = max(9, min(15, value))
+    value = max(9, min(20, value))
     value = snap_ltx_duration(
         value,
         prefer_primary=True,
-        primary=(12, 15),
+        primary=(12, 15, 20),
         allowed_min=9,
-        allowed_max=15,
+        allowed_max=20,
     )
     return snap_duration_seconds(value, fps=fps)
 
@@ -745,6 +789,214 @@ def _flatten_raw_clips(raw: dict | list) -> tuple[list[dict], list[str]]:
     return [], repairs
 
 
+def _normalize_beats_for_clip(
+    raw_beats: Any,
+    *,
+    panel_ids: list[str],
+    clip_id: str,
+    repairs: list[str],
+) -> list[dict]:
+    """Clean an AD free-form beats[] timeline: durations on text, guides as instants.
+
+    Returns [] when there is no usable guide beat so callers fall back to the
+    legacy guide_frames/motion_segments path.
+    """
+    if not isinstance(raw_beats, list) or not raw_beats:
+        return []
+
+    cleaned: list[dict] = []
+    guide_count = 0
+    for item in raw_beats:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind == "text":
+            try:
+                dur = float(item.get("duration_seconds") or 0.0)
+            except (TypeError, ValueError):
+                dur = 0.0
+            prompt = _clean_prompt(str(item.get("prompt") or "").strip())
+            if dur <= 0 or not prompt:
+                repairs.append(f"drop empty text beat on {clip_id}")
+                continue
+            cleaned.append({"kind": "text", "duration_seconds": min(dur, 20.0), "prompt": prompt})
+        elif kind == "guide":
+            panel_id = str(item.get("panel_id") or "").strip()
+            if panel_id not in panel_ids:
+                repairs.append(f"drop guide beat with unknown panel {panel_id!r} on {clip_id}")
+                continue
+            if guide_count >= 4:
+                repairs.append(f"drop extra guide beat beyond 4 on {clip_id}")
+                continue
+            role = str(item.get("role") or "").strip().lower() or None
+            if role not in ("start", "bridge", "end"):
+                role = None
+            strength = item.get("guide_strength")
+            try:
+                strength = float(strength) if strength is not None else None
+            except (TypeError, ValueError):
+                strength = None
+            if strength is not None:
+                strength = max(0.3, min(1.0, strength))
+            try:
+                anchor = max(0.0, min(3.0, float(item.get("anchor_seconds") or 0.0)))
+            except (TypeError, ValueError):
+                anchor = 0.0
+            is_end = bool(item.get("is_end_frame")) or role == "end"
+            cleaned.append(
+                {
+                    "kind": "guide",
+                    "panel_id": panel_id,
+                    "role": role,
+                    "guide_strength": strength,
+                    "anchor_seconds": anchor,
+                    "is_end_frame": is_end,
+                }
+            )
+            guide_count += 1
+        else:
+            repairs.append(f"drop unrecognized beat kind {kind!r} on {clip_id}")
+
+    if guide_count == 0:
+        repairs.append(f"beats on {clip_id} had no usable guide; falling back to guide_frames")
+        return []
+
+    # DirectorClip schema requires sum(text) <= duration_seconds (<=20); scale
+    # down proportionally so a slightly-over-budget AD timeline still renders
+    # instead of failing validation outright.
+    text_total = sum(b["duration_seconds"] for b in cleaned if b["kind"] == "text")
+    if text_total > 20.0:
+        scale = 20.0 / text_total
+        for b in cleaned:
+            if b["kind"] == "text":
+                b["duration_seconds"] = round(b["duration_seconds"] * scale, 3)
+        repairs.append(f"scaled beats duration on {clip_id} to fit 20s budget")
+
+    return cleaned
+
+
+def _beats_guide_frames_mirror(beats: list[dict]) -> list[dict]:
+    """Ratio-shaped mirror of beats' guide instants for legacy coverage/chain helpers.
+
+    Not used for rendering (the renderer consumes ``beats`` directly) — only
+    keeps `_clip_panel_path` / coverage / splitting helpers working.
+    """
+    text_total = sum(b["duration_seconds"] for b in beats if b["kind"] == "text") or 1.0
+    cursor = 0.0
+    mirror: list[dict] = []
+    for b in beats:
+        if b["kind"] == "text":
+            cursor += b["duration_seconds"]
+            continue
+        is_end = bool(b.get("is_end_frame"))
+        ratio = 1.0 if is_end else max(0.0, min(0.999, cursor / text_total))
+        placement = "end" if is_end else ("start" if ratio <= 0.001 else "middle")
+        mirror.append(
+            {
+                "panel_id": b["panel_id"],
+                "placement": placement,
+                "start_ratio": round(ratio, 4),
+                "is_end_frame": is_end,
+            }
+        )
+    return mirror
+
+
+def _beats_motion_segments_mirror(beats: list[dict]) -> list[dict]:
+    """Ratio-shaped mirror of beats' text windows for legacy display/repair code."""
+    text_total = sum(b["duration_seconds"] for b in beats if b["kind"] == "text") or 1.0
+    cursor = 0.0
+    segments: list[dict] = []
+    for b in beats:
+        if b["kind"] != "text":
+            continue
+        start_ratio = cursor / text_total
+        cursor += b["duration_seconds"]
+        end_ratio = min(1.0, cursor / text_total)
+        if end_ratio <= start_ratio:
+            end_ratio = min(1.0, start_ratio + 0.001)
+        segments.append(
+            {
+                "start_ratio": round(start_ratio, 4),
+                "end_ratio": round(end_ratio, 4),
+                "prompt": b["prompt"],
+            }
+        )
+    return segments
+
+
+def _clip_from_beats(
+    clip: dict,
+    beats: list[dict],
+    *,
+    scene_id: str,
+    index: int,
+    repairs: list[str],
+) -> dict:
+    """Build a normalized clip dict from an AD-authored free-form beats[] timeline."""
+    guide_beats = [b for b in beats if b["kind"] == "guide"]
+    first = guide_beats[0]["panel_id"]
+    end_guides = [b for b in guide_beats if b.get("is_end_frame")]
+    last = end_guides[-1]["panel_id"] if end_guides else guide_beats[-1]["panel_id"]
+
+    text_total = sum(b["duration_seconds"] for b in beats if b["kind"] == "text")
+    duration = max(9, min(20, math.ceil(text_total))) if text_total > 0 else 9
+
+    workflow = _MODE_FLF if (len(guide_beats) >= 2 or first != last) else _MODE_I2V
+    continuous = len(guide_beats) >= 2
+
+    pace = str(clip.get("pace") or "fast").strip().lower()
+    if pace not in ("slow", "medium", "fast"):
+        pace = "fast"
+
+    global_prompt = _clean_prompt(str(clip.get("global_prompt") or "").strip())
+    rationale = str(clip.get("rationale") or "").strip()
+    render = resolve_clip_render_params(clip, prefer_stored=False)
+    motion_prompt = _clean_prompt(
+        " ".join(b["prompt"] for b in beats if b["kind"] == "text")
+    )
+    clip_id = str(clip.get("clip_id") or f"{scene_id}_clip_{index:02d}")
+
+    if not rationale:
+        n_bridge = sum(1 for b in guide_beats if b.get("role") == "bridge")
+        rationale = (
+            f"beats timeline ({len(guide_beats)} guides, {n_bridge} bridge)"
+            if n_bridge
+            else f"beats timeline ({len(guide_beats)} guides)"
+        )
+
+    return {
+        "clip_id": clip_id,
+        "segment_id": str(clip.get("_segment_id") or clip.get("segment_id") or ""),
+        "start_panel_id": first,
+        "end_panel_id": last,
+        "first_panel_id": first,
+        "last_panel_id": last,
+        "continuous": continuous,
+        "workflow": workflow,
+        "mode": "i2v_hold" if workflow == _MODE_I2V else _MODE_FLF,
+        "duration_seconds": duration,
+        "pace": pace,
+        "motion_class": render["motion_class"],
+        "guidance": render["guidance"],
+        "i2v_strength": render["i2v_strength"],
+        "cfg": render["cfg"],
+        "last_frame_strength": render["last_frame_strength"],
+        "global_prompt": global_prompt,
+        "motion_segments": _beats_motion_segments_mirror(beats),
+        "guide_frames": _beats_guide_frames_mirror(beats),
+        "motion_prompt": motion_prompt,
+        "beats": beats,
+        "negative_prompt": _clean_prompt(str(clip.get("negative_prompt") or "").strip()),
+        "locked_cast": [str(c) for c in (clip.get("locked_cast") or []) if str(c).strip()],
+        "rationale": rationale,
+        "_cut_before": bool(clip.get("_cut_before", False)),
+        "_segment_brief": str(clip.get("_segment_brief") or ""),
+        "status": str(clip.get("status") or "pending"),
+        "output_path": clip.get("output_path"),
+    }
+
+
 def _normalize_one_clip(
     clip: dict,
     *,
@@ -756,6 +1008,18 @@ def _normalize_one_clip(
     index: int,
     repairs: list[str],
 ) -> dict | None:
+    raw_beats = clip.get("beats")
+    if isinstance(raw_beats, list) and raw_beats:
+        clip_id_hint = str(clip.get("clip_id") or f"{scene_id}_clip_{index:02d}")
+        cleaned_beats = _normalize_beats_for_clip(
+            raw_beats, panel_ids=panel_ids, clip_id=clip_id_hint, repairs=repairs
+        )
+        if cleaned_beats:
+            return _clip_from_beats(
+                clip, cleaned_beats, scene_id=scene_id, index=index, repairs=repairs
+            )
+        # No usable guide beat: fall through to the legacy guide_frames path below.
+
     first = _clip_start(clip)
     last = _clip_end(clip)
     if first not in panel_ids or last not in panel_ids:
@@ -1003,6 +1267,11 @@ def _ensure_panel_coverage(
 ) -> list[dict]:
     covered: set[str] = set()
     for c in clips:
+        # Full guide path (not just start/end) so bridge/middle guides on
+        # multi-guide and beats[] units count as covered — otherwise a
+        # bridge-only panel wrongly looks "missing" and gets a redundant
+        # filler clip synthesized on top of it.
+        covered.update(_clip_panel_path(c, panel_ids))
         covered.add(c["start_panel_id"])
         covered.add(c["end_panel_id"])
     missing = [pid for pid in panel_ids if pid not in covered]
@@ -1146,10 +1415,15 @@ def _authored_chain_groups(
                 # Defer: keep as singleton for later pairing
                 pass
         if len(path) >= 2:
-            # Cap complexity at 4 guides with shared middle overlaps.
-            while len(path) > 4:
-                units.append(path[:4])
-                path = [path[3], *path[4:]]
+            # Long-gap guard: authored director_chain_group is a coarse
+            # grouping signal, not proof the keyframes are visually similar
+            # enough for a 4-guide morph. Cap at 3 guides here too; a
+            # deliberate 4-guide continuous take should be expressed via the
+            # AD's beats[] timeline (explicit bridge + cast-lock), which
+            # bypasses this heuristic path entirely.
+            while len(path) > 3:
+                units.append(path[:3])
+                path = [path[2], *path[3:]]
             if len(path) >= 2:
                 units.append(path)
 
@@ -1157,14 +1431,14 @@ def _authored_chain_groups(
         # Attach leftover panels via shared-boundary continue of last unit edge.
         for pid in ungrouped:
             if units[-1][-1] != pid:
-                if len(units[-1]) < 4:
+                if len(units[-1]) < 3:
                     units[-1].append(pid)
                 else:
                     units.append([units[-1][-1], pid])
     elif ungrouped and not units:
         return None
 
-    # Enforce shared boundary between consecutive units, then re-cap at 4 guides.
+    # Enforce shared boundary between consecutive units, then re-cap at 3 guides.
     fixed: list[list[str]] = []
     for path in units:
         if not fixed:
@@ -1176,9 +1450,9 @@ def _authored_chain_groups(
         for p in path[1:]:
             if p != cleaned[-1]:
                 cleaned.append(p)
-        while len(cleaned) > 4:
-            fixed.append(cleaned[:4])
-            cleaned = [cleaned[3], *cleaned[4:]]
+        while len(cleaned) > 3:
+            fixed.append(cleaned[:3])
+            cleaned = [cleaned[2], *cleaned[3:]]
         if len(cleaned) >= 2:
             fixed.append(cleaned)
     return fixed or None
@@ -1198,6 +1472,88 @@ def _build_chain_clips(
     """Build one full-scene chain of units with shared boundary stills."""
     if len(panel_ids) < 2:
         return normalized
+
+    # AD-authored beats[] timelines are explicit intent (bridge guides,
+    # cast-lock text) — never rebuild them from cast/camera heuristics.
+    # Heuristically chain only the panels the AD did not already cover,
+    # split into contiguous runs so a beats-covered middle chunk doesn't
+    # silently bridge two unrelated heuristic clusters on either side.
+    beats_clips = [c for c in normalized if c.get("beats")]
+    if beats_clips:
+        other_clips = [c for c in normalized if not c.get("beats")]
+        beats_covered: set[str] = set()
+        for c in beats_clips:
+            beats_covered.update(_clip_panel_path(c, panel_ids))
+        remaining_panel_ids = [p for p in panel_ids if p not in beats_covered]
+        if not remaining_panel_ids:
+            repairs.append(
+                f"beats-authored units cover all {len(panel_ids)} panels; skip heuristic chain"
+            )
+            return beats_clips
+
+        runs: list[list[str]] = []
+        for pid in remaining_panel_ids:
+            idx = panel_ids.index(pid)
+            if runs and panel_ids.index(runs[-1][-1]) == idx - 1:
+                runs[-1].append(pid)
+            else:
+                runs.append([pid])
+
+        default_render = resolve_clip_render_params({}, prefer_stored=False)
+        heuristic_units: list[dict] = []
+        for run in runs:
+            if len(run) >= 2:
+                heuristic_units.extend(
+                    _build_chain_clips(
+                        scene_id=scene_id,
+                        panel_ids=run,
+                        normalized=other_clips,
+                        cast_by=cast_by,
+                        shot_lookup=shot_lookup,
+                        scene_global=scene_global,
+                        fps=fps,
+                        repairs=repairs,
+                    )
+                )
+            else:
+                pid = run[0]
+                heuristic_units.append(
+                    {
+                        "clip_id": f"{scene_id}_clip_fill_{pid}",
+                        "segment_id": "",
+                        "start_panel_id": pid,
+                        "end_panel_id": pid,
+                        "first_panel_id": pid,
+                        "last_panel_id": pid,
+                        "continuous": False,
+                        "workflow": _MODE_I2V,
+                        "mode": "i2v_hold",
+                        "duration_seconds": snap_director_clip_duration(10, fps=fps),
+                        "pace": "fast",
+                        **default_render,
+                        "global_prompt": scene_global or "",
+                        "motion_segments": [],
+                        "guide_frames": [
+                            {
+                                "panel_id": pid,
+                                "placement": "start",
+                                "start_ratio": 0.0,
+                                "is_end_frame": False,
+                            }
+                        ],
+                        "motion_prompt": _default_hold_prompt(shot_lookup.get(pid), "fast"),
+                        "rationale": "gap fill beside beats-authored units",
+                        "_cut_before": True,
+                        "_segment_brief": "",
+                        "status": "pending",
+                        "output_path": None,
+                    }
+                )
+        repairs.append(
+            f"beats-authored units cover {len(beats_covered)}/{len(panel_ids)} panels; "
+            f"heuristically chained {len(remaining_panel_ids)} remaining"
+        )
+        return beats_clips + heuristic_units
 
     edge_hint: dict[tuple[str, str], dict] = {}
     for clip in normalized:
@@ -1257,7 +1613,17 @@ def _build_chain_clips(
             else:
                 if nxt != current[-1]:
                     current.append(nxt)
-                if len(current) > 4:  # Keep unit complexity bounded (<=4 guides)
+                # Long-gap guard: unauthored heuristic chains cap at 3 guides
+                # (start+bridge+end). Beyond that, dissimilar keyframes give
+                # LTX too much creative space and it invents extra subjects
+                # to morph through — force a match_cut boundary instead of a
+                # 4+ panel morph. AD-authored beats[] units may still use up
+                # to 4 guides deliberately (see beats_clips branch above).
+                if len(current) > 3:
+                    repairs.append(
+                        f"long-gap guard: match_cut split at {current[-1]} "
+                        "(unauthored chain would exceed 3 guides)"
+                    )
                     units.append(current[:-1])
                     current = [current[-2], current[-1]]
         if len(current) >= 2:
