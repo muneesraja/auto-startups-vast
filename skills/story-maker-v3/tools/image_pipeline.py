@@ -29,6 +29,7 @@ import config
 from . import char_sheet_builder
 from . import location_sheet_builder
 from . import panel_crop
+from .grok_image_common import check_upscale_drift
 from .grok_tools import generate_grok_edit, generate_grok_t2i
 
 RENDER_STYLE = os.getenv(
@@ -216,10 +217,11 @@ def build_panel_ref_urls(
     scene_id: str,
     panel_id: str,
     character_ref_ids: list[str],
+    location_ref_id: str | None = None,
     provider: str | None = None,
     ref_limit: int | None = None,
 ) -> list[str]:
-    """Ordered refs for a panel upscale edit: panel crop (Image 1) -> char sheets."""
+    """Ordered refs for a panel upscale edit: crop -> chars -> location."""
     resolved = provider or config.get_panel_image_provider()
     limit = ref_limit if ref_limit is not None else config.get_image_ref_limit(resolved)
     urls: list[str] = []
@@ -229,8 +231,9 @@ def build_panel_ref_urls(
     if crop_url:
         urls.append(crop_url)
 
-    # Reserve one slot for the crop; cap chars at limit-1.
-    char_budget = max(0, limit - len(urls))
+    # Reserve one slot for the location lock when enabled.
+    reserve_location = 1 if (config.UPSCALE_INCLUDE_LOCATION_REF and location_ref_id) else 0
+    char_budget = max(0, limit - len(urls) - reserve_location)
     for cid in sorted(character_ref_ids or [], key=_char_sort_key):
         if char_budget <= 0:
             break
@@ -238,6 +241,11 @@ def build_panel_ref_urls(
         if url and url not in urls:
             urls.append(url)
             char_budget -= 1
+
+    if reserve_location and len(urls) < limit:
+        loc_url = ensure_asset_url(registry.location(location_ref_id), provider=resolved)
+        if loc_url and loc_url not in urls:
+            urls.append(loc_url)
     return urls[:limit]
 
 
@@ -390,16 +398,18 @@ def upscale_panel(
     *,
     prompt_text: str,
     character_ref_ids: list[str],
+    location_ref_id: str | None = None,
     provider: str | None = None,
 ) -> dict:
-    """Upscale one panel crop (edit: crop as Image 1 + char sheet refs)."""
+    """Upscale one panel crop (edit: crop as Image 1 + char sheets + location)."""
     backend = provider or config.get_panel_image_provider()
     crop_path = registry.panel_path(scene_id, panel_id)
     if not os.path.isfile(crop_path):
         raise FileNotFoundError(f"panel crop missing: {crop_path}")
     ref_urls = build_panel_ref_urls(
         registry, scene_id=scene_id, panel_id=panel_id,
-        character_ref_ids=character_ref_ids, provider=backend,
+        character_ref_ids=character_ref_ids,
+        location_ref_id=location_ref_id, provider=backend,
     )
     out_path = registry.upscale_path(scene_id, panel_id)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -412,6 +422,15 @@ def upscale_panel(
         ),
         f"upscale {scene_id}/{panel_id}",
     )
+    if config.UPSCALE_DRIFT_GUARD and os.path.isfile(crop_path) and os.path.isfile(out_path):
+        try:
+            check_upscale_drift(crop_path, out_path, threshold=config.UPSCALE_DRIFT_THRESHOLD)
+        except RuntimeError:
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+            raise
     return {"panel_id": panel_id, "output_path": out_path, "result": result}
 
 

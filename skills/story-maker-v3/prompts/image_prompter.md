@@ -61,20 +61,33 @@ you do NOT name them in the prompt.
 ### Per-panel upscale prompt (`<scene>/panel_<r><c>.txt`)
 
 A short edit prompt that upscales one cropped panel to a clean 16:9 still. The panel
-crop is passed as Image 1 and the character sheets of that panel's
-`characters_present` are attached as refs (by `build_images.py`). Your prompt
-must contain three clauses, in order:
+crop is passed as Image 1, the character sheets of that panel's
+`characters_present` are attached as refs, and the scene's location lock is also
+attached when the provider's reference budget allows (all by `build_images.py`).
+Your prompt must contain the following clauses, in order:
 
-1. **Spatial clause:** copy the cell's `spatial_relation` field and expand it into
+1. **Composition lock (mandatory first clause):** start with an explicit
+   anti-drift instruction such as: "Preserve the exact composition, camera angle,
+   and 2D layout of the attached crop. Do not reframe, do not pan, do not zoom, do
+   not add or remove any character, and do not flatten or replace the background.
+   Only increase detail, clean edges, and add texture while keeping every figure in
+   the same screen position." This is the primary defense against the upscale
+   re-imagining the panel.
+2. **Spatial clause:** copy the cell's `spatial_relation` field and expand it into
    a clear description of where every element sits relative to every other element
-   (distances, which side of frame, who is seated/standing, what touches what).
-2. **Emotional/pose clause:** copy the cell's `expression`, `mood`, `intent`, and
+   (distances, which side of frame, who is seated/standing, what touches what, who is
+   mounted/on the ground/above). Be physically explicit (e.g. "dog char_03 stays on
+   the dirt ground, never on the horse").
+3. **Background clause:** one sentence re-stating the location / environment so the
+   model does not replace it with a white or abstract void. Pull from the
+   `establishing_prompt` of the scene's `location_ref_id`.
+4. **Emotional/pose clause:** copy the cell's `expression`, `mood`, `intent`, and
    `camera_angle` and describe the exact visual beat — especially for transitional
    moments (e.g. "tears still wet, crying just stopping, mouth only beginning to turn
    up").
-3. **Negative/must_not_show clause:** copy the cell's `must_not_show` field verbatim
-   and add any physical impossibilities the crop may contain. This is the anti-
-   deformation and anti-beat-jump clause.
+5. **Negative/must_not_show clause:** copy the cell's `must_not_show` field verbatim,
+   prefix it with "NEVER:" and add any physical impossibilities the crop may contain.
+   This is the anti-deformation and anti-beat-jump clause.
 
 End with the no-text clause.
 

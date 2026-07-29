@@ -152,7 +152,7 @@ def build_scene(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
             cell = rows[r][c] if r < len(rows) and c < len(rows[r]) else {}
             chars = validators.parse_cid_list(cell.get("characters_present", ""))
             print(f"  upscale {scene_id}/{panel_id}: generating (chars={chars}) ...")
-            ip.upscale_panel(reg, scene_id, panel_id, prompt_text=prompt_text, character_ref_ids=chars)
+            ip.upscale_panel(reg, scene_id, panel_id, prompt_text=prompt_text, character_ref_ids=chars, location_ref_id=loc)
 
 
 def main() -> int:

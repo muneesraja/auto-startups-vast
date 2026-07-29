@@ -236,3 +236,21 @@ def get_image_ref_limit(provider: str | None = None) -> int:
     if "grok-imagine" in model or model.startswith("xai/"):
         return REPLICATE_LEGACY_GROK_REF_LIMIT
     return REPLICATE_GPT_IMAGE_REF_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# Upscale drift guard
+# ---------------------------------------------------------------------------
+
+def _is_truthy_env(value: str | None, default: bool) -> bool:
+    """Parse a boolean-ish env var."""
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+UPSCALE_INCLUDE_LOCATION_REF = _is_truthy_env(
+    os.getenv("UPSCALE_INCLUDE_LOCATION_REF"), True
+)
+UPSCALE_DRIFT_GUARD = _is_truthy_env(os.getenv("UPSCALE_DRIFT_GUARD"), True)
+UPSCALE_DRIFT_THRESHOLD = float(os.getenv("UPSCALE_DRIFT_THRESHOLD", "0.55"))

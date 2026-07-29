@@ -193,7 +193,7 @@ def main() -> int:
     scene_ids = sorted(
         m.group(1)
         for f in os.listdir(run_dir)
-        if (m := re.fullmatch(r"motion_(.+)\.json", f)) and os.path.isfile(os.path.join(run_dir, f"motion_{m.group(1)}.json"))
+        if (m := re.fullmatch(r"motion_([^.]+)\.json", f)) and os.path.isfile(os.path.join(run_dir, f"motion_{m.group(1)}.json"))
     )
     if only:
         scene_ids = [s for s in scene_ids if s in only]
