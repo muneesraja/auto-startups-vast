@@ -1,0 +1,36 @@
+{
+  "characters": {
+    "char_01": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/characters/char_01.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/N2I3Y2Y3MjYtYjg5ZS00YmEzLWFlNDctY2JjOGE1Mjg0YjBl.png"
+    },
+    "char_02": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/characters/char_02.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/NWViMWQwZjEtNDllMy00YTJjLTg2ZGEtMWE5NGVkN2NkMjk0.png"
+    },
+    "char_03": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/characters/char_03.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/MGNmY2JiZjMtNTEyMy00ZTBkLWJlNTktZjQ0M2I5M2E3ZDc1.png"
+    },
+    "char_04": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/characters/char_04.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/YmYzZjVlODgtYTdkNy00NDA0LTk0YmEtOTlmNjI1YzI3ZjI1.png"
+    },
+    "char_05": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/characters/char_05.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/M2YwMGZkZWQtNDQ5MS00NmUzLTg2NmQtY2U2NDcxY2EwYTcz.png"
+    }
+  },
+  "locations": {
+    "loc_forest_shelter": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/assets/locations/loc_forest_shelter.png",
+      "fal_image_url": "https://api.replicate.com/v1/files/NmYwNjY4ZjYtZmM5OC00YzE3LWEwYTYtMzM0NmQ4MjdlYTM0.png"
+    }
+  },
+  "sheets": {
+    "s1": {
+      "output_path": "/home/mandi/Documents/projects/auto-startups-vast/outputs/story-maker-v3/naila/epi-1/storyboard_sheet_s1.png",
+      "fal_image_url": "https://replicate.delivery/xezq/aw5rRPqLmYbzG9YKY8qBFmOsehHcKgz25DA9m5Mgx0T2P1eWA/tmpozx26fmt.png"
+    }
+  }
+}
