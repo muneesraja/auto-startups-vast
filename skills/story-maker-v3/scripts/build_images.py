@@ -63,7 +63,7 @@ def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
             lids.append(sc["location_id"])
 
     for cid in cids:
-        if _exists(reg.character(cid).get("output_path", "")):
+        if _exists(reg.character_path(cid)):
             print(f"  char sheet {cid}: exists, skip")
             continue
         txt_path = ip.character_prompt_path(reg.run_dir, cid)
@@ -77,7 +77,7 @@ def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
         ip.generate_character_sheet(reg, cid, prompt_text=prompt_text, character_fields=fields)
 
     for lid in lids:
-        if _exists(reg.location(lid).get("output_path", "")):
+        if _exists(reg.location_path(lid)):
             print(f"  location lock {lid}: exists, skip")
             continue
         txt_path = ip.location_prompt_path(reg.run_dir, lid)

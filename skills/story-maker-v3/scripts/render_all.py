@@ -39,7 +39,7 @@ from tools.video_concat import concat_videos  # noqa: E402
 
 PANEL_FILE_RE = re.compile(r"^panel_(\d)(\d)$")
 SHOTID_RE = re.compile(r"_p(\d+)$")
-UNIT_RC_RE = re.compile(r"r(\d+).*c(\d+)", re.I)
+UNIT_RC_RE = re.compile(r"r(\d+).*?(?:c|b)(\d+)", re.I)
 
 
 def _panel_file(run_dir: str, scene_id: str, panel_id: str) -> str:

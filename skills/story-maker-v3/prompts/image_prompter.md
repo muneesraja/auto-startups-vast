@@ -78,9 +78,13 @@ Your prompt must contain the following clauses, in order:
    (distances, which side of frame, who is seated/standing, what touches what, who is
    mounted/on the ground/above). Be physically explicit (e.g. "dog char_03 stays on
    the dirt ground, never on the horse").
-3. **Background clause:** one sentence re-stating the location / environment so the
-   model does not replace it with a white or abstract void. Pull from the
-   `establishing_prompt` of the scene's `location_ref_id`.
+3. **Background clause:** one sentence describing **only what is visible in this
+   panel's crop** — not the full location. For a sky shot, say "sky and forest
+   canopy below"; for an interior close-up, say "shelter wall behind". Never
+   list location features that are off-screen in the crop (e.g. if the panel
+   shows only sky, do NOT mention "dirt paths" or "wooden enclosures"). This
+   prevents the model from redesigning the background by adding elements that
+   were never in the crop.
 4. **Emotional/pose clause:** copy the cell's `expression`, `mood`, `intent`, and
    `camera_angle` and describe the exact visual beat — especially for transitional
    moments (e.g. "tears still wet, crying just stopping, mouth only beginning to turn

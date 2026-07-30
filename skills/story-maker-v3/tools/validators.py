@@ -337,8 +337,8 @@ def _validate_cell(res: ValidationResult, cell: dict[str, str], cast: set[str], 
     except ValueError:
         res.error(f"{label}: duration_seconds not an int ({dur_raw!r})")
         dur = 0
-    if dur != 0 and not (duration_budget.CLIP_MIN <= dur <= duration_budget.CLIP_MAX_BEATS):
-        res.error(f"{label}: duration_seconds {dur} outside [9,20]")
+    if dur != 0 and not (duration_budget.PANEL_MIN <= dur <= duration_budget.PANEL_MAX):
+        res.error(f"{label}: duration_seconds {dur} outside [{duration_budget.PANEL_MIN},{duration_budget.PANEL_MAX}]")
     chars = parse_cid_list(cell.get("characters_present", ""))
     for c in chars:
         if c and c not in cast:
@@ -373,6 +373,8 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         for ci, cell in enumerate(row):
             rtotal += _validate_cell(res, cell, cast, sid, ri * duration_budget.ROW_PANELS + ci + 1)
         row_totals.append(rtotal)
+        if rtotal > duration_budget.ROW_MAX:
+            res.error(f"scene {sid} row {ri+1}: row total {rtotal}s exceeds ROW_MAX {duration_budget.ROW_MAX}s")
 
     if len(sb["deltas"]) < 2 or not sb["deltas"][0] or not sb["deltas"][1]:
         res.error(f"scene {sid}: both inter-column motion delta tables must be present")
@@ -480,8 +482,10 @@ def validate_motion(motion_text: str, sb: dict[str, Any] | None = None) -> Valid
         if "workflow" in unit:
             res.error(f"{uid}: agent must NOT set 'workflow' (it is a code rule)")
         dur = unit.get("duration_seconds")
-        if not isinstance(dur, int) or not (duration_budget.CLIP_MIN <= dur <= duration_budget.CLIP_MAX_BEATS):
-            res.error(f"{uid}: duration_seconds {dur!r} outside [9,20]")
+        is_batch = "batch" in uid.lower()
+        max_dur = duration_budget.BATCH_MAX if is_batch else duration_budget.CLIP_MAX_BEATS
+        if not isinstance(dur, int) or not (duration_budget.CLIP_MIN <= dur <= max_dur):
+            res.error(f"{uid}: duration_seconds {dur!r} outside [9,{max_dur}]")
         else:
             total += dur
 

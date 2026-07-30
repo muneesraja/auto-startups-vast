@@ -409,13 +409,19 @@ def upscale_panel(
     ref_urls = build_panel_ref_urls(
         registry, scene_id=scene_id, panel_id=panel_id,
         character_ref_ids=character_ref_ids,
-        location_ref_id=location_ref_id, provider=backend,
+        location_ref_id=None, provider=backend,
+    )
+    outpaint_prompt = (
+        "Upscale and outpaint this exact panel crop to a clean 3D animation still at 9:16. "
+        "Preserve the crop composition, camera, background, lighting, and character placement exactly. "
+        "Only extend the frame if the crop is narrower; never redesign the background or move characters. "
+        + prompt_text
     )
     out_path = registry.upscale_path(scene_id, panel_id)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     result = _check(
         generate_grok_edit(
-            prompt_text, ref_urls, out_path,
+            outpaint_prompt, ref_urls, out_path,
             size=config.PANEL_IMAGE_SIZE,
             quality=config.REPLICATE_PANEL_QUALITY,
             provider=backend,

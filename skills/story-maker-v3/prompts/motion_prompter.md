@@ -15,11 +15,26 @@ set `workflow` (I2V-vs-FLF2V is a code rule; see below).
 
 ## Job
 
-For a 2-row scene you emit **one `render_unit` per panel**, in row-major order:
-`unit_id` = `sN_rR_cC` (e.g. `s1_r1_c1` … `s1_r2_c4` → 8 units). Each unit is one
-LTX Director job. Within a row the units form a **continuous FLF2V chain**: the END
-guide of unit K is the START guide of unit K+1 (shared boundary panel). A new row is
-a cut — row 2 unit 1 does NOT chain from row 1's last panel.
+For a 2-row scene you emit **batch `render_unit`s**, where each batch covers 2-4
+panels and forms one LTX Director generation session. The **hard limit is 20 seconds
+per batch** — exceeding 20s causes VRAM overflow on the LTX Director GPU. If a row's
+panel durations sum to more than 20s, split it into multiple batches (e.g.
+`sN_r1_b1` covering panels p1→p2, `sN_r1_b2` covering panels p2→p3→p4).
+
+`unit_id` = `sN_rR_bB` (e.g. `s1_r1_b1`, `s1_r1_b2`, `s1_r2_b1`, `s1_r2_b2`). Each
+batch is one LTX Director job. Within a row the batches form a **continuous FLF2V
+chain**: the END guide of batch K is the START guide of batch K+1 (shared boundary
+panel). A new row is a cut — row 2 batch 1 does NOT chain from row 1's last panel.
+
+### Batch splitting rule (mandatory)
+
+1. Sum the per-panel durations for each row from `storyboard_<scene>.md`.
+2. If the row total ≤ 20s → one batch for the entire row (4 guide frames: start →
+   middle → middle → end).
+3. If the row total > 20s → split into 2 batches. Common split: first batch covers
+   panels 1-2 (start → end), second batch covers panels 2-3-4 (start → middle → end).
+   The shared panel (p2) is the end guide of batch 1 and the start guide of batch 2.
+4. Each batch's `duration_seconds` = sum of its panel durations, and **must be ≤ 20**.
 
 ## The workflow rule (code, not your choice)
 
@@ -75,12 +90,14 @@ camera motion that contradicts the depth delta.
 
 ### Field rules
 
-- **`unit_id`** = `sN_rR_cC`. The renderer parses `r(\d+)` to detect row breaks
-  (a row change resets the FLF2V chain — that is a deliberate cut, not an error).
-- **`duration_seconds`**: integer in **[9, 15]** (use 16-20 only for a genuine
-  multi-beat arc you flag in the storyboard; Agent 3 will have allowed it). The
-  **sum of all unit durations must equal the scene's `target_seconds`** — copy the
-  per-panel durations from `storyboard_<scene>.md` and reconcile before writing.
+- **`unit_id`** = `sN_rR_bB` (scene, row, batch). The renderer parses `r(\d+)` to
+  detect row breaks (a row change resets the FLF2V chain — that is a deliberate cut,
+  not an error).
+- **`duration_seconds`**: integer in **[9, 20]**. **Never exceed 20s per batch** —
+  VRAM overflow will crash the LTX Director. If a row's panels sum to > 20s, split
+  into multiple batches (see Batch splitting rule above). The **sum of all batch
+  durations must equal the scene's `target_seconds`** — copy the per-panel durations
+  from `storyboard_<scene>.md` and reconcile before writing.
 - **`motion_class`** — one of the enum tokens: `talking`, `walking`,
   `horse_riding`, `forest_exploration`, `large_reveal`, `fast_action`, `general`
   (aliases like `dialogue`/`walk`/`reveal`/`action` are accepted but prefer the
@@ -148,8 +165,8 @@ Each unit's motion text follows the bible's required paragraph structure:
 python3 scripts/validate.py <run_dir>/motion_<scene>.json --schema motion
 ```
 The validator catches: missing/empty `render_units`, any `workflow` key, duration
-outside [9,20], invalid `motion_class`/`guidance` tokens, missing/empty
-`guide_frames` or `motion_segments`, out-of-order segment ratios, a broken
-within-row FLF2V chain (`start(K+1) != end(K)`), and a unit-duration sum that does
-not equal the scene `target_seconds`. Fix every error and re-run until `ok:true`
-before Stage D render.
+outside [9,20] (batch units also capped at 20), invalid `motion_class`/`guidance`
+tokens, missing/empty `guide_frames` or `motion_segments`, out-of-order segment
+ratios, a broken within-row FLF2V chain (`start(K+1) != end(K)`), and a unit-duration
+sum that does not equal the scene `target_seconds`. Fix every error and re-run until
+`ok:true` before Stage D render.

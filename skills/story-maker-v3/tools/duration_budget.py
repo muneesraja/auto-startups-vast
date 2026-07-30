@@ -4,9 +4,9 @@ Pure, deterministic, no I/O. The Agent 3 validator calls these to enforce that
 row/scene/clip durations sum correctly against the target.
 
 Locked budget (see plan):
-  - clip_duration: 9-15s classic (default 10); 16-20s only for a genuine beats[] arc.
-  - row_total  = sum of clip durations in a row (~30-40s for 4 clips).
-  - scene_total = sum of row totals (~60-80s for 2 rows).
+  - panel_duration: 2-5s per panel (sub-clip within a batch).
+  - row_total  = sum of panel durations in a row (max 20s = one LTX session).
+  - scene_total = sum of row totals (~32-40s for 2 rows).
   - scene_count = ceil(target_seconds / scene_budget), scene_budget default 70s.
 """
 
@@ -18,6 +18,10 @@ CLIP_MIN = 9
 CLIP_MAX_CLASSIC = 15
 CLIP_MAX_BEATS = 20
 CLIP_DEFAULT = 10
+BATCH_MAX = 20  # batch unit max 20s to avoid VRAM overflow on LTX Director
+PANEL_MIN = 2   # storyboard panel durations can be as short as 2s (sub-clips within a batch)
+PANEL_MAX = 20
+ROW_MAX = 20    # row total (one LTX session) must be <= 20s to avoid VRAM overflow
 ROW_PANELS = 4          # one LTX session = 4 chained panels
 SCENE_ROWS = 2          # 2 LTX sessions per scene
 SCENE_COLS = 2          # visual columns on the album sheet (4 rows x 2 cols)
