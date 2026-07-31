@@ -77,9 +77,21 @@ for repo in ComfyUI-KJNodes ComfyUI-LTXVideo WhatDreamsCost-ComfyUI; do
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
         echo "  Installing $repo deps..."
-        $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -3 || true
+        # --no-deps: KJNodes/LTXVideo/WhatDreamsCost requirements list torch, torchvision,
+        # numpy, opencv, etc. — but ComfyUI's venv already has them. Pip's resolver
+        # otherwise re-downloads 2-3 GB of duplicate packages and hits PyPI rate limits
+        # (ConnectionResetError 104). Packages that this node ACTUALLY needs beyond
+        # ComfyUI's stack get installed individually below if missing.
+        $COMFY_PIP install -q --no-deps -r "$REQ" 2>&1 | tail -3 || true
     fi
 done
+
+# Per-node runtime deps that --no-deps skips (these are NOT in ComfyUI's base stack)
+echo "==> Installing node-specific runtime deps (not in ComfyUI base)..."
+# ComfyUI-LTXVideo needs imageio[ffmpeg] for video assembly
+$COMFY_PIP install -q "imageio[ffmpeg]" 2>&1 | tail -2 || true
+# KJNodes uses scipy (ComfyUI may or may not have it) — pip skips if already present
+$COMFY_PIP install -q scipy 2>&1 | tail -2 || true
 
 echo "==> Creating directories..."
 mkdir -p "$BASE_DIR"
