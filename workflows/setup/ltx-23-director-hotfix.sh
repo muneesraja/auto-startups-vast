@@ -208,6 +208,28 @@ fi
 echo "[7/7] Spatial upscaler (v1.1)..."
 hf_download "Lightricks/LTX-2.3" "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" "$BASE_DIR/models/latent_upscale_models"
 
+# 8. Licon VBVR I2V LoRA (R32, 390K) — LoraLoader
+#    Flat filename (no repo subdir prefix), so a direct local_dir download lands
+#    correctly at models/loras/<file> with no mv step needed.
+echo "[8/9] Licon VBVR I2V LoRA (R32, 390K)..."
+mkdir -p "$BASE_DIR/models/loras"
+hf_download "LiconStudio/Ltx2.3-VBVR-lora-I2V" "Ltx2.3-Licon-VBVR-I2V-390K-R32.safetensors" "$BASE_DIR/models/loras"
+
+# 9. Gemma 3 12B "heretic v2" MXFP8 text encoder (~12.6GB) — DualCLIPLoader clip_name1
+#    DreamFast repo stores this file under comfyui/ (HF repo browse-tree convention).
+#    Pass local_dir=$BASE_DIR so the helper creates $BASE_DIR/comfyui/<file>, then
+#    move into the final home (same workaround as steps 1-6 for repo-prefixed files).
+echo "[9/9] Gemma 3 12B heretic v2 MXFP8 text encoder..."
+BLOB_PATH="$BASE_DIR/comfyui/gemma-3-12b-it-heretic-v2_mxfp8.safetensors"
+FINAL_PATH="$BASE_DIR/models/text_encoders/gemma-3-12b-it-heretic-v2_mxfp8.safetensors"
+mkdir -p "$BASE_DIR/models/text_encoders"
+hf_download "DreamFast/gemma-3-12b-it-heretic-v2" "comfyui/gemma-3-12b-it-heretic-v2_mxfp8.safetensors" "$BASE_DIR"
+if [ -f "$BLOB_PATH" ] && [ "$BLOB_PATH" != "$FINAL_PATH" ]; then
+  mv "$BLOB_PATH" "$FINAL_PATH"
+  rmdir "$BASE_DIR/comfyui" 2>/dev/null || true
+  echo "  ✅ Moved to $FINAL_PATH"
+fi
+
 echo "==> All downloads completed!"
 
 # Restart ComfyUI so it picks up the newly installed custom nodes + model files.
