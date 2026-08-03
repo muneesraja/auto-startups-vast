@@ -8,11 +8,10 @@
 # min_vram: 24GB
 # ---
 # Platform-aware base directory detection.
-# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models) so that
-# hf_hub_download(local_dir=BASE_DIR/models/<sub>, filename="<sub>/foo.safetensors")
-# lands files at $BASE_DIR/models/<sub>/foo.safetensors. Setting BASE_DIR to
-# .../models and then pre-creating $BASE_DIR/<sub>/ caused nested paths like
-# models/<sub>/<sub>/foo.safetensors (fixed 2026-06-18).
+# IMPORTANT: BASE_DIR must be the ComfyUI root (NOT .../models). All 4 hf_download
+# calls pass $BASE_DIR/models as local_dir; hf_hub_download joins local_dir + the
+# FULL filename path (verified against HF 1.18.0 2026-08-03), so subdir-prefix
+# filenames land at $BASE_DIR/models/<sub>/<file> — correct, no double-nest.
 set -e
 
 if [ -d "/workspace/runpod-slim/ComfyUI" ]; then
@@ -103,11 +102,10 @@ fi
 cd "$COMFYUI_DIR"
 
 echo "==> Creating directories..."
-# NOTE: do NOT pre-create subdirs here — hf_download uses hf_hub_download(local_dir)
-# which preserves the filename's directory prefix. If we pre-create e.g. $BASE_DIR/models/vae/
-# and pass filename="vae/foo.safetensors", the file lands in $BASE_DIR/models/vae/vae/.
-# Passing $BASE_DIR/models/<sub> as the local_dir and letting the helper create subdirs
-# from the filename prefix is the safe pattern (verified 2026-08-03, matches pitfall 8).
+# NOTE: do NOT pre-create models/<sub> subdirs here. hf_download passes
+# $BASE_DIR/models as local_dir and hf_hub_download creates the subdir from the
+# filename prefix. Pre-creating them is harmless but the files land via local_dir
+# join regardless — keep local_dir=$BASE_DIR/models everywhere (verified 2026-08-03).
 mkdir -p "$BASE_DIR"
 
 # Load shared HF download helper (auto-fetch if not present — Vast instances don't bundle it)
@@ -136,25 +134,28 @@ echo "==> Starting downloads..."
 # Jointly models text/image/video/audio in one forward pass. Used by MiniMaxH3ImageToVideo.
 # Repo: Comfy-Org/MiniMax-H3, file lives under diffusion_models/.
 echo "[1/4] MiniMax H3 fl2va packed-DiT (pruned int8 convrot)..."
-hf_download "Comfy-Org/MiniMax-H3" "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" "$BASE_DIR/models/diffusion_models"
+# local_dir = parent dir ($BASE_DIR/models); hf_hub_download joins local_dir + full
+# filename path, so subdir-prefix filenames must pass the PARENT, not the subdir
+# (double-nest bug class, Bugs 1/5/8/15 — verified against HF 1.18.0 2026-08-03).
+hf_download "Comfy-Org/MiniMax-H3" "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" "$BASE_DIR/models"
 
 # 2. Qwen3-VL 32B MiniMax H3 NVFP4 AWQ text encoder (~15GB)
 # Used as the CLIP loader (type=minimax) for prompt encoding. AWQ-quantized to fit
 # 24GB alongside the 20GB diffusion model.
 echo "[2/4] Qwen3-VL 32B text encoder (NVFP4 AWQ)..."
-hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" "$BASE_DIR/models/text_encoders"
+hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" "$BASE_DIR/models"
 
 # 3. MiniMax H3 video VAE FP16 (~5GB)
 # Decodes the sampled video latents to frames. Bundled in the same Comfy-Org/MiniMax-H3
 # repo so all 4 files are single-source downloads.
 echo "[3/4] MiniMax H3 video VAE (FP16)..."
-hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR/models/vae"
+hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR/models"
 
 # 4. MiniMax H3 audio VAE FP32 (~0.6GB)
 # Decodes the sampled audio latents to stereo audio. Required for H3's native-audio
 # output — without this, CreateVideo will get a silent stream.
 echo "[4/4] MiniMax H3 audio VAE (FP32)..."
-hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR/models/vae"
+hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR/models"
 
 echo "==> All downloads completed!"
 
