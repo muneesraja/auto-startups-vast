@@ -29,7 +29,6 @@ import config
 from . import char_sheet_builder
 from . import location_sheet_builder
 from . import panel_crop
-from .grok_image_common import check_upscale_drift
 from .grok_tools import generate_grok_edit, generate_grok_t2i
 
 RENDER_STYLE = os.getenv(
@@ -162,6 +161,9 @@ class AssetRegistry:
 
     def upscale_path(self, scene_id: str, panel_id: str) -> str:
         return os.path.join(self.run_dir, "panels", scene_id, f"upscale_{panel_id}.png")
+
+    def prepad_path(self, scene_id: str, panel_id: str) -> str:
+        return os.path.join(self.run_dir, "panels", scene_id, f"prepad_{panel_id}.png")
 
 
 # ---------------------------------------------------------------------------
@@ -397,46 +399,48 @@ def upscale_panel(
     panel_id: str,
     *,
     prompt_text: str,
-    character_ref_ids: list[str],
+    character_ref_ids: list[str] | None = None,
     location_ref_id: str | None = None,
     provider: str | None = None,
 ) -> dict:
-    """Upscale one panel crop (edit: crop as Image 1 + char sheets + location)."""
+    """Pure upscale one 16:9 panel crop to PANEL_IMAGE_SIZE.
+
+    The crop is already 16:9 (1280x720 from the 3×3 sheet), so no pre-pad or
+    side-bar outpaint is needed. The crop is the only reference image; the
+    model is locked to preserve composition, cast, and camera.
+    """
     backend = provider or config.get_panel_image_provider()
     crop_path = registry.panel_path(scene_id, panel_id)
     if not os.path.isfile(crop_path):
         raise FileNotFoundError(f"panel crop missing: {crop_path}")
-    ref_urls = build_panel_ref_urls(
-        registry, scene_id=scene_id, panel_id=panel_id,
-        character_ref_ids=character_ref_ids,
-        location_ref_id=None, provider=backend,
+
+    # 1. Build ref URLs — the 16:9 crop itself.
+    crop_entry = {"output_path": crop_path, "fal_image_url": ""}
+    crop_url = ensure_asset_url(crop_entry, provider=backend)
+    ref_urls = [crop_url] if crop_url else []
+
+    # 2. Mechanical preservation lock for pure upscale.
+    upscale_lock = (
+        "The attached image is a 16:9 cinematic animation still. Uplift it to the "
+        "requested resolution while preserving the exact composition, cast, poses, "
+        "camera angle, lighting, and background. Enhance detail and texture only. "
+        "Do not add, remove, or alter any character, prop, or background element. "
+        "Do not re-frame, zoom, or change the camera. No text, no labels, no captions, "
+        "no watermarks. "
     )
-    outpaint_prompt = (
-        "Upscale and outpaint this exact panel crop to a clean 3D animation still at 9:16. "
-        "Preserve the crop composition, camera, background, lighting, and character placement exactly. "
-        "Only extend the frame if the crop is narrower; never redesign the background or move characters. "
-        + prompt_text
-    )
+    full_prompt = upscale_lock + (prompt_text or "")
+
     out_path = registry.upscale_path(scene_id, panel_id)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     result = _check(
         generate_grok_edit(
-            outpaint_prompt, ref_urls, out_path,
+            full_prompt, ref_urls, out_path,
             size=config.PANEL_IMAGE_SIZE,
             quality=config.REPLICATE_PANEL_QUALITY,
             provider=backend,
         ),
         f"upscale {scene_id}/{panel_id}",
     )
-    if config.UPSCALE_DRIFT_GUARD and os.path.isfile(crop_path) and os.path.isfile(out_path):
-        try:
-            check_upscale_drift(crop_path, out_path, threshold=config.UPSCALE_DRIFT_THRESHOLD)
-        except RuntimeError:
-            try:
-                os.remove(out_path)
-            except OSError:
-                pass
-            raise
     return {"panel_id": panel_id, "output_path": out_path, "result": result}
 
 

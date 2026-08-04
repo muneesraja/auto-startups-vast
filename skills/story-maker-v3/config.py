@@ -83,12 +83,10 @@ REPLICATE_PANEL_QUALITY = os.getenv("REPLICATE_PANEL_QUALITY", "low")
 # (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
 CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "2048x1152")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "3840x2160")
-# v3 storyboard sheet = 4 rows x 2 cols, generated on Replicate as a 2160x3840
-# album page. Each LTX session still contains 4 panels, laid out as a 2x2 sub-block
-# (session 1 = rows 1-2, session 2 = rows 3-4). Each cell is 1080x1920; the per-panel
-# upscale step then recomposes each cell to a true 16:9 2048x1152 panel. The portrait
-# orientation gives every panel a little more horizontal width than the old 2x4 layout.
-STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "2160x3840")
+# v3 storyboard sheet = 3 rows x 3 cols, generated on Replicate as a 3840x2160
+# landscape album page. Each LTX session is one row of 3 panels. Each cell is 1280x720 (16:9);
+# the per-panel upscale step is a pure upscale to the target PANEL_IMAGE_SIZE.
+STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "3840x2160")
 # Panel crop: python (white-gutter detect → uniform grid) | vision | auto
 STORYBOARD_CROP_MODE = os.getenv("STORYBOARD_CROP_MODE", "python")
 PANEL_IMAGE_SIZE = os.getenv("PANEL_IMAGE_SIZE", "2048x1152")
@@ -253,4 +251,4 @@ UPSCALE_INCLUDE_LOCATION_REF = _is_truthy_env(
     os.getenv("UPSCALE_INCLUDE_LOCATION_REF"), True
 )
 UPSCALE_DRIFT_GUARD = _is_truthy_env(os.getenv("UPSCALE_DRIFT_GUARD"), True)
-UPSCALE_DRIFT_THRESHOLD = float(os.getenv("UPSCALE_DRIFT_THRESHOLD", "0.55"))
+UPSCALE_DRIFT_THRESHOLD = float(os.getenv("UPSCALE_DRIFT_THRESHOLD", "0.25"))

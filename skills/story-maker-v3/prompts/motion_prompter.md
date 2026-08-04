@@ -1,9 +1,10 @@
 # Agent 5 — Motion Prompter (vision step)
 
-**Input:** the 8 upscaled panel images for a scene
+**Input:** the 9 upscaled panel images for a scene
 (`<run_dir>/panels/<scene>/upscale_<r><c>.png`) which you **Read** to see what was
-actually drawn, plus `<run_dir>/storyboard_<scene>.md` (Agent 3's depth plan) and
-`assets/ltx-2.3-director-bible.md`.
+actually drawn, plus `<run_dir>/director_sets_<scene>.json` (Stage C0 — the
+starting timing plan; you may adjust per-row durations), `<run_dir>/storyboard_<scene>.md` (Agent 3's depth
+plan), and `assets/ltx-2.3-director-bible.md`.
 **Output:** `<run_dir>/motion_<scene>.json` — the LTX Director timeline. Then run
 `python3 scripts/validate.py motion_<scene>.json --schema motion` and fix until it
 passes.
@@ -15,26 +16,69 @@ set `workflow` (I2V-vs-FLF2V is a code rule; see below).
 
 ## Job
 
-For a 2-row scene you emit **batch `render_unit`s**, where each batch covers 2-4
-panels and forms one LTX Director generation session. The **hard limit is 20 seconds
+For a 3-row scene you emit **batch `render_unit`s**, where each batch normally
+covers 3 panels (one row: start, middle, end). The **hard limit is 20 seconds
 per batch** — exceeding 20s causes VRAM overflow on the LTX Director GPU. If a row's
-panel durations sum to more than 20s, split it into multiple batches (e.g.
-`sN_r1_b1` covering panels p1→p2, `sN_r1_b2` covering panels p2→p3→p4).
+total duration exceeds 20s, split it into 2 batches (e.g.
+`sN_r1_b1` covering panels p1→p2, `sN_r1_b2` covering panels p2→p3).
 
-`unit_id` = `sN_rR_bB` (e.g. `s1_r1_b1`, `s1_r1_b2`, `s1_r2_b1`, `s1_r2_b2`). Each
-batch is one LTX Director job. Within a row the batches form a **continuous FLF2V
-chain**: the END guide of batch K is the START guide of batch K+1 (shared boundary
-panel). A new row is a cut — row 2 batch 1 does NOT chain from row 1's last panel.
+`unit_id` = `sN_rR_bB` (e.g. `s1_r1_b1`, `s1_r2_b1`, `s1_r3_b1`). Each
+batch is one LTX Director job. Within a split row the batches form a **continuous
+FLF2V chain**: the END guide of batch K is the START guide of batch K+1 (shared
+boundary panel). A new row is a cut — row 2 and row 3 batch 1 do NOT chain from the
+previous row's last panel.
+
+### Duration authority (you may decide per row)
+
+`director_sets_<scene>.json` is the **starting plan**. You may reallocate the
+scene's `target_seconds` across the 3 rows as long as each row stays ≤ 20s and the
+3 row `duration_seconds` still sum to `target_seconds`.
+
+For each row, start from the `beats[]` array in `director_sets_<scene>.json`:
+
+1. **Pre-roll** (`pre_roll` beat): adds ambient seconds before the first panel.
+   Include it in the first batch's `duration_seconds`.
+2. **Panel holds** (`panel_hold` beats): each panel's on-screen time.
+3. **Gaps** (`gap` beats): transition time between panels. A `cut` gap (0s) means
+   the panels share a hard cut. A `continuation` gap (1-2s) means the panels morph
+   — include the gap seconds in the batch duration.
+
+**Batch `duration_seconds`** = pre_roll (if first batch) + sum of panel_hold
+seconds + sum of gap seconds for the panels in that batch. Must be ≤ 20.
 
 ### Batch splitting rule (mandatory)
 
-1. Sum the per-panel durations for each row from `storyboard_<scene>.md`.
-2. If the row total ≤ 20s → one batch for the entire row (4 guide frames: start →
-   middle → middle → end).
+1. Read the row's default `duration_seconds` from `director_sets_<scene>.json`.
+2. If the row total ≤ 20s → one batch for the entire row (3 guide frames:
+   start → middle → end).
 3. If the row total > 20s → split into 2 batches. Common split: first batch covers
-   panels 1-2 (start → end), second batch covers panels 2-3-4 (start → middle → end).
+   panels 1-2 (start → end), second batch covers panels 2-3 (start → end).
    The shared panel (p2) is the end guide of batch 1 and the start guide of batch 2.
-4. Each batch's `duration_seconds` = sum of its panel durations, and **must be ≤ 20**.
+4. Each batch's `duration_seconds` = sum of its beat seconds, and **must be ≤ 20**.
+
+### Motion-segment ratios from beats (mandatory)
+
+Compute `start_ratio` / `end_ratio` for each `motion_segment` from the beat
+timings within a batch:
+
+```
+batch_total = sum of all beat seconds in this batch
+cumulative = 0
+for each beat in this batch:
+    if beat.kind == "panel_hold":
+        segment = {start_ratio: cumulative / batch_total,
+                   end_ratio: (cumulative + beat.seconds) / batch_total,
+                   prompt: "<motion for this panel>"}
+        cumulative += beat.seconds
+    elif beat.kind == "gap":
+        cumulative += beat.seconds  # gap time is part of the transition
+    elif beat.kind == "pre_roll":
+        cumulative += beat.seconds  # pre-roll is part of the first segment's lead-in
+```
+
+This ensures motion segments are timed precisely to when each panel is on screen.
+For a 3-panel row the typical `motion_segments` are: pre-roll, hold p1, gap p1→p2,
+hold p2, gap p2→p3, hold p3. Each segment is short and per-actor.
 
 ## The workflow rule (code, not your choice)
 
@@ -42,10 +86,14 @@ panel). A new row is a cut — row 2 batch 1 does NOT chain from row 1's last pa
   timeline (`build_i2v_timeline`).
 - A unit with **two guide frames** (start + end) → the renderer builds an **FLF2V**
   timeline (`build_flf_timeline`, last-frame strength ≥ 0.85).
-- To chain a row seamlessly, give every interior unit a start+end pair where
+- A unit with **three guide frames** (start + middle + end) → the renderer builds an
+  **FLF2V** timeline with an extra middle guide. This is the normal 3-panel row shape.
+  Set the `middle` guide's `start_ratio` to the beginning of its hold window so the
+  middle panel lands at the right time.
+- To chain a split row seamlessly, give every interior unit a start+end pair where
   `end(K).panel_id == start(K+1).panel_id`. The validator enforces this within a
-  row. The first unit of a row may be I2V (start only) or FLF2V (start+end); choose
-  FLF2V when you want it to land precisely on a known end panel.
+  row. The first unit of a row may be I2V (start only), FLF2V (start+end), or
+  3-guide FLF2V (start+middle+end); use 3-guide FLF2V for a normal 3-panel row.
 
 ## Depth-delta → camera motion (derived from Agent 3's delta tables)
 
@@ -70,14 +118,15 @@ camera motion that contradicts the depth delta.
   "scene_global_prompt": "<look/lighting/location context, shared across units>",
   "render_units": [
     {
-      "unit_id": "s1_r1_c1",
-      "duration_seconds": 13,
+      "unit_id": "s1_r1_b1",
+      "duration_seconds": 14,
       "motion_class": "talking",
       "guidance": "balanced",
       "global_prompt": "<per-unit look context, may repeat scene_global>",
       "guide_frames": [
         {"panel_id": "s1_p1", "placement": "start"},
-        {"panel_id": "s1_p2", "placement": "end", "is_end_frame": true}
+        {"panel_id": "s1_p2", "placement": "middle", "start_ratio": 0.43},
+        {"panel_id": "s1_p3", "placement": "end", "is_end_frame": true}
       ],
       "motion_segments": [
         {"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "<one primary action arc, timed micro-beats>"}
@@ -94,10 +143,10 @@ camera motion that contradicts the depth delta.
   detect row breaks (a row change resets the FLF2V chain — that is a deliberate cut,
   not an error).
 - **`duration_seconds`**: integer in **[9, 20]**. **Never exceed 20s per batch** —
-  VRAM overflow will crash the LTX Director. If a row's panels sum to > 20s, split
-  into multiple batches (see Batch splitting rule above). The **sum of all batch
-  durations must equal the scene's `target_seconds`** — copy the per-panel durations
-  from `storyboard_<scene>.md` and reconcile before writing.
+  VRAM overflow will crash the LTX Director. Durations are derived from
+  `director_sets_<scene>.json` beat timings (pre_roll + panel_holds + gaps for the
+  panels in this batch). The **sum of all batch durations must equal the scene's
+  `target_seconds`** — reconcile against `director_sets` before writing.
 - **`motion_class`** — one of the enum tokens: `talking`, `walking`,
   `horse_riding`, `forest_exploration`, `large_reveal`, `fast_action`, `general`
   (aliases like `dialogue`/`walk`/`reveal`/`action` are accepted but prefer the
@@ -120,30 +169,31 @@ camera motion that contradicts the depth delta.
 ## Boundary continuity (the whole point — validator enforces)
 
 Within a row, `end(K).panel_id` MUST equal `start(K+1).panel_id`. Concretely, for
-row 1 with panels p1..p4: unit c1 guides `p1`(start)→`p2`(end); unit c2 guides
-`p2`(start)→`p3`(end); unit c3 guides `p3`(start)→`p4`(end). That shared boundary
-panel is what makes the FLF2V chain seamless. Row 2 starts fresh at `p5` — that row
-break is a cut, not a chain error.
+row 1 with panels p1..p3: for a single 3-guide unit use `p1`(start), `p2`(middle),
+`p3`(end). For a split row: unit c1 guides `p1`(start)→`p2`(end); unit c2 guides
+`p2`(start)→`p3`(end). That shared boundary panel is what makes the FLF2V chain
+seamless. Row 2 starts fresh at `p4` and row 3 at `p7` — those row breaks are cuts,
+not chain errors.
 
 ## Prompting (implement the bible)
 
-Each unit's motion text follows the bible's required paragraph structure:
+Each unit's motion text is **short and human-readable**, broken by actor / layer.
+For the 3-panel row, look at the start, middle, and end guide images individually
+and write per-character lines. Each `motion_segment` prompt should be one short
+paragraph with these lines (one per visible actor, plus background):
 
-1. **Open** — `A cinematic scene of ...` role + setting anchor of what is already
-   visible in the start panel (do NOT re-describe appearance; the still has it).
-2. **Sequential motion beats** — ordered physical micro-actions matching
-   `duration_seconds`, timed with `over the first two seconds…` / `then…` /
-   `by the midpoint…` / `in the final seconds…`.
-3. **Camera** — the depth-delta-derived motion (push_in / pull_out / static / pan),
-   in filmmaking terms. **Static camera for `talking`/dialogue units**; animate
-   faces, lips, and gestures instead.
-4. **Audio** — dialogue in quotes, music, SFX, ambience (LTX generates synced
-   audio in-prose).
-5. **Closing quality line** — pace-aware: `slow` → "Deliberate emotional
-   animation. Soft natural motion."; `medium` → "Natural character animation.
-   Expressive animated motion."; `fast` → "Snappy energetic animation. Quick
-   dynamic motion." **Never** use "Smooth cinematic motion" (causes Ken-Burns
-   freeze).
+1. **Actor lines** — `[actor]: [micro-action] over [time window]`.
+   Example: `girl: looks down, then slowly raises her eyes toward the parrot.`
+2. **Background / camera line** — the depth-delta-derived camera motion
+   (`push_in`, `pull_out`, `static`, `pan`) and any environmental micro-motion.
+3. **Audio / SFX line** (optional) — a short note for dialogue, music, or ambience.
+4. **Quality line** — pace-aware: `slow` → "Deliberate emotional animation."
+   `medium` → "Natural character animation." `fast` → "Snappy energetic animation."
+   **Never** use "Smooth cinematic motion" (causes Ken-Burns freeze).
+
+The `motion_prompt` (flat join of `motion_segments`) and each `prompt` inside
+`motion_segments` must be short enough to read at a glance. Do not write long
+prose paragraphs.
 
 ### Anti-freeze + cast-lock (mandatory)
 
@@ -167,6 +217,6 @@ python3 scripts/validate.py <run_dir>/motion_<scene>.json --schema motion
 The validator catches: missing/empty `render_units`, any `workflow` key, duration
 outside [9,20] (batch units also capped at 20), invalid `motion_class`/`guidance`
 tokens, missing/empty `guide_frames` or `motion_segments`, out-of-order segment
-ratios, a broken within-row FLF2V chain (`start(K+1) != end(K)`), and a unit-duration
+ratios, a broken within-row FLF2V chain (`start(K+1) != end(K)` in split rows), and a unit-duration
 sum that does not equal the scene `target_seconds`. Fix every error and re-run until
 `ok:true` before Stage D render.

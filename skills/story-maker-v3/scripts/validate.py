@@ -24,7 +24,7 @@ from tools import validators  # noqa: E402
 def main() -> int:
     p = argparse.ArgumentParser(description="Validate a story-maker-v3 artifact")
     p.add_argument("artifact", help="Path to the artifact file (md/json)")
-    p.add_argument("--schema", required=True, choices=("scenes", "storyboard", "motion", "prompts"))
+    p.add_argument("--schema", required=True, choices=("scenes", "storyboard", "motion", "prompts", "panel_prompts", "director_sets"))
     p.add_argument("--target-seconds", type=int, default=None)
     p.add_argument("--scenes-path", default=None, help="scenes.md (for storyboard cross-check)")
     p.add_argument("--run-dir", default=None, help="run output dir (for prompts schema)")

@@ -24,8 +24,8 @@ For each scene, write:
 3. **Storyboard sheet prompt** — one per scene:
    `<run_dir>/image_prompts/<scene>/storyboard_sheet.txt`
 4. **Per-panel upscale prompts** — one per panel:
-   `<run_dir>/image_prompts/<scene>/panel_<r><c>.txt` for r,c in {1,2}×{1,2,3,4}
-   (panel_11 .. panel_24 — 8 files).
+   `<run_dir>/image_prompts/<scene>/panel_<r><c>.txt` for r,c in {1,2,3}×{1,2,3}
+   (panel_11 .. panel_33 — 9 files).
 
 ## Content rules
 
@@ -49,59 +49,58 @@ End with the no-text clause.
 ### Storyboard sheet prompt (`<scene>/storyboard_sheet.txt`)
 
 Follow `prompts/storyboard_sheet_template.md` exactly: a single prompt that paints
-the full **4 rows × 2 cols** portrait album sheet (2160×3840 page, thin gutters, no
-text). Each LTX session occupies a 2×2 sub-block (session 1 = rows 1-2, session 2
-= rows 3-4). Fold in the 8 Agent 3 cells in row-major order — each panel naming its
-`characters_present`, depth, camera, expression, beat, `spatial_relation`, and
-`must_not_show` — emphasizing the shared boundary pose and visible progressive motion
-between adjacent panels in a session. Reference roles (location lock → previous
-scene's sheet → character sheets) are attached automatically by `build_images.py`;
-you do NOT name them in the prompt.
+a strict regular **3 rows × 3 cols** landscape album sheet (3840×2160 page,
+thin 4px straight white or black gutters, equal 1280×720 16:9 cells, no text). Each
+LTX session is one row of 3 panels (start, middle, end). Fold in the 9 Agent 3 cells
+in row-major order — each panel naming its `characters_present`, depth, camera,
+expression, beat, `spatial_relation`, and `must_not_show` — emphasizing the shared
+boundary pose and visible progressive motion between adjacent panels in a row.
+Reference roles (location lock → previous scene's sheet → character sheets) are
+attached automatically by `build_images.py`; you do NOT name them in the prompt.
 
-### Per-panel upscale prompt (`<scene>/panel_<r><c>.txt`)
+### Per-panel upscale prompt (`<scene>/panel_<r><c>.txt`) — **post-crop only**
 
-A short edit prompt that upscales one cropped panel to a clean 16:9 still. The panel
-crop is passed as Image 1, the character sheets of that panel's
-`characters_present` are attached as refs, and the scene's location lock is also
-attached when the provider's reference budget allows (all by `build_images.py`).
-Your prompt must contain the following clauses, in order:
+These prompts are authored **after** the storyboard sheet has been generated and
+panels have been cropped (after GATE 1). You must **Read** each 1280×720 crop PNG to see what was actually drawn before writing its prompt.
 
-1. **Composition lock (mandatory first clause):** start with an explicit
-   anti-drift instruction such as: "Preserve the exact composition, camera angle,
-   and 2D layout of the attached crop. Do not reframe, do not pan, do not zoom, do
-   not add or remove any character, and do not flatten or replace the background.
-   Only increase detail, clean edges, and add texture while keeping every figure in
-   the same screen position." This is the primary defense against the upscale
-   re-imagining the panel.
-2. **Spatial clause:** copy the cell's `spatial_relation` field and expand it into
-   a clear description of where every element sits relative to every other element
-   (distances, which side of frame, who is seated/standing, what touches what, who is
-   mounted/on the ground/above). Be physically explicit (e.g. "dog char_03 stays on
-   the dirt ground, never on the horse").
-3. **Background clause:** one sentence describing **only what is visible in this
-   panel's crop** — not the full location. For a sky shot, say "sky and forest
-   canopy below"; for an interior close-up, say "shelter wall behind". Never
-   list location features that are off-screen in the crop (e.g. if the panel
-   shows only sky, do NOT mention "dirt paths" or "wooden enclosures"). This
-   prevents the model from redesigning the background by adding elements that
-   were never in the crop.
-4. **Emotional/pose clause:** copy the cell's `expression`, `mood`, `intent`, and
-   `camera_angle` and describe the exact visual beat — especially for transitional
-   moments (e.g. "tears still wet, crying just stopping, mouth only beginning to turn
-   up").
-5. **Negative/must_not_show clause:** copy the cell's `must_not_show` field verbatim,
-   prefix it with "NEVER:" and add any physical impossibilities the crop may contain.
-   This is the anti-deformation and anti-beat-jump clause.
+The crop is already 16:9, so the pipeline performs a pure upscale to
+`PANEL_IMAGE_SIZE` (default 2048×1152). The mechanical lock in
+`image_pipeline.py` instructs the model to preserve the exact composition, cast,
+poses, camera, lighting, and background. Your prompt is appended to that lock and
+must be **short** — one or two sentences of fine-detail / texture enhancement
+that does not change the image.
+
+**Rules (the validator rejects violations):**
+
+1. **No `char_NN` tokens.** Do not name any character. The crop already has them;
+   the model must not re-imagine who is in frame.
+2. **No negative-cast phrasing.** Do not write "No humans", "no dog", "no extra
+   characters", etc. Negative prompts cause the model to delete subjects.
+3. **Enhance / texture only.** Describe polish that preserves the frame
+   (e.g. "add cinematic lighting detail, sharpen edges, keep the composition
+   exactly the same"). Do not re-frame, re-compose, or alter content.
+4. **No composition, camera, or character instructions.** The mechanical lock
+   already handles all of that. Your text is purely detail / finish guidance.
 
 End with the no-text clause.
 
+**Example good panel prompt:**
+```
+Add cinematic lighting detail and sharpen edges while preserving the exact
+composition, cast, and pose. Keep the background texture consistent.
+No text, no labels, no captions, no watermarks.
+```
+
 ## Cast-lock (mandatory — this is the anti-hallucination core)
 
-- **Only reference characters that are in the panel's `characters_present`.** Never
-  name a `char_NN` that is not in that cell. The validator rejects any `char_NN`
-  token in a panel prompt that is not in the scene cast.
-- Do not invent characters. If a panel is a solo close-up of `char_03`, the prompt
-  names only `char_03`.
+- **Character sheets and storyboard sheet prompts** must only reference
+  characters in the scene's `cast`. Never invent a `char_NN` not in the cast.
+- **Panel upscale prompts must NOT name any character at all.** The crop
+  already contains the characters; the upscale model must not re-imagine who
+  is in frame. The `panel_prompts` validator rejects any `char_NN` token.
+- **Read the shared manifest first.** Before writing any character or location
+  prompt, check `<run_dir>/../assets/CHARACTERS.md` for existing cids, wardrobe,
+  and location details. Reuse them exactly; do not invent new cids or colors.
 - Keep wardrobe/proportions consistent with the character sheet prompts you wrote.
 
 ## No-text clause (every prompt)
@@ -112,11 +111,20 @@ the page (the cropper depends on clean gutters).
 
 ## Validate
 
+**Pre-generation (before Stage B sheet generation):**
 ```
 python3 scripts/validate.py <run_dir>/image_prompts/<scene>/storyboard_sheet.txt \
   --schema prompts --run-dir <run_dir> --scene <scene>
 ```
-The validator checks: every character prompt file exists + non-empty, the location
-prompt file exists, the sheet prompt exists, all 8 `panel_<r><c>.txt` exist +
-non-empty, and no panel prompt references a `char_NN` outside the scene cast. Fix
-every error and re-run until `ok:true` before Stage B image generation.
+Checks: every character prompt file exists + non-empty, the location prompt
+file exists, and the sheet prompt exists. Fix every error and re-run until
+`ok:true` before sheet generation.
+
+**Post-crop (after GATE 1, before upscale):**
+```
+python3 scripts/validate.py <run_dir>/image_prompts/<scene>/panel_11.txt \
+  --schema panel_prompts --run-dir <run_dir> --scene <scene>
+```
+Checks: all 9 `panel_<r><c>.txt` exist + non-empty, no `char_NN` tokens, no
+negative-cast phrasing. Fix every error and re-run until `ok:true` before
+running `build_images.py --upscale-only`.

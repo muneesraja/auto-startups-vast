@@ -1,15 +1,14 @@
-"""White-gutter panel cropping for storyboard album sheets.
+"""White/black-gutter panel cropping for storyboard album sheets.
 
 Extracted from skills/story-maker/scripts/nodes/storyboard_nodes.py (the proven
-reel_v2 crop path) and retargeted to v3's 4 rows x 2 cols grid. Pure PIL logic,
-no LLM calls. ``detect_album_panel_bboxes`` finds thin white gutters; when it
-can't resolve them confidently it falls back to a uniform grid.
+reel_v2 crop path) and retargeted to v3's 3 rows x 3 cols grid. Pure PIL logic,
+no LLM calls. ``detect_album_panel_bboxes`` finds thin white or black gutters;
+when it can't resolve them confidently it falls back to a uniform grid.
 
-v3 grid: 4 rows x 2 cols visually. Each LTX Director session is still 4 panels,
-but laid out as a 2x2 sub-block: session 1 occupies visual rows 1-2, session 2
-occupies visual rows 3-4. Panel order is row-major within the full grid:
-index 0..1 = row 1 cols 1..2, index 2..3 = row 2 cols 1..2 (session 1),
-index 4..5 = row 3 cols 1..2, index 6..7 = row 4 cols 1..2 (session 2).
+v3 grid: 3 rows x 3 cols visually. Each LTX Director session is one row of
+3 panels (start, middle, end). Panel order is row-major within the full grid:
+index 0..2 = row 1 cols 1..3 (session 1), index 3..5 = row 2 cols 1..3
+(session 2), index 6..8 = row 3 cols 1..3 (session 3).
 """
 
 from __future__ import annotations
@@ -19,13 +18,13 @@ from typing import Any
 
 from .duration_budget import SCENE_PANELS, ROW_PANELS, SCENE_COLS
 
-# v3 default: 4 rows x 2 cols.
-DEFAULT_COLS = SCENE_COLS  # 2
-DEFAULT_ROWS = SCENE_PANELS // SCENE_COLS  # 4
+# v3 default: 3 rows x 3 cols.
+DEFAULT_COLS = SCENE_COLS  # 3
+DEFAULT_ROWS = SCENE_PANELS // SCENE_COLS  # 3
 
 
 def album_grid_shape(panel_count: int, *, cols: int = DEFAULT_COLS) -> tuple[int, int]:
-    """Derive album rows x cols from painted panel count (v3: 4 x 2)."""
+    """Derive album rows x cols from painted panel count (v3: 3 x 3)."""
     count = max(0, int(panel_count))
     cols = max(1, int(cols))
     if count <= 0:
@@ -75,6 +74,24 @@ def _axis_white_fractions(
     image, *, axis: str, sample_step: int = 8, white_threshold: int = 240,
 ) -> list[float]:
     """Fraction of near-white samples along each row (axis='y') or column ('x')."""
+    return _axis_separator_fractions(
+        image, axis=axis, sample_step=sample_step, threshold=white_threshold, bright=True
+    )
+
+
+def _axis_dark_fractions(
+    image, *, axis: str, sample_step: int = 8, dark_threshold: int = 40,
+) -> list[float]:
+    """Fraction of near-black samples along each row (axis='y') or column ('x')."""
+    return _axis_separator_fractions(
+        image, axis=axis, sample_step=sample_step, threshold=dark_threshold, bright=False
+    )
+
+
+def _axis_separator_fractions(
+    image, *, axis: str, sample_step: int = 8, threshold: int = 240, bright: bool = True,
+) -> list[float]:
+    """Fraction of near-white (bright=True) or near-black (bright=False) samples."""
     width, height = image.size
     pixels = image.load()
     if axis == "y":
@@ -86,17 +103,21 @@ def _axis_white_fractions(
 
     fractions: list[float] = []
     for i in range(length):
-        bright = 0
+        count = 0
         samples = 0
         for j in range(0, cross, sample_step):
             if axis == "y":
                 r, g, b = pixels[j, i][:3]
             else:
                 r, g, b = pixels[i, j][:3]
-            if r >= white_threshold and g >= white_threshold and b >= white_threshold:
-                bright += 1
+            if bright:
+                hit = r >= threshold and g >= threshold and b >= threshold
+            else:
+                hit = r <= threshold and g <= threshold and b <= threshold
+            if hit:
+                count += 1
             samples += 1
-        fractions.append(bright / samples if samples else 0.0)
+        fractions.append(count / samples if samples else 0.0)
     return fractions
 
 
@@ -162,9 +183,11 @@ def detect_album_panel_bboxes(
     inset_px: int = 2,
     white_threshold: int = 240,
     white_fraction: float = 0.85,
-    max_gutter_thickness: int = 8,
+    dark_threshold: int = 40,
+    dark_fraction: float = 0.85,
+    max_gutter_thickness: int = 16,
 ) -> list[dict[str, float]] | None:
-    """Detect panel boxes from thin white gutters on an album storyboard sheet.
+    """Detect panel boxes from thin white or black gutters on an album storyboard sheet.
 
     Returns normalized {x,y,w,h} boxes in row-major order, or None if gutters
     cannot be resolved confidently (caller falls back to a uniform grid).
@@ -185,9 +208,17 @@ def detect_album_panel_bboxes(
         width, height = image.size
         row_frac = _axis_white_fractions(image, axis="y", white_threshold=white_threshold)
         col_frac = _axis_white_fractions(image, axis="x", white_threshold=white_threshold)
+        row_dark = _axis_dark_fractions(image, axis="y", dark_threshold=dark_threshold)
+        col_dark = _axis_dark_fractions(image, axis="x", dark_threshold=dark_threshold)
 
-    row_hits = [i for i, frac in enumerate(row_frac) if frac >= white_fraction]
-    col_hits = [i for i, frac in enumerate(col_frac) if frac >= white_fraction]
+    row_hits = [
+        i for i, (frac, dark) in enumerate(zip(row_frac, row_dark))
+        if frac >= white_fraction or dark >= dark_fraction
+    ]
+    col_hits = [
+        i for i, (frac, dark) in enumerate(zip(col_frac, col_dark))
+        if frac >= white_fraction or dark >= dark_fraction
+    ]
     row_bands = _contiguous_bands(row_hits)
     col_bands = _contiguous_bands(col_hits)
 
@@ -300,14 +331,11 @@ def crop_panel(image_path: str, bbox: dict, out_path: str) -> None:
 
 
 def _session_panel_id(visual_row: int, visual_col: int) -> str:
-    """Map 4×2 visual grid position to session-based panel id.
+    """Map 3×3 visual grid position to panel id.
 
-    Session 1 occupies visual rows 0-1, session 2 occupies rows 2-3.
-    Within a session the panels are laid out row-major in a 2×2 block.
+    Returns a simple row/column id: panel_<row><col> (e.g. panel_11, panel_33).
     """
-    session = visual_row // 2 + 1
-    index = (visual_row % 2) * 2 + visual_col + 1
-    return f"panel_{session}{index}"
+    return f"panel_{visual_row + 1}{visual_col + 1}"
 
 
 def crop_storyboard_sheet(
@@ -323,9 +351,8 @@ def crop_storyboard_sheet(
     """Crop a storyboard sheet into ``expected`` panel PNGs (row-major).
 
     Returns a list of ``{panel_id, path, bbox, method}`` in row-major order.
-    Panel ids default to session-based ids (panel_11..panel_14 for session 1,
-    panel_21..panel_24 for session 2) mapped onto the 4×2 visual grid. Pass an
-    explicit ``panel_ids`` list to override.
+    Panel ids default to row/column ids (panel_11..panel_33) on the 3×3 visual
+    grid. Pass an explicit ``panel_ids`` list to override.
     """
     bboxes, method = resolve_panel_bboxes(sheet_path, expected, mode=mode, cols=cols)
     os.makedirs(out_dir, exist_ok=True)

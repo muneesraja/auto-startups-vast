@@ -11,9 +11,9 @@ No LLM calls. Pure parsing + assertions.
 Schemas enforced (see plan):
   scenes      -> scene_count>=1; each scene has scene_id/target_seconds/cast/location_id;
                  sum(targets) ~= run target.
-  storyboard  -> exactly 8 cells (2 rows x 4 cols); all 13 fields; depth in 1-5;
+  storyboard  -> exactly 9 cells (3 rows x 3 cols); all 13 fields; depth in 1-5;
                  position_xy in [0,1]; duration in [9,15]; row/scene sums = target_seconds;
-                 characters_present subset of cast; both delta tables + handoff present.
+                 characters_present subset of cast; all 3 delta tables + handoff present.
   prompts     -> every panel has a prompt; references correct char cids + location id;
                  no invented characters.
   motion      -> every render_unit has guide_frames + motion_segments + valid enums;
@@ -255,10 +255,11 @@ def parse_storyboard(md: str) -> dict[str, Any]:
             cells.append(cell)
         return cells
 
-    row1 = _row_cells("row 1 (ltx session 1)") or _row_cells("row 1")
-    row2 = _row_cells("row 2 (ltx session 2)") or _row_cells("row 2")
-    deltas1 = _row_cells("inter-column motion deltas (row 1)")
-    deltas2 = _row_cells("inter-column motion deltas (row 2)")
+    rows: list[list[dict[str, str]]] = []
+    deltas: list[list[dict[str, str]]] = []
+    for ri in range(1, duration_budget.SCENE_ROWS + 1):
+        rows.append(_row_cells(f"row {ri} (ltx session {ri})") or _row_cells(f"row {ri}"))
+        deltas.append(_row_cells(f"inter-column motion deltas (row {ri})"))
 
     handoff: dict[str, Any] = {}
     handoff_block: list[str] = []
@@ -286,8 +287,8 @@ def parse_storyboard(md: str) -> dict[str, Any]:
         "target_seconds": target,
         "cast": cast,
         "location_ref_id": location_ref_id,
-        "rows": [row1, row2],
-        "deltas": [deltas1, deltas2],
+        "rows": rows,
+        "deltas": deltas,
         "handoff": handoff,
     }
 
@@ -363,8 +364,8 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         res.error(f"scene {sid}: cast is empty")
 
     rows = sb["rows"]
-    if len(rows) != 2:
-        res.error(f"scene {sid}: expected 2 rows, got {len(rows)}")
+    if len(rows) != duration_budget.SCENE_ROWS:
+        res.error(f"scene {sid}: expected {duration_budget.SCENE_ROWS} rows, got {len(rows)}")
     row_totals: list[int] = []
     for ri, row in enumerate(rows):
         if len(row) != duration_budget.ROW_PANELS:
@@ -376,8 +377,8 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         if rtotal > duration_budget.ROW_MAX:
             res.error(f"scene {sid} row {ri+1}: row total {rtotal}s exceeds ROW_MAX {duration_budget.ROW_MAX}s")
 
-    if len(sb["deltas"]) < 2 or not sb["deltas"][0] or not sb["deltas"][1]:
-        res.error(f"scene {sid}: both inter-column motion delta tables must be present")
+    if len(sb["deltas"]) < duration_budget.SCENE_ROWS or any(not d for d in sb["deltas"][:duration_budget.SCENE_ROWS]):
+        res.error(f"scene {sid}: all {duration_budget.SCENE_ROWS} inter-column motion delta tables must be present")
     if not sb["handoff"]:
         res.error(f"scene {sid}: scene-end handoff block is missing")
 
@@ -407,9 +408,10 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
 
 
 def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = None) -> ValidationResult:
-    """Validate that Agent 4 wrote a prompt per panel + char/location prompts.
+    """Validate pre-generation prompts: char sheets + location lock + storyboard sheet.
 
-    Checks file presence and that panel prompts reference only known char cids.
+    Panel prompts are validated separately by ``validate_panel_prompts`` after
+    the crops exist (post-crop vision pass).
     """
     from . import image_pipeline
 
@@ -430,11 +432,33 @@ def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = No
         if not os.path.isfile(p) or not image_pipeline.read_prompt(p):
             res.error(f"missing location prompt for {loc}: {p}")
 
-    # Sheet + per-panel prompts.
+    # Sheet prompt.
     sheet_p = image_pipeline.sheet_prompt_path(run_dir, scene_id)
     if not os.path.isfile(sheet_p) or not image_pipeline.read_prompt(sheet_p):
         res.error(f"missing storyboard sheet prompt: {sheet_p}")
+    return res
 
+
+# Phrases that indicate a negative-cast clause (banned in panel prompts).
+_NEGATIVE_CAST_RE = re.compile(
+    r"\bno\s+(humans?|people|person|dog|parrot|father|mother|child|girl|boy|"
+    r"animal|bird|horse|giraffe|cat|elephant|tiger|bear|monkey|rabbit|fox|"
+    r"extras?|new\s+characters?)\b",
+    re.IGNORECASE,
+)
+
+
+def validate_panel_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = None) -> ValidationResult:
+    """Validate post-crop panel prompts: 9 files, pure upscale.
+
+    Rejects:
+      - Missing or empty panel prompt files.
+      - Any ``char_NN`` token (panel prompts must not name characters).
+      - Negative-cast phrasing ("No humans", "no dog", etc.).
+    """
+    from . import image_pipeline
+
+    res = ValidationResult()
     for ri in range(duration_budget.SCENE_ROWS):
         for ci in range(duration_budget.ROW_PANELS):
             panel_id = f"panel_{ri+1}{ci+1}"
@@ -443,10 +467,98 @@ def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = No
                 res.error(f"missing panel prompt for {panel_id}: {p}")
                 continue
             text = image_pipeline.read_prompt(p)
-            # No invented characters: any char_NN token in the prompt must be in cast.
-            for tok in re.findall(r"char_\d+|[A-Za-z_][A-Za-z0-9_]*", text):
-                if re.fullmatch(r"char_\d+", tok) and tok not in cast:
-                    res.error(f"panel prompt {panel_id} references unknown character {tok}")
+            # Reject char_NN tokens — panel prompts must not name characters.
+            for tok in re.findall(r"char_\d+", text):
+                res.error(f"panel prompt {panel_id} references character {tok} — panel prompts must not name characters")
+            # Reject negative-cast phrasing.
+            if _NEGATIVE_CAST_RE.search(text):
+                res.error(f"panel prompt {panel_id} contains negative-cast phrasing (e.g. 'No humans') — banned in panel prompts")
+    return res
+
+
+def validate_director_sets(sets_text: str, scenes: dict[str, Any] | None = None) -> ValidationResult:
+    """Validate director_sets_<scene>.json (Stage C0 — set timing plan)."""
+    res = ValidationResult()
+    try:
+        data = json.loads(sets_text)
+    except json.JSONDecodeError as e:
+        res.error(f"director_sets JSON parse error: {e}")
+        return res
+
+    sid = data.get("scene_id", "<unknown>")
+    sets = data.get("sets") or []
+    if not sets:
+        res.error(f"scene {sid}: no sets")
+        return res
+
+    total = 0
+    for si, st in enumerate(sets):
+        set_id = st.get("set_id", f"set_{si}")
+        panels = st.get("panels") or []
+        if len(panels) != duration_budget.ROW_PANELS:
+            res.error(f"{set_id}: must have exactly {duration_budget.ROW_PANELS} panels, got {len(panels)}")
+        beats = st.get("beats") or []
+        if not beats:
+            res.error(f"{set_id}: no beats")
+            continue
+
+        # Validate beat sequence: pre_roll, hold, gap, hold, gap, hold (for 3 panels).
+        expected_kinds = ["pre_roll"] + (["panel_hold", "gap"] * (duration_budget.ROW_PANELS - 1)) + ["panel_hold"]
+        if len(beats) != len(expected_kinds):
+            res.error(f"{set_id}: must have exactly {len(expected_kinds)} beats, got {len(beats)}")
+        else:
+            for bi, beat in enumerate(beats):
+                kind = beat.get("kind", "")
+                if kind != expected_kinds[bi]:
+                    res.error(f"{set_id}: beat {bi} kind={kind!r}, expected {expected_kinds[bi]!r}")
+
+        # Validate beat durations.
+        beat_total = 0
+        for bi, beat in enumerate(beats):
+            secs = beat.get("seconds")
+            if not isinstance(secs, (int, float)):
+                res.error(f"{set_id}: beat {bi} seconds not numeric ({secs!r})")
+                continue
+            beat_total += secs
+            kind = beat.get("kind", "")
+            if kind == "pre_roll":
+                if not (0 <= secs <= duration_budget.PRE_ROLL_MAX):
+                    res.error(f"{set_id}: pre_roll {secs}s outside [0,{duration_budget.PRE_ROLL_MAX}]")
+            elif kind == "panel_hold":
+                if not (duration_budget.HOLD_MIN <= secs <= duration_budget.HOLD_MAX):
+                    res.error(f"{set_id}: panel_hold {secs}s outside [{duration_budget.HOLD_MIN},{duration_budget.HOLD_MAX}]")
+            elif kind == "gap":
+                transition = beat.get("transition", "")
+                if transition in ("cut", "smash_cut", "jump_cut"):
+                    if secs != duration_budget.GAP_CUT:
+                        res.error(f"{set_id}: gap {secs}s for {transition!r} must be {duration_budget.GAP_CUT}s")
+                elif transition == "continuation":
+                    if not (1 <= secs <= duration_budget.GAP_CONTINUATION_MAX):
+                        res.error(f"{set_id}: gap {secs}s for continuation outside [1,{duration_budget.GAP_CONTINUATION_MAX}]")
+                else:
+                    if not (1 <= secs <= duration_budget.GAP_MAX):
+                        res.error(f"{set_id}: gap {secs}s outside [1,{duration_budget.GAP_MAX}]")
+
+        set_dur = st.get("duration_seconds")
+        if not isinstance(set_dur, (int, float)):
+            res.error(f"{set_id}: duration_seconds not numeric ({set_dur!r})")
+        else:
+            if set_dur != beat_total:
+                res.error(f"{set_id}: duration_seconds {set_dur} != sum of beats {beat_total}")
+            if set_dur > duration_budget.SET_MAX:
+                res.error(f"{set_id}: duration_seconds {set_dur} > {duration_budget.SET_MAX}")
+            total += int(set_dur)
+
+    # Cross-check against scenes.md target_seconds.
+    if scenes:
+        scene_meta = next((s for s in scenes["scenes"] if s["scene_id"] == sid), None)
+        if scene_meta is None:
+            res.error(f"scene {sid}: not found in scenes.md")
+        elif total != scene_meta["target_seconds"]:
+            res.error(
+                f"scene {sid}: sum of set durations ({total}s) != scenes.md target "
+                f"({scene_meta['target_seconds']}s)"
+            )
     return res
 
 
@@ -563,4 +675,15 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
         sb_md_path = os.path.join(run_dir, f"storyboard_{scene_id}.md")
         sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read()) if os.path.isfile(sb_md_path) else None
         return validate_prompts(run_dir, scene_id, sb=sb)
+    if schema == "panel_prompts":
+        if not run_dir or not scene_id:
+            return ValidationResult(ok=False, errors=["panel_prompts validation needs --run-dir and --scene"])
+        sb_md_path = os.path.join(run_dir, f"storyboard_{scene_id}.md")
+        sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read()) if os.path.isfile(sb_md_path) else None
+        return validate_panel_prompts(run_dir, scene_id, sb=sb)
+    if schema == "director_sets":
+        scenes = None
+        if scenes_path and os.path.isfile(scenes_path):
+            scenes = parse_scenes(open(scenes_path, encoding="utf-8").read())
+        return validate_director_sets(text, scenes=scenes)
     return ValidationResult(ok=False, errors=[f"unknown schema: {schema!r}"])

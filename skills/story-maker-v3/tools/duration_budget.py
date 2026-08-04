@@ -6,7 +6,7 @@ row/scene/clip durations sum correctly against the target.
 Locked budget (see plan):
   - panel_duration: 2-5s per panel (sub-clip within a batch).
   - row_total  = sum of panel durations in a row (max 20s = one LTX session).
-  - scene_total = sum of row totals (~32-40s for 2 rows).
+  - scene_total = sum of row totals (~40-54s for 3 rows).
   - scene_count = ceil(target_seconds / scene_budget), scene_budget default 70s.
 """
 
@@ -22,11 +22,24 @@ BATCH_MAX = 20  # batch unit max 20s to avoid VRAM overflow on LTX Director
 PANEL_MIN = 2   # storyboard panel durations can be as short as 2s (sub-clips within a batch)
 PANEL_MAX = 20
 ROW_MAX = 20    # row total (one LTX session) must be <= 20s to avoid VRAM overflow
-ROW_PANELS = 4          # one LTX session = 4 chained panels
-SCENE_ROWS = 2          # 2 LTX sessions per scene
-SCENE_COLS = 2          # visual columns on the album sheet (4 rows x 2 cols)
-SCENE_PANELS = ROW_PANELS * SCENE_ROWS   # 8
+ROW_PANELS = 3          # one LTX session = 3 chained panels
+SCENE_ROWS = 3          # 3 LTX sessions per scene
+SCENE_COLS = 3          # visual columns on the album sheet (3 rows x 3 cols)
+SCENE_PANELS = ROW_PANELS * SCENE_ROWS   # 9
 SCENE_BUDGET_DEFAULT = 70   # seconds; scene_count = ceil(target / scene_budget)
+
+# ---------------------------------------------------------------------------
+# Director-set timing constants (Stage C0 — director_sets_sN.json)
+# ---------------------------------------------------------------------------
+# A "set" = 3 panels shown in sequence (one row of the storyboard).
+# Beat sequence: pre_roll → hold → gap → hold → gap → hold
+PRE_ROLL_MAX = 2            # seconds of pre-roll before first panel (0-2)
+HOLD_MIN = 3                # minimum seconds a panel is held on screen
+HOLD_MAX = 5                # maximum seconds a panel is held on screen
+GAP_CUT = 0                 # hard cut / smash cut = 0s gap
+GAP_MAX = 2                 # maximum gap for non-continuation transitions
+GAP_CONTINUATION_MAX = 2    # maximum gap for continuation transitions
+SET_MAX = 20                # one set must be <= 20s (LTX batch limit)
 
 
 def parse_target_duration(value: str | int | float) -> int:
