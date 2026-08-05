@@ -8,7 +8,7 @@ to the target.
 
 Take the high-level story and **expand or shrink** it into a filmable narrative that
 hits the target duration. You are writing for *video*, not prose: think in shots,
-beats, and on-screen action an LTX Director can stage.
+beats, and on-screen action Minimax H3 can stage in 15-second generations.
 
 ## Rules
 

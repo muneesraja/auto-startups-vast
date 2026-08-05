@@ -9,9 +9,11 @@ until it passes.
 
 Split the developed story into **N scenes**, where `N = ceil(target_seconds / 70)`.
 (scene_budget = 70s; e.g. 5min/300s → 5 scenes, 140s → 2 scenes, 70s → 1 scene.)
-Each scene becomes one storyboard sheet (2 rows × 4 cols = 8 panels = 2 LTX
-sessions, ~60-80s). Distribute the story beats across the scenes so each scene is a
-self-contained unit of action in ONE location.
+Each scene is later split by Agent 3 into Minimax H3 generations of at most 15
+seconds each (a ~70s scene ≈ 5 generations, each with its own storyboard sheet).
+Distribute the story beats across the scenes so each scene is a
+self-contained unit of action in ONE location, and prefer beats that break
+naturally into <=15s stretches of continuous action.
 
 ## Rules
 

@@ -1,12 +1,9 @@
-"""Phase-2 unit tests: duration budget, panel crop, validators (de-hallucination)."""
+"""Unit tests: duration budget, Minimax helpers, validators (de-hallucination)."""
 
-import os
 import textwrap
 
-import pytest
-
 from tools import duration_budget as db
-from tools import panel_crop, validators
+from tools import validators
 
 
 # --- duration_budget --------------------------------------------------------
@@ -26,51 +23,37 @@ def test_scene_count_for_target():
     assert db.scene_count_for_target(10) == 1
 
 
-def test_snap_clip_duration():
-    assert db.snap_clip_duration(10) == 10
-    assert db.snap_clip_duration(4) == 9            # below min -> 9
-    assert db.snap_clip_duration(99) == 15          # classic clamp
-    assert db.snap_clip_duration(99, allow_beats=True) == 20
-    assert db.snap_clip_duration(18, allow_beats=True) == 18
+def test_generation_count_for_scene():
+    assert db.generation_count_for_scene(70) == 5   # ceil(70/15)
+    assert db.generation_count_for_scene(15) == 1
+    assert db.generation_count_for_scene(16) == 2
+    assert db.generation_count_for_scene(0) == 0
 
 
-def test_row_scene_totals_and_tolerance():
-    assert db.row_total([10, 10, 10, 10]) == 40
-    assert db.scene_total([40, 40]) == 80
+def test_minimax_frames_snap():
+    # max(5, round(s*24)) bumped to the next count where frames % 17 == 5.
+    for secs in (5, 8, 12.5, 15):
+        n = db.minimax_frames(secs)
+        assert n % 17 == 5
+        assert n >= round(secs * 24)
+    assert db.minimax_frames(0.01) >= 5
+
+
+def test_within_tolerance():
     assert db.within_tolerance(80, 80)
     assert db.within_tolerance(86, 80, tolerance_percent=10)
     assert not db.within_tolerance(100, 80, tolerance_percent=10)
 
 
-# --- panel_crop --------------------------------------------------------------
+# --- minimax_workflow: pure helpers ------------------------------------------
 
-def test_album_grid_shape_v3_is_4x2():
-    assert panel_crop.album_grid_shape(8) == (4, 2)
-    assert panel_crop.album_grid_shape(8, cols=2) == (4, 2)
+def test_resolution_for_matches_workflow_table():
+    from tools.minimax_workflow import resolution_for
 
-
-def test_fallback_panel_bboxes_row_major():
-    bboxes = panel_crop.fallback_panel_bboxes(8)
-    assert len(bboxes) == 8
-    # 4 rows x 2 cols: each cell is 0.5 wide, 0.25 tall
-    assert bboxes[0] == {"x": 0.0, "y": 0.0, "w": 0.5, "h": 0.25}
-    assert bboxes[1] == {"x": 0.5, "y": 0.0, "w": 0.5, "h": 0.25}
-    assert bboxes[2] == {"x": 0.0, "y": 0.25, "w": 0.5, "h": 0.25}
-    assert bboxes[3] == {"x": 0.5, "y": 0.25, "w": 0.5, "h": 0.25}
-    assert bboxes[7] == {"x": 0.5, "y": 0.75, "w": 0.5, "h": 0.25}
-
-
-def test_crop_panel(tmp_path):
-    from PIL import Image
-
-    sheet = Image.new("RGB", (1024, 1792), (255, 255, 255))
-    sheet_path = tmp_path / "sheet.png"
-    sheet.save(sheet_path)
-    out = tmp_path / "panel_11.png"
-    panel_crop.crop_panel(str(sheet_path), {"x": 0.0, "y": 0.0, "w": 0.5, "h": 0.25}, str(out))
-    assert out.is_file()
-    with Image.open(out) as im:
-        assert im.size == (512, 448)
+    assert resolution_for(0.6, "16:9") == (1056, 608)
+    assert resolution_for(0.2, "16:9") == (608, 352)
+    w, h = resolution_for(0.6, "16:9")
+    assert w % 32 == 0 and h % 32 == 0
 
 
 # --- validators: inline parsers ---------------------------------------------
@@ -81,90 +64,92 @@ def test_parse_cid_list():
     assert validators.parse_cid_list("[]") == []
 
 
-def test_parse_depth_map():
-    assert validators.parse_depth_map("{char_01:2, char_02:3}") == {"char_01": 2, "char_02": 3}
-    assert validators.parse_depth_map("{char_01:7}") == {"char_01": 7}
-
-
-def test_parse_position_map():
-    assert validators.parse_position_map("{char_01:[0.5,0.5], char_02:[0.7,0.5]}") == {
-        "char_01": [0.5, 0.5], "char_02": [0.7, 0.5]
-    }
+def test_parse_int_list():
+    assert validators.parse_int_list("[1, 2, 3]") == [1, 2, 3]
+    assert validators.parse_int_list("[1, x]") == [1, -1]
 
 
 # --- validators: scenes ------------------------------------------------------
 
 SCENES_MD = textwrap.dedent("""
     # Scenes
-    target_seconds: 150
+    target_seconds: 55
     scene_budget: 70
 
-    ## Scene s1 — Rabbit sledge
+    ## Scene s1 — Baby meets dino
     scene_id: s1
-    target_seconds: 80
-    cast: [char_01, char_02, char_03]
-    characters_present: [char_01, char_02, char_03]
-    location_id: loc_forest
-    beat: Rabbit and deer talk.
+    target_seconds: 27
+    cast: [char_01, char_02]
+    characters_present: [char_01, char_02]
+    location_id: loc_basement
+    beat: Baby flees the dino, then befriends it.
 
-    ## Scene s2 — Rabbit meets tortoise
+    ## Scene s2 — Up the stairs
     scene_id: s2
-    target_seconds: 70
-    cast: [char_01, char_04]
-    characters_present: [char_01, char_04]
-    location_id: loc_forest
-    beat: Tortoise challenges rabbit.
+    target_seconds: 28
+    cast: [char_01, char_02]
+    characters_present: [char_01, char_02]
+    location_id: loc_basement
+    beat: They climb toward the light together.
 """).strip()
 
 
 def test_validate_scenes_pass():
-    res = validators.validate_scenes(SCENES_MD, target_seconds=150)
+    res = validators.validate_scenes(SCENES_MD, target_seconds=55)
     assert res.ok, res.errors
 
 
 def test_validate_scenes_fail_missing_location():
-    bad = SCENES_MD.replace("location_id: loc_forest\nbeat: Rabbit and deer talk.",
-                            "beat: Rabbit and deer talk.")
-    res = validators.validate_scenes(bad, target_seconds=150)
+    bad = SCENES_MD.replace("location_id: loc_basement\nbeat: Baby flees the dino, then befriends it.",
+                            "beat: Baby flees the dino, then befriends it.")
+    res = validators.validate_scenes(bad, target_seconds=55)
     assert not res.ok
     assert any("location_id" in e for e in res.errors)
 
 
-# --- validators: storyboard --------------------------------------------------
+# --- validators: storyboard (generations + 15s rule) --------------------------
 
 STORYBOARD_MD = textwrap.dedent("""
-    # Scene s1 — Rabbit sledge
-    target_seconds: 80
-    cast: [char_01, char_02, char_03]
-    location_ref_id: loc_forest
+    # Scene s1 — Baby meets dino
+    scene_id: s1
+    target_seconds: 27
+    cast: [char_01, char_02]
+    location_ref_id: loc_basement
 
-    ## Row 1 (LTX session 1)
-    | col | shot_id | duration_seconds | characters_present | depth_per_char | camera_angle | position_xy | looks_at | expression | mood | intent | facing | angle | spatial_relation | must_not_show |
-    | 1 | s1_p1 | 10 | [char_01] | {char_01:2} | eye_level | {char_01:[0.5,0.5]} | char_02 | stern | tense | confront | forward | 15deg | char_01 centered alone | no char_02, no char_03 |
-    | 2 | s1_p2 | 10 | [char_01,char_02] | {char_01:3,char_02:2} | over_shoulder | {char_01:[0.3,0.5],char_02:[0.7,0.5]} | char_01 | alarmed | rising | defend | left | 0deg | char_02 enters right, 40% gap | no char_03 |
-    | 3 | s1_p3 | 10 | [char_01,char_02] | {char_01:3,char_02:2} | eye_level | {char_01:[0.3,0.5],char_02:[0.7,0.5]} | char_02 | amused | playful | mock | right | 5deg | char_02 leans closer to char_01 | no char_03 |
-    | 4 | s1_p4 | 10 | [char_01,char_02,char_03] | {char_01:3,char_02:2,char_03:4} | wide | {char_01:[0.3,0.5],char_02:[0.7,0.5],char_03:[0.5,0.8]} | char_03 | sad | somber | reveal | forward | 0deg | char_03 deep background center | no extra characters |
+    ## Generation g1 — 0.0-15.0s
+    duration_seconds: 15.0
+    panel_grid: 2x3
 
-    ## Row 2 (LTX session 2)
-    | col | shot_id | duration_seconds | characters_present | depth_per_char | camera_angle | position_xy | looks_at | expression | mood | intent | facing | angle | spatial_relation | must_not_show |
-    | 1 | s1_p5 | 10 | [char_03] | {char_03:2} | close_up | {char_03:[0.5,0.5]} | none | tearful | sad | pity | forward | 0deg | char_03 centered close | no char_01, no char_02 |
-    | 2 | s1_p6 | 10 | [char_01,char_02] | {char_01:2,char_02:2} | two_shot | {char_01:[0.4,0.5],char_02:[0.6,0.5]} | char_02 | guilty | tense | regret | left | 10deg | char_01 left, char_02 right | no char_03 |
-    | 3 | s1_p7 | 10 | [char_01] | {char_01:2} | medium | {char_01:[0.5,0.5]} | none | resolved | determined | resolve | forward | 0deg | char_01 alone center | no char_02, no char_03 |
-    | 4 | s1_p8 | 10 | [char_01,char_02] | {char_01:2,char_02:3} | wide | {char_01:[0.4,0.5],char_02:[0.6,0.6]} | char_02 | calm | calm | settle | right | 0deg | char_02 one step back right | no char_03 |
+    ### Shot 1 — 0.0-7.2s (continuous)
+    panels: [1, 2, 3]
+    characters_present: [char_01, char_02]
+    action: The baby runs down the corridor; the dino bounces behind; the baby hits a dead end and throws a stick.
+    camera: Handheld tracking shot behind the baby, then arc shot to a front three-quarter angle.
+    audio: Little footsteps, excited chirps, stick clattering.
+    dialogue:
 
-    ## Inter-column motion deltas (row 1)
-    | from -> to | depth_delta | camera_motion_hint |
-    | s1_p1->s1_p2 | char_01: 2->3 (+1 recede) | push_in |
-    | s1_p2->s1_p3 | char_01: 3->3 (hold) | pan |
+    ### Shot 2 — 7.2-15.0s (hard_cut)
+    panels: [4, 5, 6]
+    characters_present: [char_01, char_02]
+    action: The baby leaps, lands on the dino; they tumble; fear melts into a first pat.
+    camera: Tracking Shot from a low side angle, then slow Push In at slow speed.
+    audio: Soft thud, warm strings.
+    dialogue: char_02: "Mama."
 
-    ## Inter-column motion deltas (row 2)
-    | from -> to | depth_delta | camera_motion_hint |
-    | s1_p5->s1_p6 | char_01: 2->2 (hold) | static |
+    ## Generation g2 — 15.0-27.0s
+    duration_seconds: 12.0
+    panel_grid: 2x2
+
+    ### Shot 1 — 15.0-27.0s (continuous)
+    panels: [1, 2, 3, 4]
+    characters_present: [char_01, char_02]
+    action: The baby pets the dino; the dino leans in; both smile in the dusty half-light.
+    camera: Static Shot, then Zoom In with small amplitude at slow speed.
+    audio: Calm ambience, music softens.
+    dialogue:
 
     ## Scene-end handoff -> scene s2
     on_screen: [char_01, char_02]
-    positions: {char_01:[0.4,0.5], char_02:[0.6,0.6]}
-    facing: {char_01: left, char_02: right}
     mood: calm
     transition: hard_cut
 """).strip()
@@ -176,71 +161,121 @@ def test_validate_storyboard_pass():
     assert res.ok, res.errors
 
 
-def test_validate_storyboard_catches_depth_and_invented_char():
-    bad = STORYBOARD_MD.replace("{char_01:2}", "{char_01:7}", 1).replace(
-        "[char_01]", "[char_01,char_99]", 1
-    )
+def test_validate_storyboard_catches_over_15s_generation():
+    bad = STORYBOARD_MD.replace("## Generation g1 — 0.0-15.0s", "## Generation g1 — 0.0-16.0s") \
+                       .replace("duration_seconds: 15.0", "duration_seconds: 16.0") \
+                       .replace("### Shot 2 — 7.2-15.0s (hard_cut)", "### Shot 2 — 7.2-16.0s (hard_cut)") \
+                       .replace("## Generation g2 — 15.0-27.0s", "## Generation g2 — 16.0-27.0s") \
+                       .replace("### Shot 1 — 15.0-27.0s (continuous)", "### Shot 1 — 16.0-27.0s (continuous)") \
+                       .replace("duration_seconds: 12.0", "duration_seconds: 11.0")
+    res = validators.validate_storyboard(bad)
+    assert not res.ok
+    assert any("15s per generation" in e or "outside [5,15]" in e for e in res.errors)
+
+
+def test_validate_storyboard_catches_shot_straddling_boundary():
+    bad = STORYBOARD_MD.replace("### Shot 2 — 7.2-15.0s (hard_cut)", "### Shot 2 — 7.2-17.0s (hard_cut)")
+    res = validators.validate_storyboard(bad)
+    assert not res.ok
+    assert any("straddle" in e or "leaves generation" in e for e in res.errors)
+
+
+def test_validate_storyboard_catches_invented_char_and_bad_panels():
+    bad = STORYBOARD_MD.replace("characters_present: [char_01, char_02]",
+                                "characters_present: [char_01, char_99]", 1) \
+                       .replace("panels: [4, 5, 6]", "panels: [4, 5]")
     res = validators.validate_storyboard(bad)
     assert not res.ok
     assert any("char_99" in e for e in res.errors)
-    assert any("outside [1,5]" in e for e in res.errors)
+    assert any("exactly once" in e for e in res.errors)
 
 
-def test_validate_storyboard_catches_wrong_cell_count():
-    # Drop one row -> only 4 cells.
-    bad = STORYBOARD_MD.split("## Row 2")[0]
+def test_validate_storyboard_catches_gap_between_generations():
+    bad = STORYBOARD_MD.replace("## Generation g2 — 15.0-27.0s", "## Generation g2 — 16.0-27.0s")
     res = validators.validate_storyboard(bad)
     assert not res.ok
-    assert any("expected 2 rows" in e or "cells" in e for e in res.errors)
+    assert any("contiguous" in e for e in res.errors)
 
 
-# --- validators: motion ------------------------------------------------------
-
-MOTION_JSON = textwrap.dedent("""
-    {
-      "scene_id": "s1",
-      "scene_global_prompt": "warm forest",
-      "render_units": [
-        {"unit_id": "s1_r1_c1", "duration_seconds": 13, "motion_class": "talking", "guidance": "balanced", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p1", "placement": "start"}, {"panel_id": "s1_p2", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"},
-        {"unit_id": "s1_r1_c2", "duration_seconds": 14, "motion_class": "walking", "guidance": "prompt_follow", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p2", "placement": "start"}, {"panel_id": "s1_p3", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"},
-        {"unit_id": "s1_r1_c3", "duration_seconds": 13, "motion_class": "large_reveal", "guidance": "balanced", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p3", "placement": "start"}, {"panel_id": "s1_p4", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"},
-        {"unit_id": "s1_r2_c1", "duration_seconds": 13, "motion_class": "talking", "guidance": "balanced", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p5", "placement": "start"}, {"panel_id": "s1_p6", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"},
-        {"unit_id": "s1_r2_c2", "duration_seconds": 14, "motion_class": "general", "guidance": "balanced", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p6", "placement": "start"}, {"panel_id": "s1_p7", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"},
-        {"unit_id": "s1_r2_c3", "duration_seconds": 13, "motion_class": "general", "guidance": "balanced", "global_prompt": "warm", "guide_frames": [{"panel_id": "s1_p7", "placement": "start"}, {"panel_id": "s1_p8", "placement": "end", "is_end_frame": true}], "motion_segments": [{"start_ratio": 0.0, "end_ratio": 1.0, "prompt": "b"}], "motion_prompt": "f"}
-      ]
-    }
-""").strip()  # 13+14+13 + 13+14+13 = 80s == storyboard target
+def test_validate_storyboard_warns_on_unknown_camera_term():
+    noisy = STORYBOARD_MD.replace(
+        "camera: Static Shot, then Zoom In with small amplitude at slow speed.",
+        "camera: The camera does something artistic.",
+    )
+    res = validators.validate_storyboard(noisy)
+    assert res.ok, res.errors
+    assert any("motion term" in w for w in res.warnings)
 
 
-def test_validate_motion_pass():
-    sb = validators.parse_storyboard(STORYBOARD_MD)
-    res = validators.validate_motion(MOTION_JSON, sb=sb)
+# --- validators: video_prompt --------------------------------------------------
+
+GOOD_PROMPT = textwrap.dedent("""
+    Reference
+
+    Use the provided storyboard as the exact visual guide for composition,
+    framing, character appearance, environment, and sequence progression.
+
+    Maintain the exact appearance of the toddler in the white onesie and the
+    tiny green dinosaur with large yellow eyes throughout.
+
+    Pixar-quality cinematic 3D animation.
+
+    Timeline
+
+    SHOT 1 — 0.0–7.2s (Continuous Shot)
+
+    The baby runs through the corridor. The dino happily chases.
+    Begin with a handheld tracking shot following behind the baby.
+
+    Hard cinematic cut.
+
+    SHOT 2 — 7.2–15.0s (Continuous Shot)
+
+    The baby leaps and lands on the dino. They tumble gently.
+    The dinosaur softly says,
+    "Mama."
+    Finish with a slow push in.
+
+    Final frame:
+    The baby pets the smiling dinosaur.
+
+    Negative Prompt
+
+    No identity changes.
+    No text.
+    No watermark.
+""").strip()
+
+
+def _sb():
+    return validators.parse_storyboard(STORYBOARD_MD)
+
+
+def test_validate_video_prompt_pass():
+    res = validators.validate_video_prompt(GOOD_PROMPT, _sb(), "g1")
     assert res.ok, res.errors
 
 
-def test_validate_motion_catches_bad_enum_and_workflow():
-    # Inject a forbidden workflow key on the first unit, and a bad enum on the second.
-    bad = MOTION_JSON.replace(
-        '"unit_id": "s1_r1_c1", "duration_seconds": 13, "motion_class": "talking"',
-        '"unit_id": "s1_r1_c1", "duration_seconds": 13, "motion_class": "talking", "workflow": "flf2v"',
-        1,
-    ).replace('"motion_class": "walking"', '"motion_class": "sprinting"', 1)
-    res = validators.validate_motion(bad)
+def test_validate_video_prompt_catches_wrong_ranges():
+    bad = GOOD_PROMPT.replace("SHOT 2 — 7.2–15.0s", "SHOT 2 — 7.2–14.0s")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
     assert not res.ok
-    assert any("invalid motion_class" in e for e in res.errors)
-    assert any("must NOT set 'workflow'" in e for e in res.errors)
+    assert any("SHOT 2" in e for e in res.errors)
 
 
-def test_validate_motion_catches_broken_intra_row_boundary():
-    # Unit 2 start -> s1_p3 (should be s1_p2 to chain from unit 1's end).
-    bad = MOTION_JSON.replace('"s1_p2", "placement": "start"', '"s1_p3", "placement": "start"', 1)
-    res = validators.validate_motion(bad)
+def test_validate_video_prompt_catches_char_ids_and_missing_negative():
+    bad = GOOD_PROMPT.replace("the toddler in the white onesie", "char_01") \
+                     .replace("Negative Prompt", "Closing Notes")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
     assert not res.ok
-    assert any("FLF2V chain broken" in e for e in res.errors)
+    assert any("char_01" in e for e in res.errors)
+    assert any("Negative Prompt" in e for e in res.errors)
 
 
-def test_validate_motion_row_break_is_not_a_chain_error():
-    # Row 2 starts at s1_p5 != row1 end s1_p3 -> that's a cut, must NOT error.
-    res = validators.validate_motion(MOTION_JSON)
+def test_validate_video_prompt_generation_local_times():
+    # g2 is 15.0-27.0 scene-relative -> prompt must be 0.0-12.0 local.
+    g2_prompt = GOOD_PROMPT.replace("SHOT 1 — 0.0–7.2s (Continuous Shot)", "SHOT 1 — 0.0–12.0s (Continuous Shot)")
+    # strip the second shot block
+    g2_prompt = g2_prompt.split("Hard cinematic cut.")[0] + "\nFinal frame:\nCalm.\n\nNegative Prompt\n\nNo text."
+    res = validators.validate_video_prompt(g2_prompt, _sb(), "g2")
     assert res.ok, res.errors
-    assert not any("FLF2V chain broken" in e for e in res.errors)

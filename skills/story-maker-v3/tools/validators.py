@@ -1,51 +1,50 @@
-"""Deterministic validators for story-maker-v3.
+"""Deterministic validators for story-maker-v3 (Minimax H3 backend).
 
 Run after each authoring agent to catch hallucination BEFORE any paid image /
-render step. Each validator parses a markdown/JSON artifact, asserts the locked
+render step. Each validator parses a markdown/text artifact, asserts the locked
 schema, and returns a :class:`ValidationResult`. The CLI
 (``scripts/validate.py``) writes ``<artifact>.validation.json`` and exits
 nonzero on failure; Claude Code loops (write -> validate -> fix) until pass.
 
 No LLM calls. Pure parsing + assertions.
 
-Schemas enforced (see plan):
-  scenes      -> scene_count>=1; each scene has scene_id/target_seconds/cast/location_id;
-                 sum(targets) ~= run target.
-  storyboard  -> exactly 9 cells (3 rows x 3 cols); all 13 fields; depth in 1-5;
-                 position_xy in [0,1]; duration in [9,15]; row/scene sums = target_seconds;
-                 characters_present subset of cast; all 3 delta tables + handoff present.
-  prompts     -> every panel has a prompt; references correct char cids + location id;
-                 no invented characters.
-  motion      -> every render_unit has guide_frames + motion_segments + valid enums;
-                 row units share boundary panels (end(K)==start(K+1)); workflow not set
-                 by agent; sum(unit durations) = scene target.
+Schemas enforced:
+  scenes        -> scene_count>=1; each scene has scene_id/target_seconds/cast/location_id;
+                   sum(targets) ~= run target.
+  storyboard    -> scene split into generations (each 5-15s, contiguous, sum ==
+                   target_seconds); shots contiguous within each generation and
+                   NEVER straddling a generation boundary; panels sequential and
+                   matching the panel_grid; characters_present subset of cast.
+  prompts       -> char/location prompt files + one storyboard sheet prompt per
+                   generation exist and are non-empty.
+  video_prompt  -> per-generation Minimax timeline prompt: SHOT lines match the
+                   storyboard's generation-local shot ranges; has a Negative
+                   Prompt section; references the storyboard; no char_NN tokens.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from . import duration_budget
-from .ltx_render_params import (
-    GUIDANCE_LEVELS,
-    MOTION_CLASSES,
-    _GUIDANCE_ALIASES,
-    _MOTION_ALIASES,
+
+# Minimax H3 camera motion vocabulary (Motion type dimension). Used as a
+# warn-only check that shot `camera:` fields speak the model's language.
+MINIMAX_MOTION_TERMS = (
+    "zoom in", "zoom out", "push in", "pull out", "pan left", "pan right",
+    "truck left", "truck right", "tilt up", "tilt down", "pedestal up",
+    "pedestal down", "arc shot", "tracking shot", "static shot",
+    "shake slightly", "shake strongly", "pov", "roll clockwise",
+    "roll counterclockwise",
+    # common free-form cinematic phrasing Minimax also follows well
+    "dolly", "crane", "whip pan", "orbit", "handheld", "push-in", "pullback",
+    "pull back", "zoom-in", "zoom-out",
 )
 
-# 13 storyboard cell columns (in order).
-CELL_COLUMNS = [
-    "col", "shot_id", "duration_seconds", "characters_present", "depth_per_char",
-    "camera_angle", "position_xy", "looks_at", "expression", "mood", "intent",
-    "facing", "angle", "spatial_relation", "must_not_show",
-]
-
-VALID_MOTION_CLASS_TOKENS = set(MOTION_CLASSES) | set(_MOTION_ALIASES.keys())
-VALID_GUIDANCE_TOKENS = set(GUIDANCE_LEVELS) | set(_GUIDANCE_ALIASES.keys())
+SHOT_TRANSITIONS = ("continuous", "hard_cut")
 
 
 @dataclass
@@ -84,73 +83,15 @@ def parse_cid_list(text: str) -> list[str]:
     return [c.strip() for c in inner.split(",") if c.strip()]
 
 
-def parse_depth_map(text: str) -> dict[str, int]:
-    """``{cid_a:2, cid_b:3}`` -> {'cid_a': 2, 'cid_b': 3}."""
-    inner = _strip_brackets(text, "{", "}")
-    out: dict[str, int] = {}
-    if not inner:
-        return out
-    for pair in _split_top_level(inner, ","):
-        if ":" not in pair:
-            continue
-        key, _, val = pair.partition(":")
-        key = key.strip()
+def parse_int_list(text: str) -> list[int]:
+    """``[1, 2, 3]`` -> [1, 2, 3]; unparseable entries become -1."""
+    out: list[int] = []
+    for tok in parse_cid_list(text):
         try:
-            out[key] = int(val.strip())
+            out.append(int(tok))
         except ValueError:
-            out[key] = -1
+            out.append(-1)
     return out
-
-
-def parse_position_map(text: str) -> dict[str, list[float]]:
-    """``{cid_a:[0.5,0.5], cid_b:[0.7,0.5]}`` -> {'cid_a': [0.5, 0.5], ...}."""
-    inner = _strip_brackets(text, "{", "}")
-    out: dict[str, list[float]] = {}
-    if not inner:
-        return out
-    # match key:[x, y]
-    for m in re.finditer(r"([A-Za-z0-9_]+)\s*:\s*\[([^\]]*)\]", inner):
-        key = m.group(1).strip()
-        coords = [c.strip() for c in m.group(2).split(",") if c.strip()]
-        try:
-            out[key] = [float(c) for c in coords]
-        except ValueError:
-            out[key] = []
-    return out
-
-
-def parse_facing_map(text: str) -> dict[str, str]:
-    """``{cid_a: left, cid_b: right}`` -> {'cid_a': 'left', ...}."""
-    inner = _strip_brackets(text, "{", "}")
-    out: dict[str, str] = {}
-    if not inner:
-        return out
-    for pair in _split_top_level(inner, ","):
-        if ":" not in pair:
-            continue
-        key, _, val = pair.partition(":")
-        out[key.strip()] = val.strip()
-    return out
-
-
-def _split_top_level(text: str, sep: str) -> list[str]:
-    """Split on ``sep`` but not inside [] or {}."""
-    parts: list[str] = []
-    depth = 0
-    cur = ""
-    for ch in text:
-        if ch in "[{":
-            depth += 1
-        elif ch in "]}":
-            depth -= 1
-        if ch == sep and depth == 0:
-            parts.append(cur)
-            cur = ""
-        else:
-            cur += ch
-    if cur.strip():
-        parts.append(cur)
-    return parts
 
 
 def _kv_lines(block: str) -> dict[str, str]:
@@ -166,23 +107,15 @@ def _kv_lines(block: str) -> dict[str, str]:
     return out
 
 
-def _parse_table(block: str) -> tuple[list[str], list[list[str]]]:
-    """Parse a markdown table inside ``block`` -> (headers, rows)."""
-    headers: list[str] = []
-    rows: list[list[str]] = []
-    for line in block.splitlines():
-        line = line.strip()
-        if not line.startswith("|"):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        # separator row like |---|---|
-        if all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c != ""):
-            continue
-        if not headers:
-            headers = cells
-            continue
-        rows.append(cells)
-    return headers, rows
+# time range like ``0.0-15.0s`` / ``0.0–15.0s`` / ``7.2 - 15s``
+_RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[–—-]\s*(\d+(?:\.\d+)?)\s*s?")
+
+
+def _parse_range(text: str) -> tuple[float, float] | None:
+    m = _RANGE_RE.search(text or "")
+    if not m:
+        return None
+    return float(m.group(1)), float(m.group(2))
 
 
 # ---------------------------------------------------------------------------
@@ -220,77 +153,127 @@ def parse_scenes(md: str) -> dict[str, Any]:
     return {"target_seconds": target, "scene_budget": budget, "scenes": scenes}
 
 
+_GEN_HEADER_RE = re.compile(r"^## Generation (g\d+)\s*[—-]\s*(.*)$")
+_SHOT_HEADER_RE = re.compile(r"^### Shot (\d+)\s*[—-]\s*([^()]*)(?:\((\w+)\))?\s*$")
+
+
 def parse_storyboard(md: str) -> dict[str, Any]:
-    """Parse storyboard_<scene>.md -> structured dict."""
-    head_kv = _kv_lines(md.split("## Row", 1)[0])
-    scene_id = head_kv.get("scene_id", "").strip()
+    """Parse storyboard_<scene>.md -> {scene_id, target_seconds, cast, generations}."""
+    lines = md.splitlines()
     title = ""
-    m = re.match(r"^# Scene (\S+)\s*[—-]\s*(.*)$", md.splitlines()[0].strip()) if md.splitlines() else None
+    m = re.match(r"^# Scene (\S+)\s*[—-]\s*(.*)$", lines[0].strip()) if lines else None
+    head_end = next((i for i, l in enumerate(lines) if l.startswith("## ")), len(lines))
+    head_kv = _kv_lines("\n".join(lines[:head_end]))
+    scene_id = head_kv.get("scene_id", "").strip()
     if m:
         scene_id = scene_id or m.group(1)
         title = m.group(2).strip()
-    target = int(head_kv.get("target_seconds", "0") or 0)
-    cast = parse_cid_list(head_kv.get("cast", ""))
-    location_ref_id = head_kv.get("location_ref_id", "").strip()
 
-    # Split into sections by ## headers.
-    sections: dict[str, str] = {}
-    cur_key = "_pre"
-    cur_lines: list[str] = []
-    for line in md.splitlines():
-        if line.startswith("## "):
-            cur_key = line[3:].strip().lower()
-            cur_lines = []
-            sections[cur_key] = cur_lines
-        else:
-            cur_lines.append(line)
-    sections[cur_key] = cur_lines  # last
-
-    def _row_cells(key: str) -> list[dict[str, str]]:
-        block = "\n".join(sections.get(key, []))
-        headers, rows = _parse_table(block)
-        cells: list[dict[str, str]] = []
-        for row in rows:
-            cell = {h: v for h, v in zip(headers, row)}
-            cells.append(cell)
-        return cells
-
-    rows: list[list[dict[str, str]]] = []
-    deltas: list[list[dict[str, str]]] = []
-    for ri in range(1, duration_budget.SCENE_ROWS + 1):
-        rows.append(_row_cells(f"row {ri} (ltx session {ri})") or _row_cells(f"row {ri}"))
-        deltas.append(_row_cells(f"inter-column motion deltas (row {ri})"))
-
+    generations: list[dict[str, Any]] = []
     handoff: dict[str, Any] = {}
-    handoff_block: list[str] = []
-    for key, lines in sections.items():
-        if key.startswith("scene-end handoff") or key.startswith("handoff"):
-            handoff_block = lines
-            break
-    if handoff_block:
-        hkv = _kv_lines("\n".join(handoff_block))
+    cur_gen: dict[str, Any] | None = None
+    cur_shot: dict[str, Any] | None = None
+    cur_block: list[str] = []
+    in_handoff = False
+    handoff_lines: list[str] = []
+
+    def _flush_shot() -> None:
+        nonlocal cur_shot
+        if cur_shot is None:
+            return
+        kv = _kv_lines("\n".join(cur_block))
+        cur_shot.update({
+            "panels": parse_int_list(kv.get("panels", "")),
+            "characters_present": parse_cid_list(kv.get("characters_present", "")),
+            "action": kv.get("action", "").strip(),
+            "camera": kv.get("camera", "").strip(),
+            "audio": kv.get("audio", "").strip(),
+            "dialogue": kv.get("dialogue", "").strip(),
+        })
+        cur_gen["shots"].append(cur_shot)
+        cur_shot = None
+
+    def _flush_gen() -> None:
+        nonlocal cur_gen
+        _flush_shot()
+        if cur_gen is not None:
+            generations.append(cur_gen)
+        cur_gen = None
+
+    for line in lines:
+        gm = _GEN_HEADER_RE.match(line)
+        if gm:
+            _flush_gen()
+            in_handoff = False
+            rng = _parse_range(gm.group(2))
+            cur_gen = {
+                "gen_id": gm.group(1),
+                "start": rng[0] if rng else None,
+                "end": rng[1] if rng else None,
+                "duration_seconds": None,
+                "panel_grid": "",
+                "shots": [],
+            }
+            cur_block = []
+            continue
+        if line.startswith("## "):
+            _flush_gen()
+            in_handoff = line[3:].strip().lower().startswith(("scene-end handoff", "handoff"))
+            handoff_lines = []
+            continue
+        sm = _SHOT_HEADER_RE.match(line)
+        if sm and cur_gen is not None:
+            _flush_shot()
+            rng = _parse_range(sm.group(2))
+            cur_shot = {
+                "shot": int(sm.group(1)),
+                "start": rng[0] if rng else None,
+                "end": rng[1] if rng else None,
+                "transition": (sm.group(3) or "").strip().lower(),
+            }
+            cur_block = []
+            continue
+        if in_handoff:
+            handoff_lines.append(line)
+        if cur_gen is not None and cur_shot is None:
+            kv = _kv_lines(line)
+            if "duration_seconds" in kv:
+                try:
+                    cur_gen["duration_seconds"] = float(kv["duration_seconds"])
+                except ValueError:
+                    cur_gen["duration_seconds"] = -1.0
+            if "panel_grid" in kv:
+                cur_gen["panel_grid"] = kv["panel_grid"]
+        cur_block.append(line)
+    _flush_gen()
+
+    if handoff_lines:
+        hkv = _kv_lines("\n".join(handoff_lines))
         handoff = {
             "on_screen": parse_cid_list(hkv.get("on_screen", "")),
-            "positions": parse_position_map(hkv.get("positions", "")),
-            "facing": parse_facing_map(hkv.get("facing", "")),
             "mood": hkv.get("mood", "").strip(),
             "transition": hkv.get("transition", "hard_cut").strip(),
-            "next_scene_id": (re.search(r"->\s*scene\s+(\S+)", "\n".join(handoff_block)) or [None, None])[1] if False else "",
         }
-        nm = re.search(r"->\s*scene\s+(\S+)", "\n".join(handoff_block))
+        nm = re.search(r"->\s*scene\s+(\S+)", "\n".join(handoff_lines))
         if nm:
             handoff["next_scene_id"] = nm.group(1).strip()
 
     return {
         "scene_id": scene_id,
         "title": title,
-        "target_seconds": target,
-        "cast": cast,
-        "location_ref_id": location_ref_id,
-        "rows": rows,
-        "deltas": deltas,
+        "target_seconds": int(head_kv.get("target_seconds", "0") or 0),
+        "cast": parse_cid_list(head_kv.get("cast", "")),
+        "location_ref_id": head_kv.get("location_ref_id", "").strip(),
+        "generations": generations,
         "handoff": handoff,
     }
+
+
+def _parse_grid(text: str) -> tuple[int, int] | None:
+    m = re.fullmatch(r"(\d+)\s*[x×]\s*(\d+)", (text or "").strip())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
 
 
 # ---------------------------------------------------------------------------
@@ -326,67 +309,97 @@ def validate_scenes(md: str, target_seconds: int | None = None, tolerance_percen
     return res
 
 
-def _validate_cell(res: ValidationResult, cell: dict[str, str], cast: set[str], scene_id: str, idx: int) -> int:
-    """Validate one storyboard cell; return its duration_seconds (0 if invalid)."""
-    label = f"{scene_id} cell {idx}"
-    for col in CELL_COLUMNS:
-        if col not in cell or not cell[col].strip():
-            res.error(f"{label}: missing field '{col}'")
-    dur_raw = cell.get("duration_seconds", "0").strip()
-    try:
-        dur = int(dur_raw)
-    except ValueError:
-        res.error(f"{label}: duration_seconds not an int ({dur_raw!r})")
-        dur = 0
-    if dur != 0 and not (duration_budget.PANEL_MIN <= dur <= duration_budget.PANEL_MAX):
-        res.error(f"{label}: duration_seconds {dur} outside [{duration_budget.PANEL_MIN},{duration_budget.PANEL_MAX}]")
-    chars = parse_cid_list(cell.get("characters_present", ""))
-    for c in chars:
-        if c and c not in cast:
-            res.error(f"{label}: characters_present has '{c}' not in scene cast")
-    depth = parse_depth_map(cell.get("depth_per_char", ""))
-    for cid, d in depth.items():
-        if not (1 <= d <= 5):
-            res.error(f"{label}: depth for {cid} = {d} outside [1,5]")
-    pos = parse_position_map(cell.get("position_xy", ""))
-    for cid, coords in pos.items():
-        if len(coords) != 2 or not all(0.0 <= v <= 1.0 for v in coords):
-            res.error(f"{label}: position_xy for {cid} = {coords} not in [0,1]^2")
-    return dur
-
-
 def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> ValidationResult:
     res = ValidationResult()
     sb = parse_storyboard(md)
     sid = sb["scene_id"] or "<unknown>"
     cast = set(sb["cast"])
+    eps = duration_budget.TIME_EPS
     if not cast:
         res.error(f"scene {sid}: cast is empty")
 
-    rows = sb["rows"]
-    if len(rows) != duration_budget.SCENE_ROWS:
-        res.error(f"scene {sid}: expected {duration_budget.SCENE_ROWS} rows, got {len(rows)}")
-    row_totals: list[int] = []
-    for ri, row in enumerate(rows):
-        if len(row) != duration_budget.ROW_PANELS:
-            res.error(f"scene {sid} row {ri+1}: expected {duration_budget.ROW_PANELS} cells, got {len(row)}")
-        rtotal = 0
-        for ci, cell in enumerate(row):
-            rtotal += _validate_cell(res, cell, cast, sid, ri * duration_budget.ROW_PANELS + ci + 1)
-        row_totals.append(rtotal)
-        if rtotal > duration_budget.ROW_MAX:
-            res.error(f"scene {sid} row {ri+1}: row total {rtotal}s exceeds ROW_MAX {duration_budget.ROW_MAX}s")
+    gens = sb["generations"]
+    if not gens:
+        res.error(f"scene {sid}: no '## Generation gN — a-b s' blocks parsed")
+        return res
 
-    if len(sb["deltas"]) < duration_budget.SCENE_ROWS or any(not d for d in sb["deltas"][:duration_budget.SCENE_ROWS]):
-        res.error(f"scene {sid}: all {duration_budget.SCENE_ROWS} inter-column motion delta tables must be present")
+    prev_end = 0.0
+    total = 0.0
+    for gen in gens:
+        gid = f"{sid}/{gen['gen_id']}"
+        if gen["start"] is None or gen["end"] is None:
+            res.error(f"{gid}: header must carry a scene-relative time range (e.g. '## Generation g1 — 0.0-15.0s')")
+            continue
+        dur = gen["end"] - gen["start"]
+        if abs(gen["start"] - prev_end) > eps:
+            res.error(f"{gid}: starts at {gen['start']}s but previous generation ended at {prev_end}s (must be contiguous)")
+        if not (duration_budget.GEN_MIN - eps <= dur <= duration_budget.GEN_MAX + eps):
+            res.error(
+                f"{gid}: duration {dur:.1f}s outside [{duration_budget.GEN_MIN:.0f},"
+                f"{duration_budget.GEN_MAX:.0f}] — Minimax H3 renders at most "
+                f"{duration_budget.GEN_MAX:.0f}s per generation"
+            )
+        if gen["duration_seconds"] is not None and abs(gen["duration_seconds"] - dur) > eps:
+            res.error(f"{gid}: duration_seconds {gen['duration_seconds']} != header range ({dur:.1f}s)")
+        grid = _parse_grid(gen["panel_grid"])
+        panel_count = None
+        if grid is None:
+            res.error(f"{gid}: panel_grid missing or malformed (expected e.g. '2x3')")
+        else:
+            panel_count = grid[0] * grid[1]
+            if not (duration_budget.PANELS_MIN <= panel_count <= duration_budget.PANELS_MAX):
+                res.error(f"{gid}: panel_grid {gen['panel_grid']} gives {panel_count} panels, outside [{duration_budget.PANELS_MIN},{duration_budget.PANELS_MAX}]")
+
+        shots = gen["shots"]
+        if not shots:
+            res.error(f"{gid}: no '### Shot N — a-b s (transition)' blocks")
+        shot_prev_end = gen["start"]
+        used_panels: list[int] = []
+        for shot in shots:
+            slabel = f"{gid} shot {shot['shot']}"
+            if shot["start"] is None or shot["end"] is None:
+                res.error(f"{slabel}: header must carry a time range")
+                continue
+            if abs(shot["start"] - shot_prev_end) > eps:
+                res.error(f"{slabel}: starts at {shot['start']}s but previous shot ended at {shot_prev_end}s (shots must be contiguous)")
+            if shot["end"] > gen["end"] + eps or shot["start"] < gen["start"] - eps:
+                res.error(
+                    f"{slabel}: range {shot['start']}-{shot['end']}s leaves generation "
+                    f"{gen['start']}-{gen['end']}s — a shot must NEVER straddle a "
+                    f"generation boundary; move it to the next generation"
+                )
+            shot_prev_end = shot["end"]
+            if shot["transition"] and shot["transition"] not in SHOT_TRANSITIONS:
+                res.error(f"{slabel}: transition {shot['transition']!r} not in {SHOT_TRANSITIONS}")
+            if not shot["action"]:
+                res.error(f"{slabel}: missing 'action:'")
+            if not shot["camera"]:
+                res.error(f"{slabel}: missing 'camera:'")
+            elif not any(t in shot["camera"].lower() for t in MINIMAX_MOTION_TERMS):
+                res.warn(f"{slabel}: camera has no recognized Minimax motion term (e.g. 'Push In', 'Tracking Shot', 'Static Shot')")
+            if not shot["panels"] or -1 in shot["panels"]:
+                res.error(f"{slabel}: missing/malformed 'panels:' list")
+            else:
+                used_panels.extend(shot["panels"])
+            for c in shot["characters_present"]:
+                if c not in cast:
+                    res.error(f"{slabel}: characters_present has '{c}' not in scene cast")
+        if shots and shots[-1]["end"] is not None and abs(shots[-1]["end"] - gen["end"]) > eps:
+            res.error(f"{gid}: last shot ends at {shots[-1]['end']}s, generation ends at {gen['end']}s (must fill the generation)")
+        if panel_count is not None and used_panels:
+            expected = list(range(1, panel_count + 1))
+            if sorted(used_panels) != expected:
+                res.error(f"{gid}: shots use panels {sorted(used_panels)}; must use each of 1..{panel_count} exactly once")
+            if used_panels != sorted(used_panels):
+                res.error(f"{gid}: panels must be assigned in reading order across shots")
+        prev_end = gen["end"]
+        total = gen["end"]
+
     if not sb["handoff"]:
         res.error(f"scene {sid}: scene-end handoff block is missing")
 
-    scene_total = sum(row_totals)
-    if sb["target_seconds"] > 0 and scene_total != sb["target_seconds"]:
-        res.error(
-            f"scene {sid}: sum of cell durations ({scene_total}s) != target_seconds ({sb['target_seconds']}s)"
-        )
+    if sb["target_seconds"] > 0 and abs(total - sb["target_seconds"]) > eps:
+        res.error(f"scene {sid}: generations cover {total:.1f}s != target_seconds ({sb['target_seconds']}s)")
 
     # Cross-check against scenes.md if provided.
     if scenes:
@@ -394,9 +407,9 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         if scene_meta is None:
             res.error(f"scene {sid}: not found in scenes.md")
         else:
-            if scene_total != scene_meta["target_seconds"]:
+            if abs(total - scene_meta["target_seconds"]) > eps:
                 res.error(
-                    f"scene {sid}: storyboard total {scene_total}s != scenes.md target "
+                    f"scene {sid}: storyboard total {total:.1f}s != scenes.md target "
                     f"{scene_meta['target_seconds']}s"
                 )
             if sb["location_ref_id"] and scene_meta["location_id"] and sb["location_ref_id"] != scene_meta["location_id"]:
@@ -408,11 +421,8 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
 
 
 def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = None) -> ValidationResult:
-    """Validate pre-generation prompts: char sheets + location lock + storyboard sheet.
-
-    Panel prompts are validated separately by ``validate_panel_prompts`` after
-    the crops exist (post-crop vision pass).
-    """
+    """Validate pre-generation prompts: char sheets + location lock + one
+    storyboard sheet prompt PER GENERATION."""
     from . import image_pipeline
 
     res = ValidationResult()
@@ -422,7 +432,6 @@ def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = No
     cast = set(sb["cast"])
     loc = sb["location_ref_id"]
 
-    # Character + location prompt files.
     for cid in cast:
         p = image_pipeline.character_prompt_path(run_dir, cid)
         if not os.path.isfile(p) or not image_pipeline.read_prompt(p):
@@ -432,219 +441,62 @@ def validate_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = No
         if not os.path.isfile(p) or not image_pipeline.read_prompt(p):
             res.error(f"missing location prompt for {loc}: {p}")
 
-    # Sheet prompt.
-    sheet_p = image_pipeline.sheet_prompt_path(run_dir, scene_id)
-    if not os.path.isfile(sheet_p) or not image_pipeline.read_prompt(sheet_p):
-        res.error(f"missing storyboard sheet prompt: {sheet_p}")
+    for gen in sb["generations"]:
+        sheet_p = image_pipeline.sheet_prompt_path(run_dir, scene_id, gen["gen_id"])
+        if not os.path.isfile(sheet_p) or not image_pipeline.read_prompt(sheet_p):
+            res.error(f"missing storyboard sheet prompt for {gen['gen_id']}: {sheet_p}")
     return res
 
 
-# Phrases that indicate a negative-cast clause (banned in panel prompts).
-_NEGATIVE_CAST_RE = re.compile(
-    r"\bno\s+(humans?|people|person|dog|parrot|father|mother|child|girl|boy|"
-    r"animal|bird|horse|giraffe|cat|elephant|tiger|bear|monkey|rabbit|fox|"
-    r"extras?|new\s+characters?)\b",
-    re.IGNORECASE,
+_PROMPT_SHOT_RE = re.compile(
+    r"^SHOT\s+(\d+)\s*[—-]\s*(\d+(?:\.\d+)?)\s*[–—-]\s*(\d+(?:\.\d+)?)\s*s",
+    re.M | re.I,
 )
 
 
-def validate_panel_prompts(run_dir: str, scene_id: str, sb: dict[str, Any] | None = None) -> ValidationResult:
-    """Validate post-crop panel prompts: 9 files, pure upscale.
-
-    Rejects:
-      - Missing or empty panel prompt files.
-      - Any ``char_NN`` token (panel prompts must not name characters).
-      - Negative-cast phrasing ("No humans", "no dog", etc.).
-    """
-    from . import image_pipeline
-
+def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
+    """Validate one generation's Minimax H3 timeline prompt against the storyboard."""
     res = ValidationResult()
-    for ri in range(duration_budget.SCENE_ROWS):
-        for ci in range(duration_budget.ROW_PANELS):
-            panel_id = f"panel_{ri+1}{ci+1}"
-            p = image_pipeline.panel_prompt_path(run_dir, scene_id, panel_id)
-            if not os.path.isfile(p) or not image_pipeline.read_prompt(p):
-                res.error(f"missing panel prompt for {panel_id}: {p}")
-                continue
-            text = image_pipeline.read_prompt(p)
-            # Reject char_NN tokens — panel prompts must not name characters.
-            for tok in re.findall(r"char_\d+", text):
-                res.error(f"panel prompt {panel_id} references character {tok} — panel prompts must not name characters")
-            # Reject negative-cast phrasing.
-            if _NEGATIVE_CAST_RE.search(text):
-                res.error(f"panel prompt {panel_id} contains negative-cast phrasing (e.g. 'No humans') — banned in panel prompts")
-    return res
-
-
-def validate_director_sets(sets_text: str, scenes: dict[str, Any] | None = None) -> ValidationResult:
-    """Validate director_sets_<scene>.json (Stage C0 — set timing plan)."""
-    res = ValidationResult()
-    try:
-        data = json.loads(sets_text)
-    except json.JSONDecodeError as e:
-        res.error(f"director_sets JSON parse error: {e}")
+    eps = 0.15
+    gen = next((g for g in sb.get("generations", []) if g["gen_id"] == gen_id), None)
+    if gen is None:
+        res.error(f"generation {gen_id!r} not found in storyboard")
+        return res
+    if not text.strip():
+        res.error("video prompt is empty")
         return res
 
-    sid = data.get("scene_id", "<unknown>")
-    sets = data.get("sets") or []
-    if not sets:
-        res.error(f"scene {sid}: no sets")
-        return res
+    low = text.lower()
+    if "storyboard" not in low:
+        res.error("prompt must instruct the model to use the provided storyboard as the visual reference")
+    if "timeline" not in low:
+        res.error("prompt must contain a 'Timeline' section")
+    if "negative prompt" not in low:
+        res.error("prompt must contain a 'Negative Prompt' section")
+    for tok in sorted(set(re.findall(r"char_\d+", text))):
+        res.error(f"prompt references internal id {tok!r} — describe characters by appearance instead")
 
-    total = 0
-    for si, st in enumerate(sets):
-        set_id = st.get("set_id", f"set_{si}")
-        panels = st.get("panels") or []
-        if len(panels) != duration_budget.ROW_PANELS:
-            res.error(f"{set_id}: must have exactly {duration_budget.ROW_PANELS} panels, got {len(panels)}")
-        beats = st.get("beats") or []
-        if not beats:
-            res.error(f"{set_id}: no beats")
-            continue
-
-        # Validate beat sequence: pre_roll, hold, gap, hold, gap, hold (for 3 panels).
-        expected_kinds = ["pre_roll"] + (["panel_hold", "gap"] * (duration_budget.ROW_PANELS - 1)) + ["panel_hold"]
-        if len(beats) != len(expected_kinds):
-            res.error(f"{set_id}: must have exactly {len(expected_kinds)} beats, got {len(beats)}")
-        else:
-            for bi, beat in enumerate(beats):
-                kind = beat.get("kind", "")
-                if kind != expected_kinds[bi]:
-                    res.error(f"{set_id}: beat {bi} kind={kind!r}, expected {expected_kinds[bi]!r}")
-
-        # Validate beat durations.
-        beat_total = 0
-        for bi, beat in enumerate(beats):
-            secs = beat.get("seconds")
-            if not isinstance(secs, (int, float)):
-                res.error(f"{set_id}: beat {bi} seconds not numeric ({secs!r})")
-                continue
-            beat_total += secs
-            kind = beat.get("kind", "")
-            if kind == "pre_roll":
-                if not (0 <= secs <= duration_budget.PRE_ROLL_MAX):
-                    res.error(f"{set_id}: pre_roll {secs}s outside [0,{duration_budget.PRE_ROLL_MAX}]")
-            elif kind == "panel_hold":
-                if not (duration_budget.HOLD_MIN <= secs <= duration_budget.HOLD_MAX):
-                    res.error(f"{set_id}: panel_hold {secs}s outside [{duration_budget.HOLD_MIN},{duration_budget.HOLD_MAX}]")
-            elif kind == "gap":
-                transition = beat.get("transition", "")
-                if transition in ("cut", "smash_cut", "jump_cut"):
-                    if secs != duration_budget.GAP_CUT:
-                        res.error(f"{set_id}: gap {secs}s for {transition!r} must be {duration_budget.GAP_CUT}s")
-                elif transition == "continuation":
-                    if not (1 <= secs <= duration_budget.GAP_CONTINUATION_MAX):
-                        res.error(f"{set_id}: gap {secs}s for continuation outside [1,{duration_budget.GAP_CONTINUATION_MAX}]")
-                else:
-                    if not (1 <= secs <= duration_budget.GAP_MAX):
-                        res.error(f"{set_id}: gap {secs}s outside [1,{duration_budget.GAP_MAX}]")
-
-        set_dur = st.get("duration_seconds")
-        if not isinstance(set_dur, (int, float)):
-            res.error(f"{set_id}: duration_seconds not numeric ({set_dur!r})")
-        else:
-            if set_dur != beat_total:
-                res.error(f"{set_id}: duration_seconds {set_dur} != sum of beats {beat_total}")
-            if set_dur > duration_budget.SET_MAX:
-                res.error(f"{set_id}: duration_seconds {set_dur} > {duration_budget.SET_MAX}")
-            total += int(set_dur)
-
-    # Cross-check against scenes.md target_seconds.
-    if scenes:
-        scene_meta = next((s for s in scenes["scenes"] if s["scene_id"] == sid), None)
-        if scene_meta is None:
-            res.error(f"scene {sid}: not found in scenes.md")
-        elif total != scene_meta["target_seconds"]:
+    shots = _PROMPT_SHOT_RE.findall(text)
+    sb_shots = gen["shots"]
+    if len(shots) != len(sb_shots):
+        res.error(f"prompt has {len(shots)} SHOT blocks, storyboard generation {gen_id} has {len(sb_shots)}")
+    gen_start = gen["start"] or 0.0
+    gen_dur = (gen["end"] or 0.0) - gen_start
+    for (num, a, b), sb_shot in zip(shots, sb_shots):
+        a, b = float(a), float(b)
+        want_a = (sb_shot["start"] or 0.0) - gen_start
+        want_b = (sb_shot["end"] or 0.0) - gen_start
+        if abs(a - want_a) > eps or abs(b - want_b) > eps:
             res.error(
-                f"scene {sid}: sum of set durations ({total}s) != scenes.md target "
-                f"({scene_meta['target_seconds']}s)"
+                f"SHOT {num}: prompt range {a}-{b}s != storyboard shot range "
+                f"{want_a:.1f}-{want_b:.1f}s (generation-local seconds)"
             )
-    return res
-
-
-def validate_motion(motion_text: str, sb: dict[str, Any] | None = None) -> ValidationResult:
-    """Validate motion_<scene>.json (Agent 5 Director timeline)."""
-    res = ValidationResult()
-    try:
-        motion = json.loads(motion_text)
-    except json.JSONDecodeError as e:
-        res.error(f"motion JSON parse error: {e}")
-        return res
-
-    sid = motion.get("scene_id", "<unknown>")
-    units = motion.get("render_units") or []
-    if not units:
-        res.error(f"scene {sid}: no render_units")
-        return res
-
-    total = 0
-    prev_end_panel: str | None = None
-    cur_row: int | None = None
-    row_re = re.compile(r"r(\d+)", re.I)
-    for ui, unit in enumerate(units):
-        uid = unit.get("unit_id", f"unit_{ui}")
-        # A row break is a deliberate cut — the FLF2V boundary rule only applies
-        # WITHIN a row, so reset the chain when the row changes.
-        rm = row_re.search(uid)
-        if rm:
-            row_n = int(rm.group(1))
-            if cur_row is not None and row_n != cur_row:
-                prev_end_panel = None
-            cur_row = row_n
-        if "workflow" in unit:
-            res.error(f"{uid}: agent must NOT set 'workflow' (it is a code rule)")
-        dur = unit.get("duration_seconds")
-        is_batch = "batch" in uid.lower()
-        max_dur = duration_budget.BATCH_MAX if is_batch else duration_budget.CLIP_MAX_BEATS
-        if not isinstance(dur, int) or not (duration_budget.CLIP_MIN <= dur <= max_dur):
-            res.error(f"{uid}: duration_seconds {dur!r} outside [9,{max_dur}]")
-        else:
-            total += dur
-
-        mc = str(unit.get("motion_class", "")).strip().lower()
-        if mc not in VALID_MOTION_CLASS_TOKENS:
-            res.error(f"{uid}: invalid motion_class {mc!r}")
-        gd = str(unit.get("guidance", "")).strip().lower()
-        if gd not in VALID_GUIDANCE_TOKENS:
-            res.error(f"{uid}: invalid guidance {gd!r}")
-
-        guides = unit.get("guide_frames") or []
-        if not isinstance(guides, list) or len(guides) < 1:
-            res.error(f"{uid}: guide_frames missing/empty")
-        else:
-            start_panel = next((g.get("panel_id") for g in guides if isinstance(g, dict) and g.get("placement") == "start"), None)
-            end_panel = next((g.get("panel_id") for g in guides if isinstance(g, dict) and (g.get("placement") == "end" or g.get("is_end_frame"))), None)
-            if not start_panel:
-                res.error(f"{uid}: guide_frames missing a 'start' placement")
-            # Boundary continuity: this unit's start must equal previous unit's end.
-            if prev_end_panel is not None and start_panel and start_panel != prev_end_panel:
-                res.error(
-                    f"{uid}: start panel {start_panel!r} != previous unit end panel "
-                    f"{prev_end_panel!r} (FLF2V chain broken)"
-                )
-            prev_end_panel = end_panel or start_panel
-
-        segs = unit.get("motion_segments") or []
-        if not isinstance(segs, list) or not segs:
-            res.error(f"{uid}: motion_segments missing/empty")
-        else:
-            for si, seg in enumerate(segs):
-                if not isinstance(seg, dict):
-                    res.error(f"{uid}: motion_segment {si} not an object")
-                    continue
-                sr = seg.get("start_ratio")
-                er = seg.get("end_ratio")
-                if not isinstance(sr, (int, float)) or not isinstance(er, (int, float)):
-                    res.error(f"{uid}: motion_segment {si} needs numeric start_ratio/end_ratio")
-                elif not (0.0 <= sr <= er <= 1.0):
-                    res.error(f"{uid}: motion_segment {si} ratios out of order ({sr},{er})")
-
-    if sb and sb.get("target_seconds"):
-        if total != sb["target_seconds"]:
-            res.error(
-                f"scene {sid}: sum of unit durations ({total}s) != storyboard target "
-                f"({sb['target_seconds']}s)"
-            )
+        if b > duration_budget.GEN_MAX + eps:
+            res.error(f"SHOT {num}: ends at {b}s — beyond the {duration_budget.GEN_MAX:.0f}s Minimax limit")
+    if shots:
+        last_end = float(shots[-1][2])
+        if abs(last_end - gen_dur) > eps:
+            res.error(f"last SHOT ends at {last_end}s, generation duration is {gen_dur:.1f}s")
     return res
 
 
@@ -654,7 +506,7 @@ def validate_motion(motion_text: str, sb: dict[str, Any] | None = None) -> Valid
 
 def validate(artifact_path: str, schema: str, *, target_seconds: int | None = None,
              scenes_path: str | None = None, run_dir: str | None = None,
-             scene_id: str | None = None) -> ValidationResult:
+             scene_id: str | None = None, gen_id: str | None = None) -> ValidationResult:
     text = open(artifact_path, encoding="utf-8").read() if os.path.isfile(artifact_path) else ""
     if schema == "scenes":
         return validate_scenes(text, target_seconds=target_seconds)
@@ -663,27 +515,25 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
         if scenes_path and os.path.isfile(scenes_path):
             scenes = parse_scenes(open(scenes_path, encoding="utf-8").read())
         return validate_storyboard(text, scenes=scenes)
-    if schema == "motion":
-        sb = None
-        if scenes_path and os.path.isfile(scenes_path):
-            # storyboard path derived from scene_id if not given explicitly
-            pass
-        return validate_motion(text, sb=sb)
     if schema == "prompts":
         if not run_dir or not scene_id:
             return ValidationResult(ok=False, errors=["prompts validation needs --run-dir and --scene"])
         sb_md_path = os.path.join(run_dir, f"storyboard_{scene_id}.md")
         sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read()) if os.path.isfile(sb_md_path) else None
         return validate_prompts(run_dir, scene_id, sb=sb)
-    if schema == "panel_prompts":
+    if schema == "video_prompt":
         if not run_dir or not scene_id:
-            return ValidationResult(ok=False, errors=["panel_prompts validation needs --run-dir and --scene"])
+            return ValidationResult(ok=False, errors=["video_prompt validation needs --run-dir and --scene"])
+        gid = gen_id
+        if not gid:
+            m = re.search(r"_(g\d+)\.txt$", os.path.basename(artifact_path))
+            if m:
+                gid = m.group(1)
+        if not gid:
+            return ValidationResult(ok=False, errors=["video_prompt validation needs --gen (or a <scene>_<gen>.txt filename)"])
         sb_md_path = os.path.join(run_dir, f"storyboard_{scene_id}.md")
-        sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read()) if os.path.isfile(sb_md_path) else None
-        return validate_panel_prompts(run_dir, scene_id, sb=sb)
-    if schema == "director_sets":
-        scenes = None
-        if scenes_path and os.path.isfile(scenes_path):
-            scenes = parse_scenes(open(scenes_path, encoding="utf-8").read())
-        return validate_director_sets(text, scenes=scenes)
+        if not os.path.isfile(sb_md_path):
+            return ValidationResult(ok=False, errors=[f"storyboard not found: {sb_md_path}"])
+        sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read())
+        return validate_video_prompt(text, sb, gid)
     return ValidationResult(ok=False, errors=[f"unknown schema: {schema!r}"])

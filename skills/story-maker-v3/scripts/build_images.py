@@ -2,26 +2,19 @@
 """Image media builder (the "hands"). No LLM calls.
 
 Reads prompt files Agent 4 authored under ``<run_dir>/image_prompts/`` and
-dispatches deterministic image generation + crop + outpaint via the
-``image_pipeline`` module.
+dispatches deterministic image generation via the ``image_pipeline`` module.
 
   python3 scripts/build_images.py --output-dir <run> --assets-only
       # char sheets + location locks (shared, once)
 
-  python3 scripts/build_images.py --output-dir <run> --sheet-only --scene s1
-      # one scene: storyboard sheet only (→ GATE 1)
-
-  python3 scripts/build_images.py --output-dir <run> --crop-only --scene s1
-      # one scene: crop 9 panels from the sheet (free PIL, no API)
-
-  python3 scripts/build_images.py --output-dir <run> --upscale-only --scene s1
-      # one scene: upscale each crop to 16:9 (→ GATE 2)
-
   python3 scripts/build_images.py --output-dir <run> --scene s1
-      # one scene: sheet + crop + upscale in one shot (legacy / one-shot rerun)
+      # one scene: one clean-panel storyboard sheet per generation (→ GATE 1)
 
-Resume: existing assets / sheets / crops / upscales are skipped (the SKILL.md
-waterfall checks existence before invoking this).
+There is no crop or upscale stage: each generation's sheet is attached
+verbatim as the Minimax H3 reference image at render time.
+
+Resume: existing assets / sheets are skipped (the SKILL.md waterfall checks
+existence before invoking this).
 """
 
 from __future__ import annotations
@@ -37,7 +30,6 @@ sys.path.insert(0, str(SKILL_ROOT))
 import config  # noqa: E402
 from tools import image_pipeline as ip  # noqa: E402
 from tools import validators  # noqa: E402
-from tools import duration_budget  # noqa: E402
 from tools.char_sheet_builder import load_character_prompt  # noqa: E402
 from tools.location_sheet_builder import load_location_prompt  # noqa: E402
 
@@ -117,63 +109,41 @@ def _scene_meta(scenes: dict, scene_id: str) -> tuple[int, str | None]:
     return idx, prev
 
 
-def build_sheet(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
-    """Generate one scene's storyboard sheet (edit + refs)."""
+def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
+    """Generate one storyboard sheet per generation for one scene (edit + refs)."""
     idx, prev_scene_id = _scene_meta(scenes, scene_id)
     sb = _storyboard(reg.run_dir, scene_id)
     cast = sb["cast"]
     loc = sb["location_ref_id"] or scenes["scenes"][idx]["location_id"]
+    gens = sb["generations"]
+    if not gens:
+        raise SystemExit(f"storyboard_{scene_id}.md has no generations")
 
-    sheet_path = reg.sheet_path(scene_id)
-    if _exists(sheet_path):
-        print(f"  sheet {scene_id}: exists, skip")
-        return
-    sheet_prompt = ip.read_prompt(ip.sheet_prompt_path(reg.run_dir, scene_id))
-    if not sheet_prompt:
-        raise SystemExit(f"missing storyboard sheet prompt for {scene_id}")
-    print(f"  sheet {scene_id}: generating (refs: loc={loc} prev={prev_scene_id} chars={cast}) ...")
-    ip.generate_storyboard_sheet(
-        reg, scene_id, prompt_text=sheet_prompt,
-        character_ref_ids=cast, location_ref_id=loc, prev_scene_id=prev_scene_id,
-    )
+    # Previous sheet for the FIRST generation = last sheet of the previous scene.
+    prev_sheet_id: str | None = None
+    if prev_scene_id:
+        prev_sb_path = os.path.join(reg.run_dir, f"storyboard_{prev_scene_id}.md")
+        if os.path.isfile(prev_sb_path):
+            prev_sb = validators.parse_storyboard(open(prev_sb_path, encoding="utf-8").read())
+            if prev_sb["generations"]:
+                prev_sheet_id = f"{prev_scene_id}_{prev_sb['generations'][-1]['gen_id']}"
 
-
-def build_crops(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
-    """Crop one scene's storyboard sheet into 9 panel PNGs (free PIL, no API)."""
-    have_all = all(
-        _exists(reg.panel_path(scene_id, f"panel_{r+1}{c+1}"))
-        for r in range(duration_budget.SCENE_ROWS) for c in range(duration_budget.ROW_PANELS)
-    )
-    if have_all:
-        print(f"  panels {scene_id}: all crops exist, skip")
-        return
-    print(f"  panels {scene_id}: cropping ...")
-    crops = ip.crop_panels(reg, scene_id)
-    for c in crops:
-        print(f"    {c['panel_id']} ({c['method']}) -> {c['path']}")
-
-
-def build_upscales(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
-    """Upscale each 16:9 panel crop to PANEL_IMAGE_SIZE."""
-    for r in range(duration_budget.SCENE_ROWS):
-        for c in range(duration_budget.ROW_PANELS):
-            panel_id = f"panel_{r+1}{c+1}"
-            up_path = reg.upscale_path(scene_id, panel_id)
-            if _exists(up_path):
-                print(f"  upscale {scene_id}/{panel_id}: exists, skip")
-                continue
-            prompt_text = ip.read_prompt(ip.panel_prompt_path(reg.run_dir, scene_id, panel_id))
-            if not prompt_text:
-                raise SystemExit(f"missing panel prompt for {scene_id}/{panel_id}")
-            print(f"  upscale {scene_id}/{panel_id}: generating ...")
-            ip.upscale_panel(reg, scene_id, panel_id, prompt_text=prompt_text)
-
-
-def build_scene(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
-    """Legacy: sheet + crop + upscale in one shot."""
-    build_sheet(reg, scenes, scene_id)
-    build_crops(reg, scenes, scene_id)
-    build_upscales(reg, scenes, scene_id)
+    for gen in gens:
+        gid = gen["gen_id"]
+        sheet_path = reg.sheet_path(scene_id, gid)
+        if _exists(sheet_path):
+            print(f"  sheet {scene_id}_{gid}: exists, skip")
+            prev_sheet_id = f"{scene_id}_{gid}"
+            continue
+        sheet_prompt = ip.read_prompt(ip.sheet_prompt_path(reg.run_dir, scene_id, gid))
+        if not sheet_prompt:
+            raise SystemExit(f"missing storyboard sheet prompt for {scene_id}/{gid}")
+        print(f"  sheet {scene_id}_{gid}: generating (refs: loc={loc} prev={prev_sheet_id} chars={cast}) ...")
+        ip.generate_storyboard_sheet(
+            reg, scene_id, gid, prompt_text=sheet_prompt,
+            character_ref_ids=cast, location_ref_id=loc, prev_sheet_id=prev_sheet_id,
+        )
+        prev_sheet_id = f"{scene_id}_{gid}"
 
 
 def main() -> int:
@@ -181,10 +151,7 @@ def main() -> int:
     p.add_argument("--output-dir", required=True, help="run output dir")
     p.add_argument("--assets-dir", default=None, help="shared assets dir (default: <output-dir>/../assets)")
     p.add_argument("--assets-only", action="store_true", help="only char sheets + location locks")
-    p.add_argument("--scene", default=None, help="scene id to build")
-    p.add_argument("--sheet-only", action="store_true", help="generate storyboard sheet only (→ GATE 1)")
-    p.add_argument("--crop-only", action="store_true", help="crop panels from sheet only (free PIL)")
-    p.add_argument("--upscale-only", action="store_true", help="upscale panel crops only (→ GATE 2)")
+    p.add_argument("--scene", default=None, help="scene id to build sheets for (→ GATE 1)")
     args = p.parse_args()
 
     run_dir = os.path.abspath(args.output_dir)
@@ -197,34 +164,10 @@ def main() -> int:
 
     if args.assets_only:
         build_assets(reg, scenes)
-        print("assets done")
         return 0
-
-    scene_id = args.scene
-    if not scene_id and (args.sheet_only or args.crop_only or args.upscale_only):
-        p.error("--sheet-only/--crop-only/--upscale-only require --scene")
-
-    if args.sheet_only:
-        build_sheet(reg, scenes, scene_id)
-        print(f"sheet {scene_id} done")
-        return 0
-    if args.crop_only:
-        build_crops(reg, scenes, scene_id)
-        print(f"crops {scene_id} done")
-        return 0
-    if args.upscale_only:
-        build_upscales(reg, scenes, scene_id)
-        print(f"upscales {scene_id} done")
-        return 0
-    if scene_id:
-        build_scene(reg, scenes, scene_id)
-        print(f"scene {scene_id} done")
-        return 0
-    # Default: assets + every scene.
-    build_assets(reg, scenes)
-    for sc in scenes["scenes"]:
-        build_scene(reg, scenes, sc["scene_id"])
-    print("all scenes done")
+    if not args.scene:
+        raise SystemExit("pass --assets-only or --scene <id>")
+    build_sheets(reg, scenes, args.scene)
     return 0
 
 

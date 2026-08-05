@@ -1,21 +1,19 @@
 """Image media pipeline for story-maker-v3 (the "hands").
 
-Deterministic image generation + cropping + upscaling. No LLM calls. Agent 4
-(Claude) authors prompt *text* into ``<run_dir>/image_prompts/...``; this module
-reads those prompts, assembles reference-image URLs, and dispatches to the
-``generate_grok_t2i`` / ``generate_grok_edit`` backend (replicate / fal).
+Deterministic image generation. No LLM calls. Agent 4 (Claude) authors prompt
+*text* into ``<run_dir>/image_prompts/...``; this module reads those prompts,
+assembles reference-image URLs, and dispatches to the ``generate_grok_t2i`` /
+``generate_grok_edit`` backend (replicate / fal).
 
 Asset layout:
   <assets_dir>/characters/<cid>.png     shared character sheets (T2I, once)
   <assets_dir>/locations/<lid>.png       shared location locks  (T2I, once)
-  <run_dir>/storyboard_sheet_<scene>.png per-scene 2x4 album sheet (edit + refs)
-  <run_dir>/panels/<scene>/panel_<r><c>.png   white-gutter crop of each panel
-  <run_dir>/panels/<scene>/upscale_<r><c>.png per-panel upscale (edit: crop + char refs)
+  <run_dir>/storyboard_sheet_<scene>_<gen>.png  per-generation clean-panel
+      storyboard sheet (edit + refs) — attached verbatim as the Minimax H3
+      reference image. No crops, no upscales.
 
 Reference ordering for a storyboard sheet edit (proven reel_v2 order):
-  location lock -> previous scene's sheet -> character sheets (capped by provider ref limit).
-Reference ordering for a panel upscale edit:
-  panel crop (Image 1) -> character sheets of characters_present.
+  location lock -> previous sheet -> character sheets (capped by provider ref limit).
 """
 
 from __future__ import annotations
@@ -28,15 +26,12 @@ from typing import Any
 import config
 from . import char_sheet_builder
 from . import location_sheet_builder
-from . import panel_crop
 from .grok_tools import generate_grok_edit, generate_grok_t2i
 
 RENDER_STYLE = os.getenv(
     "RENDER_STYLE",
     "Cinematic 3D animation, warm natural lighting, shallow depth of field.",
 )
-
-PANEL_ID_RE = re.compile(r"^panel_(\d)(\d)$")
 
 
 # ---------------------------------------------------------------------------
@@ -144,8 +139,9 @@ class AssetRegistry:
     def location(self, lid: str) -> dict:
         return self.data["locations"].setdefault(lid, {"output_path": "", "fal_image_url": ""})
 
-    def sheet(self, scene_id: str) -> dict:
-        return self.data["sheets"].setdefault(scene_id, {"output_path": "", "fal_image_url": ""})
+    def sheet(self, sheet_id: str) -> dict:
+        """``sheet_id`` is ``<scene_id>_<gen_id>`` (e.g. ``s1_g2``)."""
+        return self.data["sheets"].setdefault(sheet_id, {"output_path": "", "fal_image_url": ""})
 
     def character_path(self, cid: str) -> str:
         return os.path.join(self.assets_dir, "characters", f"{cid}.png")
@@ -153,17 +149,8 @@ class AssetRegistry:
     def location_path(self, lid: str) -> str:
         return os.path.join(self.assets_dir, "locations", f"{lid}.png")
 
-    def sheet_path(self, scene_id: str) -> str:
-        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}.png")
-
-    def panel_path(self, scene_id: str, panel_id: str) -> str:
-        return os.path.join(self.run_dir, "panels", scene_id, f"{panel_id}.png")
-
-    def upscale_path(self, scene_id: str, panel_id: str) -> str:
-        return os.path.join(self.run_dir, "panels", scene_id, f"upscale_{panel_id}.png")
-
-    def prepad_path(self, scene_id: str, panel_id: str) -> str:
-        return os.path.join(self.run_dir, "panels", scene_id, f"prepad_{panel_id}.png")
+    def sheet_path(self, scene_id: str, gen_id: str) -> str:
+        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.png")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +169,7 @@ def build_sheet_ref_urls(
     *,
     location_ref_id: str | None,
     character_ref_ids: list[str],
-    prev_scene_id: str | None = None,
+    prev_sheet_id: str | None = None,
     provider: str | None = None,
     ref_limit: int | None = None,
     attach_prev_sheet: bool = True,
@@ -197,8 +184,8 @@ def build_sheet_ref_urls(
         if loc_url:
             urls.append(loc_url)
 
-    if attach_prev_sheet and prev_scene_id:
-        prev_entry = registry.sheet(prev_scene_id)
+    if attach_prev_sheet and prev_sheet_id:
+        prev_entry = registry.sheet(prev_sheet_id)
         if prev_entry.get("output_path") and os.path.isfile(prev_entry.get("output_path", "")):
             prev_url = ensure_asset_url(prev_entry, provider=resolved)
             if prev_url and prev_url not in urls:
@@ -210,44 +197,6 @@ def build_sheet_ref_urls(
             urls.append(url)
         if len(urls) >= limit:
             break
-    return urls[:limit]
-
-
-def build_panel_ref_urls(
-    registry: AssetRegistry,
-    *,
-    scene_id: str,
-    panel_id: str,
-    character_ref_ids: list[str],
-    location_ref_id: str | None = None,
-    provider: str | None = None,
-    ref_limit: int | None = None,
-) -> list[str]:
-    """Ordered refs for a panel upscale edit: crop -> chars -> location."""
-    resolved = provider or config.get_panel_image_provider()
-    limit = ref_limit if ref_limit is not None else config.get_image_ref_limit(resolved)
-    urls: list[str] = []
-
-    crop_entry = {"output_path": registry.panel_path(scene_id, panel_id), "fal_image_url": ""}
-    crop_url = ensure_asset_url(crop_entry, provider=resolved)
-    if crop_url:
-        urls.append(crop_url)
-
-    # Reserve one slot for the location lock when enabled.
-    reserve_location = 1 if (config.UPSCALE_INCLUDE_LOCATION_REF and location_ref_id) else 0
-    char_budget = max(0, limit - len(urls) - reserve_location)
-    for cid in sorted(character_ref_ids or [], key=_char_sort_key):
-        if char_budget <= 0:
-            break
-        url = ensure_asset_url(registry.character(cid), provider=resolved)
-        if url and url not in urls:
-            urls.append(url)
-            char_budget -= 1
-
-    if reserve_location and len(urls) < limit:
-        loc_url = ensure_asset_url(registry.location(location_ref_id), provider=resolved)
-        if loc_url and loc_url not in urls:
-            urls.append(loc_url)
     return urls[:limit]
 
 
@@ -339,26 +288,32 @@ def generate_location_lock(
 def generate_storyboard_sheet(
     registry: AssetRegistry,
     scene_id: str,
+    gen_id: str,
     *,
     prompt_text: str,
     character_ref_ids: list[str],
     location_ref_id: str | None = None,
-    prev_scene_id: str | None = None,
+    prev_sheet_id: str | None = None,
     render_style: str = RENDER_STYLE,
     provider: str | None = None,
     attach_prev_sheet: bool = True,
 ) -> dict:
-    """Generate one 2x4 storyboard album sheet (edit + refs). Returns entry."""
+    """Generate one generation's clean-panel storyboard sheet (edit + refs).
+
+    ``prev_sheet_id`` is the preceding sheet key (previous generation of the
+    same scene, or the last generation of the previous scene) so continuity
+    carries across the 15s Minimax boundary. Returns the registry entry.
+    """
     backend = provider or config.get_storyboard_image_provider()
     ref_urls = build_sheet_ref_urls(
         registry,
         location_ref_id=location_ref_id,
         character_ref_ids=character_ref_ids,
-        prev_scene_id=prev_scene_id,
+        prev_sheet_id=prev_sheet_id,
         provider=backend,
         attach_prev_sheet=attach_prev_sheet,
     )
-    out_path = registry.sheet_path(scene_id)
+    out_path = registry.sheet_path(scene_id, gen_id)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     result = _check(
         generate_grok_edit(
@@ -367,81 +322,12 @@ def generate_storyboard_sheet(
             quality=config.REPLICATE_SHEET_QUALITY,
             provider=backend,
         ),
-        f"storyboard sheet {scene_id}",
+        f"storyboard sheet {scene_id}_{gen_id}",
     )
-    entry = registry.sheet(scene_id)
+    entry = registry.sheet(f"{scene_id}_{gen_id}")
     _registry_entry_from_result(entry, result)
     registry.save()
     return entry
-
-
-def crop_panels(
-    registry: AssetRegistry,
-    scene_id: str,
-    *,
-    expected: int = panel_crop.SCENE_PANELS,
-    cols: int = panel_crop.DEFAULT_COLS,
-    mode: str | None = None,
-) -> list[dict[str, Any]]:
-    """Crop a scene's storyboard sheet into ``expected`` panel PNGs."""
-    sheet_path = registry.sheet_path(scene_id)
-    if not os.path.isfile(sheet_path):
-        raise FileNotFoundError(f"storyboard sheet missing for {scene_id}: {sheet_path}")
-    out_dir = os.path.join(registry.run_dir, "panels", scene_id)
-    return panel_crop.crop_storyboard_sheet(
-        sheet_path, out_dir, expected=expected, cols=cols, mode=mode,
-    )
-
-
-def upscale_panel(
-    registry: AssetRegistry,
-    scene_id: str,
-    panel_id: str,
-    *,
-    prompt_text: str,
-    character_ref_ids: list[str] | None = None,
-    location_ref_id: str | None = None,
-    provider: str | None = None,
-) -> dict:
-    """Pure upscale one 16:9 panel crop to PANEL_IMAGE_SIZE.
-
-    The crop is already 16:9 (1280x720 from the 3×3 sheet), so no pre-pad or
-    side-bar outpaint is needed. The crop is the only reference image; the
-    model is locked to preserve composition, cast, and camera.
-    """
-    backend = provider or config.get_panel_image_provider()
-    crop_path = registry.panel_path(scene_id, panel_id)
-    if not os.path.isfile(crop_path):
-        raise FileNotFoundError(f"panel crop missing: {crop_path}")
-
-    # 1. Build ref URLs — the 16:9 crop itself.
-    crop_entry = {"output_path": crop_path, "fal_image_url": ""}
-    crop_url = ensure_asset_url(crop_entry, provider=backend)
-    ref_urls = [crop_url] if crop_url else []
-
-    # 2. Mechanical preservation lock for pure upscale.
-    upscale_lock = (
-        "The attached image is a 16:9 cinematic animation still. Uplift it to the "
-        "requested resolution while preserving the exact composition, cast, poses, "
-        "camera angle, lighting, and background. Enhance detail and texture only. "
-        "Do not add, remove, or alter any character, prop, or background element. "
-        "Do not re-frame, zoom, or change the camera. No text, no labels, no captions, "
-        "no watermarks. "
-    )
-    full_prompt = upscale_lock + (prompt_text or "")
-
-    out_path = registry.upscale_path(scene_id, panel_id)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    result = _check(
-        generate_grok_edit(
-            full_prompt, ref_urls, out_path,
-            size=config.PANEL_IMAGE_SIZE,
-            quality=config.REPLICATE_PANEL_QUALITY,
-            provider=backend,
-        ),
-        f"upscale {scene_id}/{panel_id}",
-    )
-    return {"panel_id": panel_id, "output_path": out_path, "result": result}
 
 
 # ---------------------------------------------------------------------------
@@ -460,12 +346,13 @@ def location_prompt_path(run_dir: str, lid: str) -> str:
     return os.path.join(image_prompts_dir(run_dir), "locations", f"{lid}.txt")
 
 
-def sheet_prompt_path(run_dir: str, scene_id: str) -> str:
-    return os.path.join(image_prompts_dir(run_dir), scene_id, "storyboard_sheet.txt")
+def sheet_prompt_path(run_dir: str, scene_id: str, gen_id: str) -> str:
+    return os.path.join(image_prompts_dir(run_dir), scene_id, f"storyboard_sheet_{gen_id}.txt")
 
 
-def panel_prompt_path(run_dir: str, scene_id: str, panel_id: str) -> str:
-    return os.path.join(image_prompts_dir(run_dir), scene_id, f"{panel_id}.txt")
+def video_prompt_path(run_dir: str, scene_id: str, gen_id: str) -> str:
+    """Minimax H3 timeline prompt for one generation (Agent 5 authors this)."""
+    return os.path.join(run_dir, "video_prompts", f"{scene_id}_{gen_id}.txt")
 
 
 def read_prompt(path: str) -> str:

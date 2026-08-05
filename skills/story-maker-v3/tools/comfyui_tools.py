@@ -9,11 +9,9 @@ from urllib.parse import urlparse
 
 import config
 
-# NOTE: story-maker-v3 uses the LTX Director Hotfix path exclusively
-# (tools/ltx_director_workflow.py). The legacy template-backend functions
-# (generate_ltx_i2v_video / generate_ltx_flf2v_video) and their
-# workflow_builder dependency were removed. This module now exposes only the
-# generic ComfyUI HTTP helpers the Director renderer needs.
+# NOTE: story-maker-v3 renders video via the Minimax H3 R2V workflow
+# (tools/minimax_workflow.py). This module exposes only the generic ComfyUI
+# HTTP helpers that renderer needs (queue, poll, upload, download).
 
 
 def _resolve_hostname(hostname: str) -> str | None:

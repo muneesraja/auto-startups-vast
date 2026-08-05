@@ -1,20 +1,37 @@
-# Agent 3 — Storyboard Planner
+# Agent 3 — Storyboard Planner (Minimax H3)
 
-**Input:** `<run_dir>/scenes.md` (one scene at a time) + `developed_story.md`.
-**Output:** `<run_dir>/storyboard_<scene>.md` for each scene — the constrained 3×3
-album plan (each LTX session is one row of 3 panels: start, middle, end).
+**Input:** `<run_dir>/scenes.md` (one scene at a time) + `developed_story.md`
++ the full **episode context** (previous scenes' storyboards, and the previous
+episode's final state when this is episode 2+). Never author a storyboard
+without that context loaded — Minimax prompts say things like "Continue
+directly from the previous scene", so you must know exactly what that was.
+**Output:** `<run_dir>/storyboard_<scene>.md` for each scene — the scene split
+into **generations** (one Minimax H3 render each, max 15s) and **shots**.
 Then run
 `python3 scripts/validate.py storyboard_<scene>.md --schema storyboard --scenes-path <run_dir>/scenes.md`
 and fix until it passes.
 
 ## Job
 
-For one scene, lay out **exactly 9 panels** in a **3 rows × 3 columns** album grid.
-Each LTX Director session is one visual row (3 panels: start, middle, end).
-Adjacent panels in a row share a boundary pose. A new row is a cut. You are
-**planning, not drawing**: you compute numeric depth, positions, durations, and
-motion deltas. The depth numbers are load-bearing — Agent 5 derives all camera
-motion from them.
+Split one scene's timeline into **generations**: each generation is ONE
+Minimax H3 render, driven by ONE storyboard sheet (clean panel grid) plus a
+timeline prompt. Inside a generation you plan **shots** (continuous camera
+takes separated by hard cuts). Minimax renders at most **15 seconds** per
+generation — that is the load-bearing constraint of this whole plan.
+
+## The 15-second rule (load-bearing)
+
+- A generation's duration is **5.0–15.0s**. Never more.
+- **A shot must NEVER straddle a generation boundary.** If the next shot does
+  not fit in the remaining seconds of the current generation, close this
+  generation early (>= 5s) and move the whole shot to the next generation.
+  Its panels move with it to the next generation's sheet.
+- Generations are contiguous: g1 = 0.0→x, g2 = x→y, ... and the last one ends
+  exactly at the scene's `target_seconds`.
+- A generation boundary is always a cut in the final film (separate renders
+  concatenated). Plan the first shot of the next generation to either continue
+  the action (`continuous` — the prompt will say "Continue directly from the
+  previous scene") or open on a fresh setup (`hard_cut`).
 
 ## Rules
 
@@ -22,137 +39,88 @@ motion from them.
   wardrobe colors, read `assets/CHARACTERS.md` in the shared story assets
   folder. Reuse the existing cids and their exact wardrobe. Never invent a new
   `char_NN` not in the manifest.
-- **Exactly 3 rows × 3 columns**, 1280×720 16:9 cells, total 9 panels, no fewer. Each LTX session is one
-  visual row (3 panels: start, middle, end).
-- **Every cell has all 15 fields** (see the table below). No blanks.
-- **`depth_per_char` is an integer 1-5**: 1 = closest to camera (foreground),
-  5 = farthest (background). This is the field that makes motion deterministic.
-  Compute it deliberately — it drives the camera.
-- **`position_xy` = `[x, y]` with each coordinate in [0.0, 1.0]** (0=left/top,
-  1=right/bottom). One coordinate pair per character present.
-- **`duration_seconds` is content-planning only, NOT the timing authority.**
-  Set it to a reasonable estimate (default 10, range [9, 15], or [9, 20] for a
-  flagged multi-beat arc). The **actual on-screen timing** is determined by
-  `director_sets_<scene>.json` (Stage C0), which is authored after the storyboard.
-  The validator still checks that the sum of cell durations equals the scene's
-  `target_seconds` as a sanity check — keep them roughly accurate.
+- **Shots are contiguous within a generation** and together fill it exactly.
+  A typical 15s generation has 1–3 shots. A shot shorter than ~1.5s will read
+  as a flash — avoid it.
+- **`panels`**: each shot claims 1–4 panels of the generation's sheet, showing
+  the shot's key poses in order. Panels are numbered 1..N in reading order
+  across the whole sheet and each panel belongs to exactly one shot.
+  `panel_grid: RxC` must satisfy R*C = total panels (2–12).
+- **`camera`**: describe motion with the Minimax vocabulary (see
+  [`assets/minimax-h3-prompt-bible.md`](../assets/minimax-h3-prompt-bible.md)):
+  Zoom In/Out, Push In/Pull Out, Pan Left/Right, Truck Left/Right, Tilt
+  Up/Down, Pedestal Up/Down, Arc Shot, Tracking Shot, Static Shot, Shake
+  Slightly/Strongly, POV, Roll Clockwise/Counterclockwise — optionally with
+  amplitude (`with small/large amplitude`) and speed (`at slow/fast speed`).
+  Multi-move shots are fine ("begin with a handheld tracking shot behind the
+  baby, then arc around to a front three-quarter angle").
 - **`characters_present` ⊆ scene `cast`.** Never invent a `char_NN` not in the
-  scene's cast. A panel may show a subset of the cast (a solo close-up has one).
-- **Continuity within a session.** Adjacent panels in the same LTX row must be a
-  readable progressive morph: same cast/geography/lighting, evolving pose. A new
-  row may open on a new setup — it does NOT need to morph from the previous row's
-  last panel.
-- **Visible motion between adjacent columns.** If the same character or prop appears
-  in two adjacent panels of a row, it must change position, expression, head
-  angle, or limb pose enough that the frames read as consecutive animation keys,
-  not duplicated stills. Write the `spatial_relation` and `must_not_show` fields so
-  the painter cannot freeze the character.
-- **All 3 delta tables + the handoff block are mandatory.**
+  scene's cast.
+- **`audio` is real.** Minimax generates native stereo audio — plan the
+  soundscape (footsteps, ambience, music cue) per shot, and put spoken lines
+  in `dialogue`.
+- **The handoff block is mandatory** (it seeds the next scene's opening).
 
 ## Output format (load-bearing — verbatim)
 
 ```
 # Scene <scene_id> — <scene_title>
+scene_id: <scene_id>
 target_seconds: <int>
-cast: [char_01, char_02, char_03]
+cast: [char_01, char_02]
 location_ref_id: <lid>
 
-## Row 1 (LTX session 1)
-| col | shot_id | duration_seconds | characters_present | depth_per_char | camera_angle | position_xy | looks_at | expression | mood | intent | facing | angle | spatial_relation | must_not_show |
-| 1 | s1_p1 | 10 | [char_01] | {char_01:2} | eye_level | {char_01:[0.5,0.5]} | char_02 | stern | tense | confront | forward | 15deg | char_01 centered in row-1 col-1, simple background | no second character, no props |
-| 2 | s1_p2 | 10 | [char_01,char_02] | {char_01:3,char_02:2} | over_shoulder | {char_01:[0.3,0.5],char_02:[0.7,0.5]} | char_01 | alarmed | rising | defend | left | 0deg | char_02 now enters from right side, 40% gap between them | no third character |
-| 3 | s1_p3 | 10 | [char_01,char_02] | {char_01:3,char_02:2} | eye_level | {char_01:[0.3,0.5],char_02:[0.7,0.5]} | char_02 | amused | playful | mock | right | 5deg | char_02 leans 15deg closer to char_01 than previous panel | no third character |
+## Generation g1 — 0.0-15.0s
+duration_seconds: 15.0
+panel_grid: 2x3
 
-## Row 2 (LTX session 2)
-| col | shot_id | duration_seconds | characters_present | depth_per_char | camera_angle | position_xy | looks_at | expression | mood | intent | facing | angle | spatial_relation | must_not_show |
-| 1 | s1_p4 | 10 | [char_03] | {char_03:2} | close_up | {char_03:[0.5,0.5]} | none | tearful | sad | pity | forward | 0deg | char_03 centered close, blurred background | no other characters |
-| 2 | s1_p5 | 10 | [char_01,char_02] | {char_01:2,char_02:2} | two_shot | {char_01:[0.4,0.5],char_02:[0.6,0.5]} | char_02 | guilty | tense | regret | left | 10deg | char_01 and char_02 face each other in row-2 col-2 | no char_03 |
-| 3 | s1_p6 | 10 | [char_01] | {char_01:2} | medium | {char_01:[0.5,0.5]} | none | resolved | determined | resolve | forward | 0deg | char_01 alone in center of frame | no other characters |
+### Shot 1 — 0.0-7.2s (continuous)
+panels: [1, 2, 3]
+characters_present: [char_01, char_02]
+action: The frightened baby runs down the corridor glancing over a shoulder; the tiny dino happily bounces behind. The baby hits a dead end, spots a stick, grabs it and throws it; the dino chases the stick.
+camera: Handheld tracking shot behind the baby, then arc around to a front three-quarter angle; gentle whip pan following the stick.
+audio: Fast little footsteps, dino's excited chirps, stick clattering on stone; tense-playful score.
+dialogue:
 
-## Row 3 (LTX session 3)
-| col | shot_id | duration_seconds | characters_present | depth_per_char | camera_angle | position_xy | looks_at | expression | mood | intent | facing | angle | spatial_relation | must_not_show |
-| 1 | s1_p7 | 10 | [char_01] | {char_01:2} | medium | {char_01:[0.5,0.5]} | none | resolved | determined | resolve | forward | 0deg | char_01 alone in center of frame | no other characters |
-| 2 | s1_p8 | 10 | [char_01,char_02] | {char_01:2,char_02:3} | wide | {char_01:[0.4,0.5],char_02:[0.6,0.6]} | char_02 | calm | calm | settle | right | 0deg | char_02 now one step back and to the right of char_01 | no third character |
-| 3 | s1_p9 | 10 | [char_01,char_02,char_03] | {char_01:2,char_02:3,char_03:4} | wide | {char_01:[0.3,0.5],char_02:[0.7,0.5],char_03:[0.5,0.8]} | char_03 | sad | somber | reveal | forward | 0deg | char_03 appears in deep background between char_01 and char_02 | no extra characters |
+### Shot 2 — 7.2-15.0s (hard_cut)
+panels: [4, 5, 6]
+characters_present: [char_01, char_02]
+action: The baby leaps over the dino, misjudges, lands on it; both tumble in a dust puff. They lock eyes; fear melts into curiosity; the baby pats the dino's head.
+camera: Tracking Shot from a low side angle, settle into a medium close-up, finish with a slow Push In at slow speed.
+audio: Soft thud, dust whoosh, music softens to warm strings.
+dialogue: char_02: "Mama."
 
-## Inter-column motion deltas (row 1)
-| from -> to | depth_delta | camera_motion_hint |
-| s1_p1->s1_p2 | char_01: 2->3 (+1 recede) | push_in |
-| s1_p2->s1_p3 | char_01: 3->3 (hold) | pan |
+## Generation g2 — 15.0-27.0s
+duration_seconds: 12.0
+panel_grid: 2x2
 
-## Inter-column motion deltas (row 2)
-| from -> to | depth_delta | camera_motion_hint |
-| s1_p4->s1_p5 | char_03: 2->2 (hold) | static |
-| s1_p5->s1_p6 | char_01: 2->2 (hold) | static |
-
-## Inter-column motion deltas (row 3)
-| from -> to | depth_delta | camera_motion_hint |
-| s1_p7->s1_p8 | char_01: 2->2 (hold) | static |
-| s1_p8->s1_p9 | char_02: 2->3 (+1 recede) | push_in |
+### Shot 1 — 15.0-27.0s (continuous)
+panels: [1, 2, 3, 4]
+characters_present: [char_01, char_02]
+action: ...
+camera: Static Shot, then Zoom In with small amplitude at slow speed.
+audio: ...
+dialogue:
 
 ## Scene-end handoff -> scene s2
 on_screen: [char_01, char_02]
-positions: {char_01:[0.4,0.5], char_02:[0.6,0.6]}
-facing: {char_01: left, char_02: right}
 mood: calm
 transition: hard_cut
 ```
 
 ### Field notes
 
-- **Header names are exact.** The parser matches `## Row 1 (LTX session 1)`,
-  `## Row 2 (LTX session 2)`, `## Row 3 (LTX session 3)`,
-  `## Inter-column motion deltas (row 1)`, `## Inter-column motion deltas (row 2)`,
-  `## Inter-column motion deltas (row 3)`, and `## Scene-end handoff -> scene <next>`.
-  Keep these strings verbatim.
-- **`shot_id` = `sN_pM`** where M is the panel's session-major index 1..9
-  (p1..p3 = row/session 1, p4..p6 = row/session 2, p7..p9 = row/session 3).
-  The renderer resolves `sN_pM` → `panel_<r><c>`.
-- **`col`** is 1..3 within each visual row; the 3 panels of a session occupy one
-  visual row.
-- **`camera_angle`**: free text from a fixed vocabulary — `eye_level`,
-  `over_shoulder`, `wide`, `close_up`, `two_shot`, `medium`, `low_angle`,
-  `high_angle`, `dutch`. (No validation on this token; keep it consistent.)
-- **`facing`**: `forward` | `left` | `right` | `back` | `away`.
-- **`angle`**: a camera tilt like `0deg`, `15deg`, `-10deg`.
-- **`spatial_relation`**: one concise phrase describing *where* the key elements
-  are in relation to each other. Use distances and screen positions. This is the
-  anti-deformation field — e.g. `horse stops 3m left of swing, father still in
-  saddle, swing ropes not touching horse`, `parrot on girl's shoulder, dog on
-  ground below swing`.
-- **`must_not_show`**: a comma list of exactly what the image must NOT contain —
-  e.g. `no body contact, no dismounted rider, no fully resolved smile, no horse
-  touching swing ropes, no invented characters`. This is the anti-beat-jump and
-  anti-hallucination field.
-- **Delta tables:** one row per adjacent pair in the row (2 rows for a 3-col row).
-  `depth_delta` is human-readable: `cid: A->B (+N recede)` / `(-N approach)` /
-  `(hold)`. `camera_motion_hint` is the depth-delta→camera mapping
-  (see motion_prompter.md): recede(+)→`push_in`, approach(−)→`pull_out`,
-  hold→`static`/`pan`, cast grows→motivated `pan`/`turn`.
-- **Handoff block:** `on_screen`, `positions`, `facing`, `mood`, `transition`
-  (`hard_cut` | `match_cut`). The next scene's row 1 panel 1 should be drawable
-  from this handoff (match-cut) or open fresh (hard_cut). For the LAST scene, still
-  emit the block pointing at a sentinel or `transition: hard_cut` with the final
-  state.
-
-## Compute, don't draw
-
-- Decide depth per character per panel from the staging: who steps forward, who
-  retreats, who enters the frame. Depth CHANGES between adjacent panels are what
-  drive the camera — make them intentional, not arbitrary.
-- Set `duration_seconds` as a rough estimate. The exact on-screen timing (pre-roll,
-  panel holds, gaps, transitions) is authored later in `director_sets_<scene>.json`
-  (Stage C0). The storyboard sum must still match `target_seconds` as a sanity check.
-
-## Validate
-
-```
-python3 scripts/validate.py <run_dir>/storyboard_<scene>.md --schema storyboard \
-  --scenes-path <run_dir>/scenes.md
-```
-Read `<run_dir>/storyboard_<scene>.md.validation.json`; fix every error and re-run
-until `ok:true`. The validator catches: wrong cell count, missing fields, depth
-outside 1-5, position outside [0,1], duration outside [9,20], invented characters,
-missing `spatial_relation`/`must_not_show`, row/scene duration sum mismatch,
-missing delta tables, missing handoff, and cross-checks the scene total + location
-against scenes.md.
+- **Header names are exact.** The parser matches `## Generation gK — a-b s`,
+  `### Shot N — a-b s (transition)`, and `## Scene-end handoff -> scene <next>`.
+  Times are **scene-relative seconds** (may have one decimal).
+- **transition** is `continuous` (flows straight from what came before — the
+  previous shot's last frame or, for the first shot of a generation, the
+  previous generation/scene) or `hard_cut` (deliberate editorial cut).
+- **`action`** is a single line: concrete, visible, present-tense events in
+  order. This becomes the Minimax timeline text, so write what the camera
+  sees — expressions, physical beats, props — not inner thoughts.
+- **`dialogue`**: `cid: "line"` (comma-separate multiple). Leave empty when
+  silent. Keep lines short — the model lip-syncs and voices them.
+- **Handoff block:** `on_screen`, `mood`, `transition` (`hard_cut` |
+  `match_cut`). For the LAST scene, still emit the block pointing at a
+  sentinel (`-> scene end`).

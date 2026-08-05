@@ -60,12 +60,11 @@ DEFAULT_OUTPUT_BASE_DIR = os.getenv(
     os.path.join(workspace_root, "outputs", "story-maker-v3"),
 )
 
-# LTX output resolution (must be divisible by 32 for latent math)
-VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1920"))
-VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1088"))
-# LTX Director Hotfix working resolution (1280x720 is invalid under ÷32)
-DIRECTOR_VIDEO_WIDTH = int(os.getenv("DIRECTOR_VIDEO_WIDTH", "1280"))
-DIRECTOR_VIDEO_HEIGHT = int(os.getenv("DIRECTOR_VIDEO_HEIGHT", "704"))
+# Minimax H3 render settings (see tools/minimax_workflow.py). Resolution is
+# derived from megapixels + aspect like the workflow's ResolutionSelector
+# (0.6MP 16:9 -> 1056x608, sides snapped up to multiples of 32).
+MINIMAX_MEGAPIXELS = float(os.getenv("MINIMAX_MEGAPIXELS", "0.6"))
+MINIMAX_ASPECT = os.getenv("MINIMAX_ASPECT", "16:9")
 
 # ---------------------------------------------------------------------------
 # Image generation config
@@ -77,22 +76,15 @@ GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
 # Sheet assets (character + storyboard): medium quality, 2K pixel enums from Replicate
 REPLICATE_SHEET_QUALITY = os.getenv("REPLICATE_SHEET_QUALITY", "medium")
-# Panel regen / shot stills from storyboard crops: low quality, still 2K landscape
-REPLICATE_PANEL_QUALITY = os.getenv("REPLICATE_PANEL_QUALITY", "low")
 # Replicate gpt-image-2 `aspect_ratio` accepts ratios OR pixel enums
 # (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
 CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "2048x1152")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "3840x2160")
-# v3 storyboard sheet = 3 rows x 3 cols, generated on Replicate as a 3840x2160
-# landscape album page. Each LTX session is one row of 3 panels. Each cell is 1280x720 (16:9);
-# the per-panel upscale step is a pure upscale to the target PANEL_IMAGE_SIZE.
+# One storyboard sheet per Minimax generation: a clean landscape panel grid
+# (no text, no timecodes) attached verbatim as the Minimax reference image.
 STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "3840x2160")
-# Panel crop: python (white-gutter detect → uniform grid) | vision | auto
-STORYBOARD_CROP_MODE = os.getenv("STORYBOARD_CROP_MODE", "python")
-PANEL_IMAGE_SIZE = os.getenv("PANEL_IMAGE_SIZE", "2048x1152")
 COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.01"))
 COST_FAL_IMAGE = float(os.getenv("COST_FAL_IMAGE", "0.04"))
-COST_LTX_VIDEO = float(os.getenv("COST_LTX_VIDEO", "0.0"))
 
 # Provider/model reference-image caps (shot still edit / composite)
 FAL_GROK_REF_LIMIT = 3
@@ -170,37 +162,6 @@ def _validate_image_backend(provider: str, *, label: str) -> str:
     return resolved
 
 
-def get_panel_image_provider() -> str:
-    """Primary backend for panel / shot still regen.
-
-    ``PANEL_IMAGE_PROVIDER`` overrides ``PROVIDER`` (default replicate).
-    """
-    raw = (os.getenv("PANEL_IMAGE_PROVIDER") or "").strip().lower()
-    if raw:
-        return _validate_image_backend(raw, label="PANEL_IMAGE_PROVIDER")
-    return get_image_provider()
-
-
-def get_panel_image_fallback_provider() -> str | None:
-    """Optional secondary backend after primary panel regen fails.
-
-    Defaults to **off** — fal GPT Image 2 edit+refs for panel volume is
-    typically ~3–4× Replicate ``quality=low``. Opt in with
-    ``PANEL_IMAGE_FALLBACK_PROVIDER=fal``.
-    """
-    raw = os.getenv("PANEL_IMAGE_FALLBACK_PROVIDER")
-    if raw is None:
-        return None
-    cleaned = raw.strip().lower()
-    if cleaned in ("", "none", "off", "0", "false"):
-        return None
-    fallback = _validate_image_backend(cleaned, label="PANEL_IMAGE_FALLBACK_PROVIDER")
-    primary = get_panel_image_provider()
-    if fallback == primary:
-        return None
-    return fallback
-
-
 def get_image_ref_limit(provider: str | None = None) -> int:
     """Max reference image URLs per edit call for a provider/model.
 
@@ -236,19 +197,3 @@ def get_image_ref_limit(provider: str | None = None) -> int:
     return REPLICATE_GPT_IMAGE_REF_LIMIT
 
 
-# ---------------------------------------------------------------------------
-# Upscale drift guard
-# ---------------------------------------------------------------------------
-
-def _is_truthy_env(value: str | None, default: bool) -> bool:
-    """Parse a boolean-ish env var."""
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-UPSCALE_INCLUDE_LOCATION_REF = _is_truthy_env(
-    os.getenv("UPSCALE_INCLUDE_LOCATION_REF"), True
-)
-UPSCALE_DRIFT_GUARD = _is_truthy_env(os.getenv("UPSCALE_DRIFT_GUARD"), True)
-UPSCALE_DRIFT_THRESHOLD = float(os.getenv("UPSCALE_DRIFT_THRESHOLD", "0.25"))

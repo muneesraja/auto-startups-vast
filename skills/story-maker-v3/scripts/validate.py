@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Deterministic artifact validator (the "hands" check Claude Code loops on).
 
-  python3 scripts/validate.py <artifact> --schema {scenes|storyboard|motion|prompts}
-      [--target-seconds N] [--scenes-path P] [--run-dir D] [--scene S]
+  python3 scripts/validate.py <artifact> --schema {scenes|storyboard|prompts|video_prompt}
+      [--target-seconds N] [--scenes-path P] [--run-dir D] [--scene S] [--gen G]
 
 Writes ``<artifact>.validation.json`` (pass/fail + reasons) next to the artifact
 and exits nonzero on failure so the SKILL.md write->validate->fix loop can branch.
@@ -24,11 +24,12 @@ from tools import validators  # noqa: E402
 def main() -> int:
     p = argparse.ArgumentParser(description="Validate a story-maker-v3 artifact")
     p.add_argument("artifact", help="Path to the artifact file (md/json)")
-    p.add_argument("--schema", required=True, choices=("scenes", "storyboard", "motion", "prompts", "panel_prompts", "director_sets"))
+    p.add_argument("--schema", required=True, choices=("scenes", "storyboard", "prompts", "video_prompt"))
     p.add_argument("--target-seconds", type=int, default=None)
     p.add_argument("--scenes-path", default=None, help="scenes.md (for storyboard cross-check)")
-    p.add_argument("--run-dir", default=None, help="run output dir (for prompts schema)")
-    p.add_argument("--scene", default=None, help="scene id (for prompts schema)")
+    p.add_argument("--run-dir", default=None, help="run output dir (for prompts/video_prompt schemas)")
+    p.add_argument("--scene", default=None, help="scene id (for prompts/video_prompt schemas)")
+    p.add_argument("--gen", default=None, help="generation id (for video_prompt schema; inferred from filename if omitted)")
     p.add_argument("--tolerance", type=int, default=15)
     args = p.parse_args()
 
@@ -44,6 +45,7 @@ def main() -> int:
         scenes_path=args.scenes_path,
         run_dir=args.run_dir,
         scene_id=args.scene,
+        gen_id=args.gen,
     )
 
     out_path = artifact.with_suffix(artifact.suffix + ".validation.json")
