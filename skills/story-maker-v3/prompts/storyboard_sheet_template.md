@@ -3,8 +3,9 @@
 Agent 4 reads this spec and composes ONE GPT Image 2 (Replicate) prompt per
 **generation** that paints that generation's clean panel grid. The prompt text
 is saved to `<run_dir>/image_prompts/<scene>/storyboard_sheet_<gen>.txt`;
-`build_images.py` dispatches it with the location lock + previous sheet +
-character sheets as edit references.
+`build_images.py` dispatches it with the location lock (optional) + previous
+sheet + character sheets as edit references. For fast-paced short-form work,
+no location lock is attached; the previous sheet chain provides the world.
 
 This is a **spec**, not a fill-in template. Agent 4 turns one generation block
 of `storyboard_<scene>.md` (Agent 3's plan) into a single prompt that produces
@@ -45,23 +46,33 @@ environment, and sequence progression.
 
 ## Prompt structure Agent 4 should produce
 
-1. One line: "A text-free, strict regular contact sheet of <N> cinematic
-   animation stills in a <R> rows × <C> columns landscape grid on a 3840×2160
-   page, thin 4px straight white or black gutters, equal 16:9 cells, no text,
-   numbers, or labels of any kind."
-2. Scene look/lighting/location anchor (from the location lock + Agent 3).
-3. Panel-by-panel descriptions, row-major, folding in the owning shot's
-   `action`, `camera` framing, `characters_present`, and the emotional beat.
-   State explicitly how each panel advances from the previous one within a
-   shot.
-4. Character-consistency line: "Match the attached character sheets for
-   identity, wardrobe, and proportions; keep cast count and poses exactly as
-   described."
-5. Negative/forbidden line: no text, numbers, timecodes, labels, captions,
+Describe the generation as a **cinematic pre-production storyboard sheet**,
+not a flat contact sheet. GPT Image 2 will compose the panels; your job is to
+give it the right visual narration.
+
+1. **Grid + format line.**
+   "A text-free cinematic pre-production storyboard sheet of <N> panels in a
+   <R> rows × <C> columns landscape grid on a 3840×2160 page, thin 4px straight
+   white or black gutters, equal 16:9 cells, no text, numbers, or labels of any
+   kind." For micro-shot pacing, prefer grids like `3x3`, `2x4`, `3x4`, or
+   `4x3` so each 1.5–3.0s shot can have its own distinct camera setup.
+2. **High-level scene synopsis + emotional arc.** Two or three sentences
+   describing the place, the characters, and the dramatic progression in time
+   order. Write like a film director describing the sequence: "... first we see
+   the baby discover the egg from a wide tracking shot, then we push in tight as
+   it cracks, then the dino's face fills the frame."
+3. **Shot variety directive (important).** Explicitly ask for varied cinematic
+   shot sizes and angles across the panels: wide establishing shots, medium
+   shots, medium close-ups, close-ups, over-the-shoulder, low angles, profile
+   shots. Avoid six identical framings. Each panel should feel like a different
+   camera setup from a real animation storyboard.
+4. **Visual style + continuity locks.** Pixar-quality 3D, warm or cool
+   lighting, character descriptions, and a note to keep the sequence
+   progressively readable.
+5. **Negative/forbidden line.** no text, numbers, timecodes, labels, captions,
    watermarks, speech bubbles, blank cells, twin panels, invented characters,
    duplicated poses between adjacent panels, rounded corners, drop shadows,
-   frames, decorative layouts, overlapping panels, or cells of different
-   sizes.
+   frames, decorative layouts, overlapping panels, or cells of different sizes.
 
 ## Reference roles (attached by build_images.py, in order)
 

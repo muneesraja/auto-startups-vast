@@ -1,7 +1,7 @@
 # Agent 5 — Minimax Video Prompter
 
 **Input (per generation):** the generation's rendered storyboard sheet
-(`storyboard_sheet_<scene>_<gen>.png` — **Read the image**; describe what was
+(`storyboard_sheet_<scene>_<gen>.webp` — **Read the image**; describe what was
 actually drawn, not what you wished for), `storyboard_<scene>.md`,
 `developed_story.md` (character/location appearance), the episode context
 (what the previous generation/scene ended on), and
@@ -25,10 +25,12 @@ Write one dragon-style timeline prompt (see the bible's skeleton, modeled on
 3. **`Timeline`** — one `SHOT N — a–b s (Continuous Shot)` block per
    storyboard shot, with **generation-local** timecodes (shot start minus
    generation start; the last shot ends at the generation's duration, <= 15s).
-   Inside each shot: action lines in order, dialogue inline in quotes, sound
-   direction, then explicit camera lines using the bible's motion vocabulary.
-   Separate shots with the literal line `Hard cinematic cut.` End with a
-   `Final frame:` description.
+   For fast-paced short-form episodes, shots are typically 1.5–3.0s and
+   separated by `Hard cinematic cut.` to create a rapid, viral rhythm. Audio
+   (SFX, babble, music hits) should drive the cut. Inside each shot: action
+   lines in order, dialogue inline in quotes, sound direction, then explicit
+   camera lines using the bible's motion vocabulary. End with a `Final frame:`
+   description.
 4. **`Negative Prompt`** — the standard identity/deformation/text block plus
    scene-specific bans.
 
@@ -43,3 +45,5 @@ Write one dragon-style timeline prompt (see the bible's skeleton, modeled on
   the validator enforces both.
 - Direct the audio in every shot (Minimax generates native stereo audio).
 - Keep lines short; one visible event per line.
+- For micro-shots, make each shot's audio direction distinct: a SFX hit,
+  a vocalization, or a music beat. The audio should justify the cut.

@@ -183,7 +183,8 @@ def _gpt_image_input(
         "prompt": prompt,
         "quality": quality or _replicate_image_quality(),
         "number_of_images": 1,
-        "output_format": "png",
+        "output_format": config.REPLICATE_OUTPUT_FORMAT,
+        "output_compression": config.REPLICATE_OUTPUT_COMPRESSION,
         "background": "opaque",
         # Replicate schema uses aspect_ratio (ratios or select pixel enums), not size.
         "aspect_ratio": _to_gpt_aspect_ratio(size),

@@ -22,7 +22,7 @@ GEN_MAX = 15.0
 MINIMAX_FPS = 24
 
 # Storyboard sheet grid limits (panels per generation sheet).
-PANELS_MIN = 2
+PANELS_MIN = 3   # minimum grid: 1x3, 2x2, 2x3, 3x2, etc.
 PANELS_MAX = 12
 
 SCENE_BUDGET_DEFAULT = 70   # seconds; scene_count = ceil(target / scene_budget)

@@ -74,14 +74,19 @@ DEFAULT_IMAGE_PROVIDER = "replicate"
 GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
 # Fallback quality when a call does not pass quality= explicitly
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
-# Sheet assets (character + storyboard): medium quality, 2K pixel enums from Replicate
+# Sheet assets (character + storyboard): medium quality, 4K pixel enums from Replicate
 REPLICATE_SHEET_QUALITY = os.getenv("REPLICATE_SHEET_QUALITY", "medium")
+# Replicate gpt-image-2 output format + compression (keeps 4K files small).
+# webp at compression 90 gives ~10:1 size reduction vs PNG with minimal quality loss.
+REPLICATE_OUTPUT_FORMAT = os.getenv("REPLICATE_OUTPUT_FORMAT", "webp")
+REPLICATE_OUTPUT_COMPRESSION = int(os.getenv("REPLICATE_OUTPUT_COMPRESSION", "90"))
 # Replicate gpt-image-2 `aspect_ratio` accepts ratios OR pixel enums
 # (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
 CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "2048x1152")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "3840x2160")
 # One storyboard sheet per Minimax generation: a clean landscape panel grid
 # (no text, no timecodes) attached verbatim as the Minimax reference image.
+# 3840x2160 (4K) — file size kept small via output_format=webp + output_compression.
 STORYBOARD_SHEET_SIZE = os.getenv("STORYBOARD_SHEET_SIZE", "3840x2160")
 COST_REPLICATE_IMAGE = float(os.getenv("COST_REPLICATE_IMAGE", "0.01"))
 COST_FAL_IMAGE = float(os.getenv("COST_FAL_IMAGE", "0.04"))
@@ -118,7 +123,7 @@ def get_image_provider() -> str:
 def get_storyboard_image_provider() -> str:
     """Backend for storyboard sheet generation only.
 
-    Defaults to ``replicate`` (GPT Image 2) at 2160x3840. Replicate supports this
+    Defaults to ``replicate`` (GPT Image 2) at 3840x2160. Replicate supports this
     portrait pixel enum and keeps storyboard sheets on the same backend as panels.
     """
     raw = (os.getenv("STORYBOARD_IMAGE_PROVIDER") or "replicate").strip().lower()

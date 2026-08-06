@@ -6,9 +6,9 @@ assembles reference-image URLs, and dispatches to the ``generate_grok_t2i`` /
 ``generate_grok_edit`` backend (replicate / fal).
 
 Asset layout:
-  <assets_dir>/characters/<cid>.png     shared character sheets (T2I, once)
-  <assets_dir>/locations/<lid>.png       shared location locks  (T2I, once)
-  <run_dir>/storyboard_sheet_<scene>_<gen>.png  per-generation clean-panel
+  <assets_dir>/characters/<cid>.<ext>     shared character sheets (T2I, once)
+  <assets_dir>/locations/<lid>.<ext>       shared location locks  (T2I, once)
+  <run_dir>/storyboard_sheet_<scene>_<gen>.<ext>  per-generation clean-panel
       storyboard sheet (edit + refs) — attached verbatim as the Minimax H3
       reference image. No crops, no upscales.
 
@@ -27,6 +27,11 @@ import config
 from . import char_sheet_builder
 from . import location_sheet_builder
 from .grok_tools import generate_grok_edit, generate_grok_t2i
+
+
+def _img_ext() -> str:
+    """File extension matching the configured Replicate output format."""
+    return getattr(config, "REPLICATE_OUTPUT_FORMAT", "webp") or "webp"
 
 RENDER_STYLE = os.getenv(
     "RENDER_STYLE",
@@ -144,13 +149,13 @@ class AssetRegistry:
         return self.data["sheets"].setdefault(sheet_id, {"output_path": "", "fal_image_url": ""})
 
     def character_path(self, cid: str) -> str:
-        return os.path.join(self.assets_dir, "characters", f"{cid}.png")
+        return os.path.join(self.assets_dir, "characters", f"{cid}.{_img_ext()}")
 
     def location_path(self, lid: str) -> str:
-        return os.path.join(self.assets_dir, "locations", f"{lid}.png")
+        return os.path.join(self.assets_dir, "locations", f"{lid}.{_img_ext()}")
 
     def sheet_path(self, scene_id: str, gen_id: str) -> str:
-        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.png")
+        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{_img_ext()}")
 
 
 # ---------------------------------------------------------------------------

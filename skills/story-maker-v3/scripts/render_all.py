@@ -59,9 +59,14 @@ def render_scene(run_dir: str, scene_id: str, *, seed: int,
             clip_paths.append(out_path)
             continue
 
-        sheet_path = os.path.join(run_dir, f"storyboard_sheet_{scene_id}_{gid}.png")
-        if not _exists(sheet_path):
-            raise FileNotFoundError(f"storyboard sheet missing: {sheet_path}")
+        for ext in ("webp", "png", "jpg", "jpeg"):
+            sheet_path = os.path.join(run_dir, f"storyboard_sheet_{scene_id}_{gid}.{ext}")
+            if _exists(sheet_path):
+                break
+        else:
+            raise FileNotFoundError(
+                f"storyboard sheet missing: {run_dir}/storyboard_sheet_{scene_id}_{gid}.<ext>"
+            )
         prompt = ip.read_prompt(ip.video_prompt_path(run_dir, scene_id, gid))
         if not prompt:
             raise FileNotFoundError(

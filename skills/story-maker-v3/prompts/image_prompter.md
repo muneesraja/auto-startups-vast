@@ -52,8 +52,10 @@ End with the no-text clause.
 Follow `prompts/storyboard_sheet_template.md` exactly: a single prompt that
 paints that generation's strict regular `panel_grid` landscape sheet (3840×2160
 page, thin 4px straight white or black gutters, equal 16:9 cells, ZERO text /
-numbers / labels on the page). Fold in the generation's shots panel-by-panel in
-row-major order — each panel naming its `characters_present`, framing, and beat —
+numbers / labels on the page). For fast-paced short-form work, prefer dense
+grids like `3x3`, `2x4`, `3x4`, or `4x3` so each 1.5–3.0s micro-shot gets its
+own panel. Fold in the generation's shots panel-by-panel in row-major order —
+each panel naming its `characters_present`, framing, camera angle, and beat —
 emphasizing visible progressive motion between adjacent panels of a shot and the
 continuation from the previous generation's last panel.
 Reference roles (location lock → previous sheet → character sheets) are

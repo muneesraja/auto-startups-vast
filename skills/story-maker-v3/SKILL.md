@@ -65,7 +65,10 @@ Provider defaults (override in `.env`): storyboard sheets + character sheets +
 location locks all use **replicate** (`PROVIDER=replicate`,
 `STORYBOARD_IMAGE_PROVIDER=replicate`, `CHARACTER_SHEET_IMAGE_PROVIDER=replicate`).
 Storyboard sheets are **3840×2160 (4K landscape)** at `quality=medium`,
-character sheets are 2048×1152, location locks are 3840×2160. Minimax renders at
+character sheets are 2048×1152, location locks are 3840×2160. All Replicate
+outputs use `output_format=webp` + `output_compression=90` (override with
+`REPLICATE_OUTPUT_FORMAT` / `REPLICATE_OUTPUT_COMPRESSION`) to keep 4K files
+small (~1-3MB vs 5-15MB for PNG). Minimax renders at
 `MINIMAX_MEGAPIXELS=0.6`, `MINIMAX_ASPECT=16:9` (→ 1056×608) by default.
 
 ## Durable artifacts + resume waterfall
@@ -156,7 +159,12 @@ into `## Generation gK — a-b s` blocks (each 5-15s, contiguous, summing to the
 scene's `target_seconds`), each with `panel_grid` and `### Shot` blocks
 (contiguous, panels in reading order, Minimax camera vocabulary, audio +
 dialogue). **The 15s rule is load-bearing: a shot that does not fit in the
-current generation moves whole to the next one.** Then:
+current generation moves whole to the next one.**
+
+For fast-paced / short-form retention, prefer **5–8 micro-shots per 15s
+generation** (1.5–3.0s each) with dense grids (`3x3`, `2x4`, `3x4`, `4x3`).
+Each micro-shot gets a distinct camera angle / shot size and its own SFX or
+vocal beat. Then:
 
 ```bash
 python3 scripts/validate.py "$RUN/storyboard_sN.md" --schema storyboard \
@@ -210,7 +218,7 @@ For each scene `sN`:
 python3 scripts/build_images.py --output-dir "$RUN" --scene sN
 ```
 
-This generates `storyboard_sheet_sN_gK.png` for every generation (3840×2160,
+This generates `storyboard_sheet_sN_gK.webp` for every generation (3840×2160,
 Replicate edit with location → previous sheet → char refs; the previous sheet
 chains g1→g2→... and across scenes for continuity). Existing sheets are skipped.
 
@@ -226,7 +234,7 @@ If a sheet is wrong, delete it and re-run `--scene sN`.
 ### C1. Author each generation's Minimax prompt (Agent 5)
 
 For each scene `sN` and generation `gK`: **Read** the sheet
-(`$RUN/storyboard_sheet_sN_gK.png`) to see what was actually drawn, plus
+(`$RUN/storyboard_sheet_sN_gK.webp`) to see what was actually drawn, plus
 `storyboard_sN.md`, the episode context, and
 [`assets/minimax-h3-prompt-bible.md`](assets/minimax-h3-prompt-bible.md).
 Author `$RUN/video_prompts/sN_gK.txt` per [`prompts/video_prompter.md`](prompts/video_prompter.md):
@@ -234,7 +242,9 @@ Reference block (use the storyboard, appearance locks — describe characters by
 appearance, never `char_NN`), style block, `Timeline` with one
 `SHOT n — a–b s (Continuous Shot)` block per storyboard shot in
 **generation-local seconds**, `Hard cinematic cut.` between shots, dialogue and
-sound direction inline, `Final frame:`, and a `Negative Prompt` block. Then:
+sound direction inline, `Final frame:`, and a `Negative Prompt` block. For
+short-form micro-shots, keep each SHOT 1.5–3.0s; make the audio (SFX, vocal
+hits, music beats) drive every cut. Then:
 
 ```bash
 python3 scripts/validate.py "$RUN/video_prompts/sN_gK.txt" \
