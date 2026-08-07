@@ -44,9 +44,8 @@ COMFY_PYTHON="$(detect_comfyui_python)"
 COMFY_PIP=("$COMFY_PYTHON" -m pip)
 echo "  Using ComfyUI Python: $COMFY_PYTHON"
 
-# Preserve the original launch arguments for a manual fallback restart.
-COMFYUI_ARGS="$(ps aux | grep '[p]ython.*main.py' | head -1 | sed 's/.*main\.py//')"
-[ -n "$COMFYUI_ARGS" ] || COMFYUI_ARGS="--listen 0.0.0.0 --port 8188 --enable-cors-header"
+# Standard launch arguments for the manual fallback restart.
+COMFYUI_ARGS="--listen 0.0.0.0 --port 18188 --enable-cors-header --disable-pinned-memory --fp16-intermediates"
 COMFYUI_PORT="$(printf '%s\n' "$COMFYUI_ARGS" | grep -oE -- '--port [0-9]+' | awk '{print $2}' | head -1 || true)"
 [ -n "$COMFYUI_PORT" ] || COMFYUI_PORT=8188
 
@@ -108,6 +107,8 @@ install_node() {
 # MiniMax H3 is core in ComfyUI >= v0.30.0. VHS_LoadVideo is used by this workflow.
 install_node "ComfyUI-KJNodes" "https://github.com/kijai/ComfyUI-KJNodes"
 install_node "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
+install_node "ComfyUI-SolAttn_triton" "https://github.com/kijai/ComfyUI-SolAttn_triton"
+install_node "comfyui-minimax-h3-blockcache-T8" "https://github.com/T8mars/comfyui-minimax-h3-blockcache-T8"
 
 # ─── Load shared Hugging Face helper ──────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
