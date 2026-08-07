@@ -141,7 +141,7 @@ hf_download "Comfy-Org/MiniMax-H3" \
 
 model_step "MiniMax H3 Qwen3-VL text encoder (~15GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
-  "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+  "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" \
   "$BASE_DIR/models"
 
 model_step "MiniMax H3 video VAE (~5GB)"
