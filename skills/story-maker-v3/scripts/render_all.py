@@ -14,6 +14,9 @@ native stereo audio.
 Long-running (hours). Fire-and-forget; the SKILL.md launches it in the
 background. Resume: existing clip files are skipped; only missing clips +
 downstream concats re-execute.
+
+Set ``NTFY_URL`` in the environment (e.g. ``ntfy.sh/topic``) to receive a
+push notification after each generation, each scene, and the final film.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,6 +40,23 @@ from tools.video_concat import concat_videos  # noqa: E402
 
 def _exists(path: str) -> bool:
     return bool(path) and os.path.isfile(path) and os.path.getsize(path) > 0
+
+
+def _ntfy(message: str) -> None:
+    """Send a push notification to ``NTFY_URL`` if it is set in the env."""
+    ntfy_url = os.environ.get("NTFY_URL", os.environ.get("NTFY_TOPIC"))
+    if not ntfy_url:
+        return
+    try:
+        subprocess.run(
+            ["curl", "-d", message, ntfy_url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        pass
 
 
 def render_scene(run_dir: str, scene_id: str, *, seed: int,
@@ -84,15 +105,19 @@ def render_scene(run_dir: str, scene_id: str, *, seed: int,
             aspect=aspect,
         )
         if result.get("status") != "success":
+            _ntfy(f"[story-maker-v3] {scene_id}/{gid} render failed: {result.get('message', result)}")
             raise RuntimeError(f"clip {scene_id}/{gid} failed: {result.get('message', result)}")
         print(f"    done in {result.get('elapsed_seconds')}s -> {out_path}")
+        _ntfy(f"[story-maker-v3] {scene_id}/{gid} render complete -> {out_path}")
         clip_paths.append(out_path)
 
     scene_mp4 = os.path.join(run_dir, f"scene_{scene_id}.mp4")
     print(f"  concat {len(clip_paths)} clips -> {scene_mp4}")
     res = concat_videos(clip_paths, scene_mp4)
     if res.get("status") != "success":
+        _ntfy(f"[story-maker-v3] scene {scene_id} concat failed: {res.get('message')}")
         raise RuntimeError(f"scene concat failed for {scene_id}: {res.get('message')}")
+    _ntfy(f"[story-maker-v3] scene {scene_id} complete -> {scene_mp4}")
     return scene_mp4
 
 
@@ -132,11 +157,14 @@ def main() -> int:
     if len(scene_mp4s) == 1:
         os.replace(scene_mp4s[0], final)
         print(f"final_film.mp4 -> {final}")
+        _ntfy(f"[story-maker-v3] final film complete -> {final}")
     else:
         res = concat_videos(scene_mp4s, final)
         if res.get("status") != "success":
+            _ntfy(f"[story-maker-v3] final concat failed: {res.get('message')}")
             raise SystemExit(f"final concat failed: {res.get('message')}")
         print(f"final_film.mp4 -> {final}")
+        _ntfy(f"[story-maker-v3] final film complete -> {final}")
     return 0
 
 
