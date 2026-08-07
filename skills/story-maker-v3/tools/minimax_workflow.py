@@ -37,12 +37,11 @@ _SKIP_WIDGET = {"fixed", "randomize", "increment", "decrement"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MINIMAX_UI = (
-    _REPO_ROOT / "workflows" / "comfyui" / "Minimax H3 R2V - Final.json"
+    _REPO_ROOT / "workflows" / "comfyui" / "Minimax H3 R2V - Final - v2.json"
 )
 _UPLOAD_SUBFOLDER = "story-maker-v3"
 
 MINIMAX_NODE = "MiniMaxH3ReferenceToVideo"
-_REF_IMAGE_0 = "ref_images.ref_image_0"
 
 # Cached UI->API conversion for the current process
 _API_WORKFLOW_CACHE: dict[str, dict] | None = None
@@ -188,11 +187,10 @@ def simplify_minimax_graph(api: dict[str, dict], object_info: dict) -> None:
     mm_id = _find_node(api, MINIMAX_NODE)
     mm = api[mm_id]["inputs"]
 
-    # 1. Keep only ref_image_0; drop every other reference input.
+    # 1. Keep all wired ref_image_* slots; drop video/audio references.
     for key in list(mm.keys()):
-        if key.startswith(("ref_images.", "ref_videos.", "ref_audios.", "ref_video_audios.")):
-            if key != _REF_IMAGE_0:
-                del mm[key]
+        if key.startswith(("ref_videos.", "ref_audios.", "ref_video_audios.")):
+            del mm[key]
 
     # 2. Inline linked prompt / width / height / length into literal values
     #    (patched per generation later); drop the helper nodes via pruning.
@@ -248,7 +246,7 @@ def load_api_workflow() -> dict[str, dict]:
 def patch_generation(
     api: dict[str, dict],
     *,
-    sheet_server_name: str,
+    reference_image_names: list[str],
     prompt: str,
     duration_seconds: float,
     width: int,
@@ -258,10 +256,45 @@ def patch_generation(
 ) -> None:
     mm_id = _find_node(api, MINIMAX_NODE)
     mm = api[mm_id]["inputs"]
-    load_id = _link_target(mm.get(_REF_IMAGE_0))
-    if not load_id or api.get(load_id, {}).get("class_type") != "LoadImage":
-        raise KeyError("ref_images.ref_image_0 is not fed by a LoadImage node")
-    api[load_id]["inputs"]["image"] = sheet_server_name
+
+    ref_slots: list[tuple[int, str]] = []
+    for key in list(mm.keys()):
+        if not key.startswith("ref_images.ref_image_"):
+            continue
+        suffix = key.split(".")[-1]
+        if not suffix.startswith("ref_image_"):
+            continue
+        try:
+            ref_slots.append((int(suffix.split("_")[-1]), key))
+        except ValueError:
+            continue
+    ref_slots.sort()
+
+    if not ref_slots:
+        raise KeyError("no ref_images slots found on Minimax H3 node")
+    if len(reference_image_names) > len(ref_slots):
+        raise ValueError(
+            f"more reference images ({len(reference_image_names)}) than wired slots ({len(ref_slots)})"
+        )
+
+    for (_, slot), name in zip(ref_slots, reference_image_names):
+        load_id = _link_target(mm.get(slot))
+        if not load_id or api.get(load_id, {}).get("class_type") != "LoadImage":
+            raise KeyError(f"{slot} is not fed by a LoadImage node")
+        api[load_id]["inputs"]["image"] = name
+
+    # Drop unused ref image slots and their loader nodes so the graph
+    # works when fewer than the wired number of references are supplied.
+    for _, slot in ref_slots[len(reference_image_names):]:
+        del mm[slot]
+
+    roots = {
+        nid for nid, node in api.items()
+        if node.get("class_type") in ("SaveVideo", "VHS_VideoCombine", "SaveAnimatedWEBP")
+    }
+    if not roots:
+        raise KeyError("workflow has no SaveVideo node")
+    _prune_unreachable(api, roots)
 
     dur = max(GEN_MIN, min(GEN_MAX, float(duration_seconds)))
     mm["prompt"] = prompt
@@ -296,6 +329,7 @@ def render_generation(
     seed: int = 42,
     megapixels: float | None = None,
     aspect: str | None = None,
+    extra_reference_paths: list[str] | None = None,
     max_wait: int = 7200,
 ) -> dict:
     """Render one <=15s Minimax H3 generation from a storyboard sheet."""
@@ -310,12 +344,20 @@ def render_generation(
     if not up or "name" not in up:
         return {"status": "error", "message": f"sheet upload failed: {sheet_path}"}
     server_name = f"{up.get('subfolder')}/{up['name']}" if up.get("subfolder") else up["name"]
+    reference_image_names = [server_name]
+
+    for ref_path in (extra_reference_paths or []):
+        up2 = upload_image(ref_path, subfolder=_UPLOAD_SUBFOLDER)
+        if not up2 or "name" not in up2:
+            return {"status": "error", "message": f"reference upload failed: {ref_path}"}
+        name2 = f"{up2.get('subfolder')}/{up2['name']}" if up2.get("subfolder") else up2["name"]
+        reference_image_names.append(name2)
 
     api = load_api_workflow()
     stem = Path(output_path).stem
     patch_generation(
         api,
-        sheet_server_name=server_name,
+        reference_image_names=reference_image_names,
         prompt=prompt,
         duration_seconds=duration_seconds,
         width=width,
