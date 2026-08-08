@@ -154,7 +154,16 @@ def wait_for_prompt(prompt_id, base_url=None, poll_interval=5, max_wait=2400, au
 
     start = time.time()
     while time.time() - start < max_wait:
-        data = curl_json("GET", f"/history/{prompt_id}", base_url, auth=auth)
+        try:
+            data = curl_json("GET", f"/history/{prompt_id}", base_url, auth=auth)
+        except (subprocess.TimeoutExpired, RuntimeError, OSError) as e:
+            print(f"  poll for {prompt_id} failed: {e}; retrying")
+            time.sleep(poll_interval)
+            continue
+        except Exception as e:
+            print(f"  poll for {prompt_id} unexpected error: {e}; retrying")
+            time.sleep(poll_interval)
+            continue
         if prompt_id in data:
             info = data[prompt_id]
             status = info.get("status", {}).get("status_str", "unknown")
