@@ -3,7 +3,7 @@
 # name: Minimax H3 R2V - Final
 # workflow: Minimax H3 R2V - Final
 # aliases: [minimax-h3-r2v-final, minimax h3 r2v]
-# description: Prepares ComfyUI for the Minimax H3 reference-to-video workflow, installs required nodes, and downloads the four MiniMax H3 model files. No LTX models are downloaded.
+# description: Prepares ComfyUI for the Minimax H3 reference-to-video workflow, installs required nodes, and downloads the five MiniMax H3 model files. No LTX models are downloaded.
 # size: ~41GB
 # min_vram: 24GB minimum; 48GB recommended
 # ---
@@ -130,8 +130,8 @@ echo ""
 echo "==> [Phase 2] Downloading models..."
 mkdir -p "$BASE_DIR/models"
 
-# MiniMax H3 Reference-to-Video model set: all four files are public and ungated.
-TOTAL=4
+# MiniMax H3 Reference-to-Video model set: all five files are public and ungated.
+TOTAL=5
 step=0
 model_step() { step=$((step + 1)); echo "[$step/$TOTAL] $1"; }
 
@@ -153,6 +153,11 @@ hf_download "Comfy-Org/MiniMax-H3" \
 model_step "MiniMax H3 audio VAE (~0.6GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
   "vae/minimax_h3_audio_vae_fp32.safetensors" \
+  "$BASE_DIR/models"
+
+model_step "MiniMax H3 FL2V LightX2V Turbo 4-step LoRA"
+hf_download "Kijai/MiniMax-H3_comfy" \
+  "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy_resized_avg_rank_21_bf16.safetensors" \
   "$BASE_DIR/models"
 
 # ─── Phase 3: Restart / liveness recovery ────────────────────────────────────
