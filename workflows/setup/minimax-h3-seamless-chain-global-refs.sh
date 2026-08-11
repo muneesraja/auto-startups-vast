@@ -55,7 +55,9 @@ install_node() {
   else
     echo "  📥 Installing $dir"
     git clone --depth 1 "$url" "$NODES_DIR/$dir"
-    [[ -f "$NODES_DIR/$dir/requirements.txt" ]] && $COMFYUI_PYTHON -m pip install -r "$NODES_DIR/$dir/requirements.txt" -q
+    if [[ -f "$NODES_DIR/$dir/requirements.txt" ]]; then
+      $COMFYUI_PYTHON -m pip install -r "$NODES_DIR/$dir/requirements.txt" -q
+    fi
   fi
 }
 install_node ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes.git
@@ -94,7 +96,11 @@ echo "⚠️ Upload the two reference PNGs and source WAV named in the workflow 
 
 # -------- Phase 3: restart and verify --------
 COMFYUI_ARGS=$(ps aux | awk '/[p]ython.*main\.py/ {sub(/.*main\.py/, ""); print; exit}') || true
-[[ -n "${COMFYUI_ARGS:-}" ]] || COMFYUI_ARGS="--listen 0.0.0.0 --port 8188 --enable-cors-header"
+# Preserve the existing launch arguments, but ensure H3 memory optimizations
+# are present for the manual fallback restart.
+[[ -n "${COMFYUI_ARGS:-}" ]] || COMFYUI_ARGS="--listen 0.0.0.0 --port 18188 --enable-cors-header"
+[[ " $COMFYUI_ARGS " == *" --disable-pinned-memory "* ]] || COMFYUI_ARGS+=" --disable-pinned-memory"
+[[ " $COMFYUI_ARGS " == *" --fp16-intermediates "* ]] || COMFYUI_ARGS+=" --fp16-intermediates"
 COMFYUI_PORT=$(grep -oE -- '--port [0-9]+' <<<"$COMFYUI_ARGS" | awk '{print $2}' | head -1 || true)
 [[ -n "${COMFYUI_PORT:-}" ]] || COMFYUI_PORT=8188
 
