@@ -714,3 +714,25 @@ All paths in this skill reference the repo root:
 ```
 REPO_ROOT="/root/repos/auto-startups-vast"
 ```
+
+## Maintained Addenda
+
+The following operational addenda are maintained with this skill:
+
+- **MiniMax H3:** `references/minimax-h3-discovery-2026-08-03.md` — H3 model
+  manifest, ComfyUI v0.30.0+ floor, core-node detection, native audio, and
+  subgraph quirks.
+- **GetNode/SetNode:** `references/comfyui-bus-node-bug-2026-07-23.md` and
+  `scripts/fix_get_set_nodes.py` — detect and rewrite frontend-only bus nodes
+  into direct links before provisioning.
+- **Input filenames:** `references/workflow-input-filename-mismatch-2026-07-23.md`
+  — prevent hardcoded LoadImage/VHS input mismatches.
+- **Audio subgraphs:** `references/audio-subgraph-t2a.md` and
+  `templates/audio-subgraph-t2a.template` — reusable audio workflow guidance.
+- **SCAIL-2/Wan discovery:** `references/scail-2-wan-discovery-2026-07-23.md`.
+
+Before treating an unfamiliar node as a custom pack, check ComfyUI's
+`comfy_extras/` on the required version. Recent model-family nodes may be
+comfy-core additions rather than GitHub custom nodes; for example, MiniMax H3
+requires ComfyUI v0.30.0+. Use the version-upgrade Phase 0 pattern before
+installing packs.
