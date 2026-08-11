@@ -1,0 +1,2581 @@
+{
+  "id": "c0b8422a-84d4-44f8-91ce-31c68a9a119e",
+  "revision": 0,
+  "last_node_id": 1920,
+  "last_link_id": 72,
+  "nodes": [
+    {
+      "id": 1633,
+      "type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+      "pos": [
+        -1312,
+        -928
+      ],
+      "size": [
+        352,
+        32
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-kjnodes",
+        "ver": "05ba05bf52331622bd3395716c505c29aa1fff76",
+        "Node name for S&R": "MiniMaxH3MemoryEfficientSageAttentionPatch"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 1634,
+      "type": "SolAttnPatch",
+      "pos": [
+        -928,
+        -960
+      ],
+      "size": [
+        320,
+        352
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 3
+        },
+        {
+          "name": "tau_profile",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "kijai/ComfyUI-SolAttn_triton",
+        "ver": "0e334dc981cfe3b0ed926ee13ad43f64914b7f5b",
+        "Node name for S&R": "SolAttnPatch"
+      },
+      "widgets_values": [
+        1.5,
+        0.2,
+        0.9,
+        4096,
+        true,
+        "exact_kv_and_rows",
+        false,
+        "2d_frame",
+        true,
+        false,
+        false,
+        "33-35, 39-42"
+      ]
+    },
+    {
+      "id": 132,
+      "type": "MiniMaxH3LoopTrim",
+      "pos": [
+        2912,
+        -256
+      ],
+      "size": [
+        384,
+        224
+      ],
+      "flags": {},
+      "order": 36,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 38
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 39
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "widget": {
+            "name": "trim_frames"
+          },
+          "link": 40
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            42,
+            47
+          ]
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            44
+          ]
+        }
+      ],
+      "title": "Trim overlap + frame-lock audio",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "15fc6a7bf7b78efb27f33d7eef3818e7ed0e118a",
+        "Node name for S&R": "MiniMaxH3LoopTrim"
+      },
+      "widgets_values": [
+        0,
+        24,
+        true
+      ],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1704,
+      "type": "MiniMaxH3ChainSegmentSave",
+      "pos": [
+        3328,
+        -256
+      ],
+      "size": [
+        384,
+        288
+      ],
+      "flags": {},
+      "order": 37,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 41
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 42
+        },
+        {
+          "name": "sampled_latent",
+          "type": "LATENT",
+          "link": 43
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 44
+        }
+      ],
+      "outputs": [
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "links": [
+            49
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "SAVE SEGMENT + TRANSACTIONAL CHECKPOINT",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainSegmentSave"
+      },
+      "widgets_values": [],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1705,
+      "type": "MiniMaxH3ChainLoopEnd",
+      "pos": [
+        3744,
+        -256
+      ],
+      "size": [
+        352,
+        320
+      ],
+      "flags": {},
+      "order": 38,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "flow",
+          "type": "H3_CHAIN_FLOW",
+          "link": 45
+        },
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 46
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 47
+        },
+        {
+          "name": "sampled_latent",
+          "type": "LATENT",
+          "link": 48
+        },
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "link": 49
+        }
+      ],
+      "outputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "links": [
+            50
+          ]
+        },
+        {
+          "name": "manifest_json",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "last_context_frames",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "last_context_latent",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "title": "H3 LOOP END — recurse until segment 8",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainLoopEnd"
+      },
+      "widgets_values": [],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1707,
+      "type": "MiniMaxH3ChainManifestLoad",
+      "pos": [
+        4256,
+        576
+      ],
+      "size": [
+        352,
+        224
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "link": 52
+        },
+        {
+          "name": "source_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 53
+        }
+      ],
+      "outputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "links": [
+            54
+          ]
+        },
+        {
+          "name": "manifest_json",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "RECOVERY: LOAD ALL SAVED CLIPS",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainManifestLoad"
+      },
+      "widgets_values": [],
+      "color": "#59451e",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1708,
+      "type": "MiniMaxH3ChainAssemble",
+      "pos": [
+        4672,
+        512
+      ],
+      "size": [
+        448,
+        256
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "link": 54
+        },
+        {
+          "name": "source_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 55
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "RECOVERY: ASSEMBLE OPENING WITHOUT RENDERING",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainAssemble"
+      },
+      "widgets_values": [
+        "plan",
+        "silver_estate_opening_80s_recovered",
+        256
+      ],
+      "color": "#59451e",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1901,
+      "type": "Note",
+      "pos": [
+        4224,
+        800
+      ],
+      "size": [
+        832,
+        320
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "RECOVERY / ASSEMBLE LATER",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "The two amber recovery nodes are MUTED by default.\n\nIf all segments finished but final assembly did not, mute the main green Assemble node, enable both recovery nodes, and queue. They validate every SHA-256 checkpoint pair and assemble without rerendering the completed clips.\n\nFor an interrupted generation, leave recovery muted and set Loop Start's start_clip to the first unfinished clip."
+      ],
+      "widgets_values_named": {
+        "text": "The two amber recovery nodes are MUTED by default.\n\nIf all segments finished but final assembly did not, mute the main green Assemble node, enable both recovery nodes, and queue. They validate every SHA-256 checkpoint pair and assemble without rerendering the completed clips.\n\nFor an interrupted generation, leave recovery muted and set Loop Start's start_clip to the first unfinished clip."
+      },
+      "color": "#432f66",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [
+        -2048,
+        -928
+      ],
+      "size": [
+        352,
+        96
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "title": "H3 REF2VA MODEL — REQUIRED",
+      "properties": {
+        "Node name for S&R": "UNETLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "MiniMax-H3/minimax_h3_ref2va_pruned_bf16.safetensors",
+        "default"
+      ],
+      "widgets_values_named": {
+        "unet_name": "MiniMax-H3/minimax_h3_ref2va_pruned_bf16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoader",
+      "pos": [
+        -2048,
+        -768
+      ],
+      "size": [
+        352,
+        128
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "H3 TEXT ENCODER",
+      "properties": {
+        "Node name for S&R": "CLIPLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "MiniMax-H3/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "minimax",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "MiniMax-H3/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    {
+      "id": 1635,
+      "type": "LoraLoaderModelOnly",
+      "pos": [
+        -576,
+        -864
+      ],
+      "size": [
+        256,
+        122
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoraLoaderModelOnly",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "MiniMax H3/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors",
+        0.95
+      ],
+      "widgets_values_named": {
+        "lora_name": "MiniMax H3/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors",
+        "strength_model": 0.95
+      }
+    },
+    {
+      "id": 1632,
+      "type": "PathchSageAttentionKJ",
+      "pos": [
+        -1664,
+        -928
+      ],
+      "size": [
+        288,
+        114
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PathchSageAttentionKJ",
+        "cnr_id": "comfyui-kjnodes",
+        "ver": "05ba05bf52331622bd3395716c505c29aa1fff76"
+      },
+      "widgets_values": [
+        "auto",
+        true
+      ],
+      "widgets_values_named": {
+        "sage_attention": "auto",
+        "allow_compile": true
+      }
+    },
+    {
+      "id": 910,
+      "type": "LoadImage",
+      "pos": [
+        -2080,
+        -256
+      ],
+      "size": [
+        384,
+        448
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": []
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "title": "STEP 1A — FACE / IDENTITY REFERENCE",
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "ComfyUI_temp_erlqb_00140_.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "ComfyUI_temp_erlqb_00140_.png",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 911,
+      "type": "LoadImage",
+      "pos": [
+        -1644.9466509481044,
+        -360.17741842363205
+      ],
+      "size": [
+        544,
+        448
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            56
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "title": "ONLY CHARACTER SHEET — IDENTITY/BODY; WARDROBE OVERRIDDEN",
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "ComfyUI_temp_pbrpk_00001_.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "ComfyUI_temp_pbrpk_00001_.png",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 1701,
+      "type": "MiniMaxH3ChainLoopStart",
+      "pos": [
+        -544,
+        -256
+      ],
+      "size": [
+        352,
+        192
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "link": 13
+        },
+        {
+          "name": "source_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "flow",
+          "type": "H3_CHAIN_FLOW",
+          "links": [
+            45
+          ]
+        },
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "links": [
+            15
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "H3 LOOP START / RESUME",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainLoopStart"
+      },
+      "widgets_values": [
+        1,
+        ""
+      ],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1702,
+      "type": "MiniMaxH3ChainCurrent",
+      "pos": [
+        32,
+        -256
+      ],
+      "size": [
+        480,
+        512
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 15
+        },
+        {
+          "name": "source_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "links": [
+            24,
+            41,
+            46
+          ]
+        },
+        {
+          "name": "clip_index",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "clip_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "shot_id",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "links": [
+            22
+          ]
+        },
+        {
+          "name": "length",
+          "type": "INT",
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "links": [
+            23
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "audio_start",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "audio_duration",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "source_audio_slice",
+          "type": "AUDIO",
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "CURRENT SHOT — prompt / seed / timing",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainCurrent"
+      },
+      "widgets_values": [],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 110,
+      "type": "MiniMaxH3ReferenceToVideo",
+      "pos": [
+        640,
+        -256
+      ],
+      "size": [
+        544,
+        384
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 8
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 59
+        },
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 66
+        },
+        {
+          "label": "ref_image_0",
+          "name": "ref_images.ref_image_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 56
+        },
+        {
+          "label": "ref_image_1",
+          "name": "ref_images.ref_image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_video_0",
+          "name": "ref_videos.ref_video_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_video_audio_0",
+          "name": "ref_video_audios.ref_video_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "label": "ref_audio_0",
+          "name": "ref_audios.ref_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 21
+        },
+        {
+          "label": "ref_audio_1",
+          "name": "ref_audios.ref_audio_1",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 17
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 18
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 19
+        },
+        {
+          "name": "length",
+          "type": "INT",
+          "widget": {
+            "name": "length"
+          },
+          "link": 20
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            25
+          ]
+        },
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            27,
+            33
+          ]
+        }
+      ],
+      "title": "H3 REF2VA — ONE REFERENCE SHEET",
+      "properties": {
+        "Node name for S&R": "MiniMaxH3ReferenceToVideo",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "subject_definitions:\n<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\n<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\n\nsummary:\n[reference generation + audio reference] The opening of a single uninterrupted easycore music-video take follows <Subject 1> from a backstage room toward a door as the first vocal begins, using <Audio 1> for the performed song and musical backing.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\n<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\n\ndetailed_description:\nThe target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\n[Shot 1] A medium-wide front tracking shot begins in a dim backstage dressing room while <Subject 1> walks toward camera with relaxed confidence, the camera gliding backward at her pace. During the opening instrumental her mouth remains naturally closed; she rolls one shoulder and lightly catches the hem of her cropped black T-shirt, steps around a road case, and keeps moving toward a brightly lit door at the far end of the room. Practical fluorescent fixtures and a warm mirror-light strip slide past behind her, catching the vivid yellow hair, pink streaks, silver choker hardware, septum ring, and hip chain while creating strong parallax without any cut.\n\nAs the first vocal enters, <Subject 1> (S1) looks directly into the lens and sings with the energetic, clean female delivery referenced from <Audio 1>, <d>[English] Left the room with the lights still on.</d> On “left the room,” she reaches the doorway while still walking; the camera eases into a three-quarter side angle and lets the lit dressing room remain visible behind her for one final moment. She pushes the door open with her shoulder and crosses the threshold without slowing.\n\nNear the end of the segment the next phrase begins while she enters a narrow concrete service corridor: <Subject 1> (S1) continues, <d>[English] Hit the door and the hallway's gone.</d> The phrase remains in progress as the camera arcs around her right side. Beyond her, the corridor geometry begins to stretch unnaturally toward another opening, preparing the physical transformation that continues in the next segment. Keep her walking motion, the camera arc, and the door movement visibly in progress at the boundary.\n\noverall_soundscape:\nLow backstage room tone, soft shoe impacts, T-shirt fabric and hip-chain movement, and a door latch are audible beneath the performance.\n\nnon_diegetic_music:\n<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.",
+        960,
+        544,
+        362,
+        "match"
+      ],
+      "widgets_values_named": {
+        "prompt": "subject_definitions:\n<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\n<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\n\nsummary:\n[reference generation + audio reference] The opening of a single uninterrupted easycore music-video take follows <Subject 1> from a backstage room toward a door as the first vocal begins, using <Audio 1> for the performed song and musical backing.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\n<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\n\ndetailed_description:\nThe target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\n[Shot 1] A medium-wide front tracking shot begins in a dim backstage dressing room while <Subject 1> walks toward camera with relaxed confidence, the camera gliding backward at her pace. During the opening instrumental her mouth remains naturally closed; she rolls one shoulder and lightly catches the hem of her cropped black T-shirt, steps around a road case, and keeps moving toward a brightly lit door at the far end of the room. Practical fluorescent fixtures and a warm mirror-light strip slide past behind her, catching the vivid yellow hair, pink streaks, silver choker hardware, septum ring, and hip chain while creating strong parallax without any cut.\n\nAs the first vocal enters, <Subject 1> (S1) looks directly into the lens and sings with the energetic, clean female delivery referenced from <Audio 1>, <d>[English] Left the room with the lights still on.</d> On “left the room,” she reaches the doorway while still walking; the camera eases into a three-quarter side angle and lets the lit dressing room remain visible behind her for one final moment. She pushes the door open with her shoulder and crosses the threshold without slowing.\n\nNear the end of the segment the next phrase begins while she enters a narrow concrete service corridor: <Subject 1> (S1) continues, <d>[English] Hit the door and the hallway's gone.</d> The phrase remains in progress as the camera arcs around her right side. Beyond her, the corridor geometry begins to stretch unnaturally toward another opening, preparing the physical transformation that continues in the next segment. Keep her walking motion, the camera arc, and the door movement visibly in progress at the boundary.\n\noverall_soundscape:\nLow backstage room tone, soft shoe impacts, T-shirt fabric and hip-chain movement, and a door latch are audible beneath the performance.\n\nnon_diegetic_music:\n<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.",
+        "width": 960,
+        "height": 544,
+        "length": 362,
+        "ref_image_size": "match"
+      },
+      "color": "#346434",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1703,
+      "type": "MiniMaxH3ChainContext",
+      "pos": [
+        1312,
+        -256
+      ],
+      "size": [
+        352,
+        288
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 24
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 25
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 63
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 27
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            28
+          ]
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "links": [
+            40
+          ]
+        },
+        {
+          "name": "is_continuation",
+          "type": "BOOLEAN",
+          "links": null
+        }
+      ],
+      "title": "AUTO CONTEXT — clip 1 bypass / continuation",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainContext"
+      },
+      "widgets_values": [],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 123,
+      "type": "BasicScheduler",
+      "pos": [
+        1888,
+        288
+      ],
+      "size": [
+        288,
+        128
+      ],
+      "flags": {},
+      "order": 32,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 72
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": 23
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            32
+          ]
+        }
+      ],
+      "title": "Per-shot scheduler steps",
+      "properties": {
+        "Node name for S&R": "BasicScheduler",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "simple",
+        5,
+        1
+      ],
+      "widgets_values_named": {
+        "scheduler": "simple",
+        "steps": 5,
+        "denoise": 1
+      }
+    },
+    {
+      "id": 122,
+      "type": "KSamplerSelect",
+      "pos": [
+        1888,
+        128
+      ],
+      "size": [
+        288,
+        96
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            31
+          ]
+        }
+      ],
+      "title": "Sampler algorithm",
+      "properties": {
+        "Node name for S&R": "KSamplerSelect",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "res_multistep"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "res_multistep"
+      }
+    },
+    {
+      "id": 120,
+      "type": "RandomNoise",
+      "pos": [
+        1888,
+        -64
+      ],
+      "size": [
+        288,
+        96
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 22
+        }
+      ],
+      "outputs": [
+        {
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            29
+          ]
+        }
+      ],
+      "title": "Per-shot noise seed",
+      "properties": {
+        "Node name for S&R": "RandomNoise",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        0,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "noise_seed": 0,
+        "control_after_generate": "fixed"
+      }
+    },
+    {
+      "id": 121,
+      "type": "BasicGuider",
+      "pos": [
+        1888,
+        -256
+      ],
+      "size": [
+        288,
+        96
+      ],
+      "flags": {},
+      "order": 31,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 71
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "links": [
+            30
+          ]
+        }
+      ],
+      "title": "Loop guider",
+      "properties": {
+        "Node name for S&R": "BasicGuider",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      }
+    },
+    {
+      "id": 124,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        2272,
+        -256
+      ],
+      "size": [
+        320,
+        320
+      ],
+      "flags": {},
+      "order": 33,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 29
+        },
+        {
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 30
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 31
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 32
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 33
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            34,
+            36,
+            43,
+            48
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "title": "H3 sampler — SINGLE LOOP BODY",
+      "properties": {
+        "Node name for S&R": "SamplerCustomAdvanced",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      }
+    },
+    {
+      "id": 130,
+      "type": "VAEDecode",
+      "pos": [
+        2624,
+        -256
+      ],
+      "size": [
+        256,
+        96
+      ],
+      "flags": {},
+      "order": 34,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 34
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 61
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            38
+          ]
+        }
+      ],
+      "title": "Decode current clip frames",
+      "properties": {
+        "Node name for S&R": "VAEDecode",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      }
+    },
+    {
+      "id": 131,
+      "type": "VAEDecodeAudio",
+      "pos": [
+        2624,
+        -96
+      ],
+      "size": [
+        256,
+        96
+      ],
+      "flags": {},
+      "order": 35,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 36
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 68
+        }
+      ],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            39
+          ]
+        }
+      ],
+      "title": "Decode current clip audio",
+      "properties": {
+        "Node name for S&R": "VAEDecodeAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      }
+    },
+    {
+      "id": 1706,
+      "type": "MiniMaxH3ChainAssemble",
+      "pos": [
+        4288,
+        -224
+      ],
+      "size": [
+        608,
+        480
+      ],
+      "flags": {},
+      "order": 39,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "link": 50
+        },
+        {
+          "name": "source_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 51
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "ASSEMBLE OPENING — SOURCE SONG",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainAssemble"
+      },
+      "widgets_values": [
+        "plan",
+        "silver_estate_opening_80s_final",
+        256
+      ],
+      "color": "#24533a",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        -2048,
+        -608
+      ],
+      "size": [
+        352,
+        96
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            58
+          ]
+        }
+      ],
+      "title": "H3 Video VAE",
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "MiniMaw-H3/minimax_h3_video_vae_fp16.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "MiniMaw-H3/minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    {
+      "id": 1915,
+      "type": "Reroute",
+      "pos": [
+        2560,
+        -416
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 64
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "VAE",
+          "links": [
+            61
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 1914,
+      "type": "Reroute",
+      "pos": [
+        512,
+        -416
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 58
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "VAE",
+          "links": [
+            59,
+            62
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 1916,
+      "type": "Reroute",
+      "pos": [
+        1216,
+        -416
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 62
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "VAE",
+          "links": [
+            63,
+            64
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 4,
+      "type": "VAELoader",
+      "pos": [
+        -2048,
+        -480
+      ],
+      "size": [
+        352,
+        96
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            65
+          ]
+        }
+      ],
+      "title": "H3 Audio VAE",
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "MiniMaw-H3/minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "MiniMaw-H3/minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    {
+      "id": 1917,
+      "type": "Reroute",
+      "pos": [
+        512,
+        -384
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 65
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "VAE",
+          "links": [
+            66,
+            67
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 1918,
+      "type": "Reroute",
+      "pos": [
+        2560,
+        -384
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 67
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "VAE",
+          "links": [
+            68
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "MiniMaxH3SigmaShift",
+      "pos": [
+        -256,
+        -864
+      ],
+      "size": [
+        320,
+        160
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            69
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3SigmaShift",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        12,
+        3
+      ],
+      "widgets_values_named": {
+        "shift_video": 12,
+        "shift_audio": 3
+      }
+    },
+    {
+      "id": 1919,
+      "type": "Reroute",
+      "pos": [
+        512,
+        -448
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 29,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 69
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "MODEL",
+          "links": [
+            70
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 1920,
+      "type": "Reroute",
+      "pos": [
+        1792,
+        -448
+      ],
+      "size": [
+        75,
+        26
+      ],
+      "flags": {},
+      "order": 30,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 70
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "MODEL",
+          "links": [
+            71,
+            72
+          ]
+        }
+      ],
+      "properties": {
+        "showOutputText": false,
+        "horizontal": false
+      }
+    },
+    {
+      "id": 1700,
+      "type": "MiniMaxH3ChainPlan",
+      "pos": [
+        -704,
+        480
+      ],
+      "size": [
+        992,
+        1888
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "links": [
+            13,
+            52
+          ]
+        },
+        {
+          "name": "summary",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "clip_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "H3 CHAIN PLAN — TIMED SEGMENTS",
+      "properties": {
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Contex-Loop",
+        "ver": "3a744122ce4cf2a2e611a6f2fd90ac8ec7318070",
+        "Node name for S&R": "MiniMaxH3ChainPlan",
+        "h3_chain_scene_colors": {}
+      },
+      "widgets_values": [
+        "{\n  \"defaults\": {\n    \"duration_seconds\": 15,\n    \"steps\": 5\n  },\n  \"shots\": [\n    {\n      \"id\": \"clip_01\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The opening of a single uninterrupted easycore music-video take follows <Subject 1> from a backstage room toward a door as the first vocal begins, using <Audio 1> for the performed song and musical backing.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] A medium-wide front tracking shot begins in a dim backstage dressing room while <Subject 1> walks toward camera with relaxed confidence, the camera gliding backward at her pace. During the opening instrumental her mouth remains naturally closed; she rolls one shoulder and lightly catches the hem of her cropped black T-shirt, steps around a road case, and keeps moving toward a brightly lit door at the far end of the room. Practical fluorescent fixtures and a warm mirror-light strip slide past behind her, catching the vivid yellow hair, pink streaks, silver choker hardware, septum ring, and hip chain while creating strong parallax without any cut.\",\n        \"\",\n        \"As the first vocal enters, <Subject 1> (S1) looks directly into the lens and sings with the energetic, clean female delivery referenced from <Audio 1>, <d>[English] Left the room with the lights still on.</d> On “left the room,” she reaches the doorway while still walking; the camera eases into a three-quarter side angle and lets the lit dressing room remain visible behind her for one final moment. She pushes the door open with her shoulder and crosses the threshold without slowing.\",\n        \"\",\n        \"Near the end of the segment the next phrase begins while she enters a narrow concrete service corridor: <Subject 1> (S1) continues, <d>[English] Hit the door and the hallway's gone.</d> The phrase remains in progress as the camera arcs around her right side. Beyond her, the corridor geometry begins to stretch unnaturally toward another opening, preparing the physical transformation that continues in the next segment. Keep her walking motion, the camera arc, and the door movement visibly in progress at the boundary.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Low backstage room tone, soft shoe impacts, T-shirt fabric and hip-chain movement, and a door latch are audible beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"983590410766495\"\n    },\n    {\n      \"id\": \"clip_02\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The uninterrupted take follows <Subject 1> from the collapsing hallway into rain, a transformed street, golden glass, and an opening sky while she performs the next verse lines from <Audio 1>.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue from the incoming frame with <Subject 1> already crossing the threshold and the camera already arcing around her; do not reset her stride, shoulders, expression, or the camera path. The opening overlap carries the end of the in-progress phrase <d>[English] Hit the door and the hallway's gone.</d> As she clears the doorway, the concrete corridor physically retracts behind her like sliding stage walls, revealing a rain-slick city street without a cut.\",\n        \"\",\n        \"<Subject 1> (S1) steps directly onto the wet pavement and sings, <d>[English] Street under my feet, rain in my face.</d> Fine rain catches the streetlights, clings to strands of her yellow-and-pink hair, and darkens her cropped black graphic T-shirt while the camera settles into a smooth front three-quarter tracking shot. On the next line, <d>[English] Turn one corner, I'm in a new place.</d> she hooks sharply around a building corner; the camera swings with her in a controlled arc, and the ordinary street on the far side has transformed into a sleek passage lined with tall glass walls.\",\n        \"\",\n        \"As she sings, <d>[English] Glass turns gold when I pass it by.</d> each glass panel warms from cool gray to luminous amber immediately after she passes it, creating a traveling wave of color behind her. The camera lowers gradually toward waist height and looks slightly upward. During <d>[English] Ceiling breaks into open sky.</d> the glass canopy overhead separates into long transparent sections that slide apart, revealing blue sky above while the camera rises with the opening.\",\n        \"\",\n        \"She keeps moving through the now open-air passage and sings, <d>[English] No map, no sign, don't need a clue.</d> Direction signs and architectural markers quietly retract into the walls instead of appearing as readable text. Near the end she begins, <d>[English] Every step turns into something new.</d> With each footfall the paving material changes beneath her—wet asphalt to pale stone to reflective gold—while the camera continues forward and upward. Leave the final transformation and lyric phrase naturally in progress at the boundary.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Rainfall, wet footsteps, passing street ambience, and subtle mechanical movement from the transforming glass architecture sit beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"949228799182794\"\n    },\n    {\n      \"id\": \"clip_03\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The continuous take moves into a rotating open-sky atrium and a field of doors, using a full camera arc to match the pre-chorus before the first chorus begins.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue the same stride and upward-moving camera from the incoming visual context. The opening overlap contains the latter part of <d>[English] Every step turns into something new.</d> The changing pavement expands outward into a vast open-sky circular atrium whose concentric floor rings slowly rotate beneath <Subject 1> while she remains physically grounded and keeps walking.\",\n        \"\",\n        \"<Subject 1> (S1) sings, <d>[English] Round and round.</d> The camera begins a smooth clockwise arc around her, moving from front three-quarter to profile while the atrium rings counter-rotate in the background. On <d>[English] Let the whole thing spin.</d> the arc continues into a nearly complete orbit: columns, suspended lights, and golden glass bands rotate at different depths, but her gait stays natural and her face remains readable whenever the camera passes her front.\",\n        \"\",\n        \"During <d>[English] Every door.</d> a sequence of tall freestanding doors rises one after another from the rotating floor ahead of her. She chooses none of them deliberately; she simply keeps walking. On <d>[English] Is another way in.</d> the nearest door swings open exactly as she reaches it, revealing not a room but a broad exterior walkway suspended in bright sky. The camera completes its orbit, slips backward through the open doorway first, and lets her follow through it continuously.\",\n        \"\",\n        \"As she emerges onto the walkway, the chorus begins. <Subject 1> (S1) sings, <d>[English] I keep walking, walking.</d> Her performance opens up—stronger eye contact, larger arm movement, confident forward momentum—while the camera resumes reverse tracking in front of her. At the far edges of the frame the atrium walls begin sliding outward and away, visually setting up the next lyric and next segment. Do not cut or freeze; end with her advancing and the architecture already separating.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Light wind, footsteps on rotating stone, soft mechanical rotation, and door hinges provide restrained physical ambience beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"956142856774681\"\n    },\n    {\n      \"id\": \"clip_04\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The first chorus expands into a large architectural reveal while the camera moves from low angle to overhead and the surrounding world rotates around <Subject 1>.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue with <Subject 1> already advancing on the elevated walkway while the architecture is moving away around her. The opening overlap carries the tail of <d>[English] I keep walking, walking.</d> The camera holds a medium front tracking distance and gives her mouth a clean three-quarter-to-front view.\",\n        \"\",\n        \"As <Subject 1> (S1) sings, <d>[English] While the walls fall away.</d> the remaining walls on both sides fold outward in large hinged sections and descend below the walkway, revealing a panoramic city suspended beneath a dramatic open sky. Nothing disappears instantaneously; each panel moves physically out of frame while she passes it. On <d>[English] Keep moving, moving.</d> she accelerates from a walk into a buoyant, purposeful fast stride, and the camera matches her speed without shaking.\",\n        \"\",\n        \"For <d>[English] Like I planned it this way.</d> she gives the lens a brief knowing half-smile and steps onto a wide circular platform. The camera then performs the lyric-driven move for <d>[English] Down low, up high.</d>: it drops smoothly to shin height, tracks backward looking up past her worn black high-top sneakers, ripped black jeans, and cropped graphic T-shirt, then cranes in one continuous rise above her eye line. During <d>[English] Turn the whole world upside down.</d> the camera continues the rise into a controlled overhead sweep while the circular platform and distant skyline rotate beneath her, creating the sensation that the world is turning without rolling her body unnaturally.\",\n        \"\",\n        \"The camera descends from overhead toward a frontal medium shot as she sings, <d>[English] I keep walking, walking.</d> She steps off the rotating platform onto a narrow path leading toward a dark mirrored tunnel. Keep the camera descent, her stride, and the tunnel approach in motion through the boundary.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Open-air wind, footsteps on the platform, and low mechanical movement from the folding architecture remain subtle beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"1081014952110739\"\n    },\n    {\n      \"id\": \"clip_05\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The chorus resolves into an instrumental transition through a rotating mirrored tunnel, then the rear-chasing camera emerges with <Subject 1> into the neon setting where the next verse begins.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue the descending camera and forward stride from the previous segment as <Subject 1> approaches the dark mirrored tunnel. The opening overlap contains the end of <d>[English] I keep walking, walking.</d> She enters the tunnel while singing, <d>[English] While the whole world moves around.</d> Mirrored wall segments rotate around the fixed walkway like a slow mechanical kaleidoscope; the camera drifts from front tracking into a side-follow position so the moving reflections sweep behind her rather than replacing her identity.\",\n        \"\",\n        \"After the chorus vocal ends, the song enters an instrumental passage. <Subject 1> stops visibly singing: her lips relax and close while she keeps moving to the drums and guitars with small shoulder hits, head nods, and confident steps. Use this instrumental space for a continuous, more adventurous camera transition. The camera overtakes her, passes within inches of a rotating mirror edge, then swings behind her into a fast but stable rear chase. The mirrored tunnel gradually narrows and its reflective panels become dark glossy tiles with thin neon strips; the transformation happens panel by panel as she runs through it.\",\n        \"\",\n        \"The rear chase drops closer to foot level for several beats, emphasizing her worn black high-top sneakers striking the floor, then rises to shoulder height as the tunnel opens into a long neon station corridor. Parallel ceiling lights streak forward in perspective. Without any cut, she slows back to a strong walk as a train glides alongside the corridor behind transparent panels.\",\n        \"\",\n        \"Near the end of the segment the next verse begins. <Subject 1> (S1) turns her head enough for a clear profile and starts, <d>[English] Neon hall turns into a train.</d> A train door ahead slides open into her path while the camera begins moving from behind toward her left side. Leave that sideward camera move and her approach to the open train door in progress for the next segment.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Footsteps, faint mirror-panel mechanics, tunnel reflections of movement, and station ambience remain subdued beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"594992264845527\"\n    },\n    {\n      \"id\": \"clip_06\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The continuous shot transforms a neon station into a train, rain, snow, and a night city, ending in a rear camera chase as <Subject 1> turns toward the lens without slowing.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue from the neon station with the camera already moving from the rear toward <Subject 1>'s left side. The opening overlap contains the continuing phrase <d>[English] Neon hall turns into a train.</d> She steps through the already-open train door without breaking stride, and the station corridor physically resolves into the interior of a moving carriage around her.\",\n        \"\",\n        \"<Subject 1> (S1) sings, <d>[English] Train doors open into pouring rain.</d> As she reaches the opposite side of the carriage, those doors slide open and reveal heavy rain outside instead of another platform. She walks straight through; the camera retreats through the doorway ahead of her and the carriage continues away behind her, preserving one continuous move. Rain immediately darkens the pavement, her cropped black graphic T-shirt, and the black denim of her ripped jeans; the silver hip chain flashes under the streetlights while her face remains readable.\",\n        \"\",\n        \"On <d>[English] One more step and the pavement's white.</d> her next footfall triggers a spreading frost pattern across the wet ground. The camera eases lower and slightly wider so the transformation is visible around her worn black high-top sneakers. During <d>[English] Snow on the ground under city lights.</d> rain turns to drifting snow, warm street lamps and cool storefront light reflecting across the white pavement.\",\n        \"\",\n        \"For <d>[English] Camera behind me, I hear it run.</d> the camera deliberately swings around her shoulder and settles into a fast rear chase, following close behind at torso height while she increases her pace. The movement feels energetic but stabilized, with buildings and snow streaming past at the edges. On <d>[English] I turn around but I don't slow down.</d> she looks back over her shoulder directly toward the chasing lens, then begins turning her torso while continuing forward.\",\n        \"\",\n        \"End with the rear camera closing distance as her turn is still completing. Do not reset her orientation at the boundary; the next segment must inherit the turn and convert it into the coming face move.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Train-door mechanics, carriage ambience, heavy rain, wet footsteps, then softer snow-muted city ambience accompany the physical action.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"688686998352194\"\n    },\n    {\n      \"id\": \"clip_07\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The camera converts the rear chase into a face close-up, an extreme pull-back, a new horizon, and a circular field of doors matching the verse ending and pre-chorus.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue with <Subject 1> already turning toward the chasing camera while still moving forward. The opening overlap carries the end of <d>[English] I turn around but I don't slow down.</d> The camera accelerates around her side until it is traveling backward directly in front of her.\",\n        \"\",\n        \"As <Subject 1> (S1) sings, <d>[English] Right in my face, then a hundred feet wide.</d> execute the lyric literally as one continuous lens move: first push rapidly but smoothly into an extreme facial close-up with her eyes and singing mouth sharp and unobstructed, her shaggy yellow hair with pink streaks, dark eyeliner, silver septum ring, and black spiked choker clearly framing the face, then pull straight backward with increasing speed until she becomes a full-body figure in a huge wide composition. During the pull-back, the snowy street stretches outward into a vast elevated plain.\",\n        \"\",\n        \"She sings, <d>[English] Whole new horizon opens outside.</d> and the buildings at the far edges lower beneath the horizon, revealing an immense sunset sky and distant mountain-like city silhouettes. The camera holds the wide scale for a moment, then begins curving laterally.\",\n        \"\",\n        \"The pre-chorus starts with <d>[English] Round and round.</d> The wide camera arc tightens as it circles back toward her. On <d>[English] Let the whole thing spin.</d> a ring of tall doorway frames rises from the plain and revolves around her path while the camera arcs in the opposite direction, creating strong layered motion. She keeps walking through the center rather than spinning in place.\",\n        \"\",\n        \"During <d>[English] Every door.</d> the camera comes back to a medium three-quarter view as multiple rotating frames pass between foreground and background without obscuring her face for long. On <d>[English] Is another way in.</d> one doorway aligns with her path and opens into a luminous kinetic interior. She steps toward it as the camera backs through first. Leave the threshold crossing in progress at the boundary.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Wind across the open horizon, footsteps, and restrained mechanical movement from the rotating doorway frames remain beneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"46090916971352\"\n    },\n    {\n      \"id\": \"clip_08\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The second chorus carries <Subject 1> into a kinetic atrium whose walls retract while the camera arcs, drops low, and rises as the environment begins turning upside down.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue through the aligned doorway with no cut; the opening overlap contains the end of <d>[English] Is another way in.</d> The camera backs into a huge kinetic atrium while <Subject 1> follows, and the exterior horizon remains briefly visible through the open door behind her before the doorway slides away with the moving architecture.\",\n        \"\",\n        \"The second chorus begins. <Subject 1> (S1) sings, <d>[English] I keep walking, walking.</d> She strides down a central path while stacked wall panels move laterally at different depths. On <d>[English] While the walls fall away.</d> those panels peel outward in a readable sequence from foreground to background, exposing a cavernous space with suspended bridges and moving light.\",\n        \"\",\n        \"During <d>[English] Keep moving, moving.</d> the camera shifts from reverse tracking into a fast side arc while she crosses onto a gently moving walkway. Her body rhythm follows the strong drums without becoming exaggerated choreography. For <d>[English] Like I planned it this way.</d> she gives a brief confident glance to the lens as the camera completes the arc and regains a frontal three-quarter position.\",\n        \"\",\n        \"On <d>[English] Down low, up high.</d> the camera drops below waist level, glides close to the moving walkway, then rises in a smooth pedestal move above her head while maintaining forward travel. As she begins <d>[English] Turn the whole world upside down.</d> the atrium's suspended bridges rotate around their long axes and the lighting direction appears to invert, while the camera continues its upward path rather than making an abrupt roll.\",\n        \"\",\n        \"End while the architectural inversion is still happening and the lyric phrase is still developing. Keep <Subject 1> moving toward a transparent section of floor visible ahead, setting up the next physical transition.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Footsteps, moving-walkway hum, and large but subdued mechanical sounds from shifting walls and bridges support the physical environment.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"427208086931495\"\n    },\n    {\n      \"id\": \"clip_09\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The chorus finishes in rotating architecture, then the breakdown sends the camera beneath a transparent floor and out under a glass bridge above a city street.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue the same upward camera motion and architectural inversion. The opening overlap carries the latter part of <d>[English] Turn the whole world upside down.</d> As the camera comes back toward a frontal medium-wide angle, <Subject 1> (S1) sings, <d>[English] I keep walking, walking.</d> and the inverted structures settle into a new orientation around her path.\",\n        \"\",\n        \"She continues, <d>[English] While the whole world moves around.</d> The entire atrium does not teleport; concentric structural rings visibly rotate around the central walkway while she advances toward the transparent floor. At the musical drop, she plants one emphatic step and shouts, <d>[English] GO!</d> exactly with the vocal attack.\",\n        \"\",\n        \"On <d>[English] Under the floor.</d> the transparent floor beneath her becomes fully clear. The camera dives over the edge of the walkway, passes below floor level, and continues tracking her from underneath through the glass while she walks above it, her worn black high-top sneakers and silhouette visible through the surface. The move is continuous and physically motivated by the open structural gap beside the walkway.\",\n        \"\",\n        \"During <d>[English] Over the street.</d> the transparent floor becomes a glass pedestrian bridge spanning a real city street far below. The camera sweeps out from beneath the bridge and rises beside it, revealing cars and streetlights moving under her. As the next phrase begins, <Subject 1> (S1) sings, <d>[English] Follow the rhythm.</d> Her footsteps land visibly with the beat while the camera starts dropping back toward boot height.\",\n        \"\",\n        \"Leave the camera descending toward her feet and the glass bridge extending forward at the segment boundary.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Footsteps on glass, structural movement, distant city traffic far below, and a brief rush of air during the camera dive accompany the action.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"559390796904918\"\n    },\n    {\n      \"id\": \"clip_10\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The breakdown follows <Subject 1>'s feet over the glass bridge and passes continuously through a glass opening into a deep blue transparent environment.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue at low height beside the glass bridge with the camera already descending toward <Subject 1>'s steps. The opening overlap contains the continuing phrase <d>[English] Follow the rhythm.</d> The camera locks briefly onto the cadence of her worn black high-top sneakers without becoming shaky, traveling backward inches above the transparent surface.\",\n        \"\",\n        \"<Subject 1> (S1) sings, <d>[English] Follow my feet.</d> Each step leads the camera forward along a visible path of illuminated floor panels; the lights activate only after her high-top sneakers contact them, creating a readable cause-and-effect trail. The camera then swings outward from her feet into a low side profile while maintaining the same forward momentum.\",\n        \"\",\n        \"During <d>[English] Through the glass.</d> a vertical glass wall appears ahead at the end of the bridge. Instead of stopping, a circular opening ripples through the glass like liquid exactly where she is headed. The camera passes through the opening first, the glass surface sliding across the lens edge as a foreground wipe without creating a cut, and <Subject 1> follows immediately.\",\n        \"\",\n        \"On <d>[English] Into the blue.</d> the space beyond becomes a deep blue transparent tunnel suspended between sky and water: broad panes reveal drifting light, bubbles and distant silhouettes on one side while open blue atmosphere fills the other. The camera rises from the low angle to a medium side-follow shot, then begins easing ahead of her toward a three-quarter frontal view. Her singing mouth remains visible as long as the line continues.\",\n        \"\",\n        \"By the end, the blue tunnel itself is starting to change material and shape around her. Preserve the forward movement and the camera's gradual move ahead so the transformation can continue seamlessly.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Close footfalls on glass, faint city ambience below, a soft glass-like ripple at the opening, and airy tunnel ambience remain restrained.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"930828590048485\"\n    },\n    {\n      \"id\": \"clip_11\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The blue environment keeps physically transforming around <Subject 1> through the final breakdown lines, followed by an instrumental buildup toward a bright portal.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue inside the blue transparent tunnel with <Subject 1> already moving forward and the camera easing ahead of her. The opening overlap contains the tail of <d>[English] Into the blue.</d> As the camera reaches a frontal three-quarter tracking position, the tunnel's transparent panels begin changing one by one into different materials—clear glass, brushed steel, open air, then luminous fabric-like membranes—without any cut.\",\n        \"\",\n        \"<Subject 1> (S1) sings, <d>[English] World keeps changing.</d> Every few steps a new physical environment grows from the previous one: the blue tunnel becomes an elevated industrial catwalk, then its railings extend into the ribs of a broad bridge, then plants and windblown grasses emerge through gaps in the metal. The camera performs a measured arc around her while the changes happen behind and beside her, keeping her stable identity and wardrobe unchanged.\",\n        \"\",\n        \"On <d>[English] So I change too.</d> the change is expressed through performance rather than redesigning the character: her posture opens, her stride becomes more assertive, she drops a momentary guarded expression and gives the lens a bright, determined look. Do not alter her yellow-and-pink hair, cropped black graphic T-shirt, ripped black jeans, black spiked choker, silver septum ring, silver hip chain, high-top sneakers, body, or other accessories.\",\n        \"\",\n        \"After the lyric ends, an instrumental build begins. She stops visibly singing and keeps her lips naturally closed while continuing to walk and move to the rhythm. The camera uses the buildup to widen its orbit and rise gradually, revealing that the bridge is leading toward a bright circular opening suspended ahead. Light from that opening intensifies beat by beat. Wind moves her shaggy yellow-and-pink hair and the loose hem of her cropped black graphic T-shirt subtly; background structures stretch toward the portal.\",\n        \"\",\n        \"End with her several steps from the bright opening, the camera high at a three-quarter angle and beginning to descend toward the front as the final chorus approaches.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Wind, footsteps, subtle material-shift sounds, bridge resonance, and increasing air movement near the bright portal accompany the visual transformation.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"547640917631150\"\n    },\n    {\n      \"id\": \"clip_12\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The final chorus begins as <Subject 1> emerges onto a sunset rooftop where the skyline physically rearranges while the camera widens and arcs around her.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue the instrumental buildup with <Subject 1> approaching the bright circular opening and the camera descending from its high three-quarter position. Her mouth remains closed until the vocal actually returns in <Audio 1>. She passes through the opening without a cut and emerges onto a huge elevated rooftop at sunset; the bridge behind her narrows into the rooftop access path while the camera settles into a strong frontal tracking shot.\",\n        \"\",\n        \"When the final chorus enters, <Subject 1> (S1) sings, <d>[English] I keep walking, walking.</d> Her delivery is bigger and more triumphant, with controlled arm movement and direct eye contact. On <d>[English] Let the skyline rearrange.</d> the city skyline responds physically: towers slide laterally on distant tracks, rooftop structures rise and lower, and illuminated windows create shifting geometric patterns without any building popping in or out.\",\n        \"\",\n        \"She sings, <d>[English] Keep moving, moving.</d> The camera pulls wider while tracking backward, showing her full body crossing the rooftop as the reshaping skyline creates large parallax behind her. It then curves smoothly from front toward her left side. During <d>[English] I was made for all this change.</d> she accelerates into the camera arc with a confident half-run, meeting the lens in profile and then three-quarter view as the city continues rearranging around her.\",\n        \"\",\n        \"Near the segment end, the camera begins dropping from chest height toward a low angle while still curving around her. Do not finish or reset that descent; the next segment uses the same motion for the upcoming “down low, up high” lyric.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Rooftop wind, running footsteps, fabric movement, and distant city ambience remain underneath the performance.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"361687574049674\"\n    },\n    {\n      \"id\": \"clip_13\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The final chorus executes the song's low-to-high and circular-camera ideas literally, then becomes a rear chase toward the final glowing doorway as the outro begins.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue the same rooftop motion with the camera already descending and <Subject 1> still moving through the end of the in-progress phrase <d>[English] I was made for all this change.</d> The city remains in its rearranged sunset state, with the same lighting, wind and exact reference wardrobe continuity: cropped black graphic T-shirt, ripped black skinny jeans, silver hip chain, black spiked choker, silver septum ring, and worn black high-top sneakers.\",\n        \"\",\n        \"As <Subject 1> (S1) sings, <d>[English] Down low, up high.</d> complete a dramatic continuous camera move: drop to ankle height for a powerful low-angle tracking view, then crane rapidly but smoothly upward past her face and continue above head height. She never stops walking. On <d>[English] Let the camera circle round.</d> the rising move flows directly into a full orbit around her: begin overhead and slightly behind, curve down her right side, cross to a front three-quarter view, then continue toward the rear again, using the skyline and rooftop edges to make the circular motion unmistakable.\",\n        \"\",\n        \"During <d>[English] I keep walking, walking.</d> the orbit opens into a wider rear chase. <Subject 1> heads toward a single freestanding glowing doorway at the far end of the rooftop while the camera follows several meters behind. The moving skyline slows but does not freeze. On <d>[English] While the whole world moves around.</d> foreground rooftop structures slide laterally, distant towers continue their last slow rearrangement, and the camera arcs from the rear toward her left side so the world appears to move around her path.\",\n        \"\",\n        \"As the final chorus gives way to the outro, <Subject 1> (S1) begins <d>[English] One more door.</d> She reaches for the glowing handle while still moving. The door starts opening into intense warm light. End with the door in motion, her hand on it, and the camera still drifting around her—no pause and no cut.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"Stronger rooftop wind, quick footfalls, T-shirt fabric and hip-chain movement, and subtle distant structural motion accompany the orbit and rear chase.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"77719945408603\"\n    },\n    {\n      \"id\": \"clip_14\",\n      \"prompt\": [\n        \"subject_definitions:\",\n        \"<Subject 1> is the same female easycore/pop-punk performer defined jointly by <Picture 1> for facial identity and <Picture 2> for full-body appearance, wardrobe, body proportions, and distinctive features. Preserve the exact reference styling: shaggy bright yellow hair with vivid pink streaks, dark eyeliner, a small silver septum ring, a black spiked choker with a silver center ring, a cropped black graphic T-shirt, black ripped skinny jeans, a silver hip chain, and worn black high-top sneakers.\",\n        \"<Audio 1> is the current song segment used as the English lyric-content, female vocal-delivery, melody, rhythm, and easycore/pop-punk backing reference for <Subject 1> (S1).\",\n        \"\",\n        \"summary:\",\n        \"[reference generation + audio reference] The short outro continues through the already-opening doorway into a bright final world and ends with a rising pull-back as <Subject 1> walks toward the sunrise.\",\n        \"\",\n        \"retention_analysis:\",\n        \"<Subject 1> (appears in [Shot 1]): fully_preserved - preserve her facial identity, hairstyle, body proportions, wardrobe, colors, accessories, and distinctive features from <Picture 1> and <Picture 2> while allowing natural performance poses and expressions.\",\n        \"<Audio 1>: reference - its English lyric content, female vocal delivery, melody, phrasing, rhythm, beat, and easycore/pop-punk instrumentation guide the generated performance without directly copying the source signal.\",\n        \"\",\n        \"detailed_description:\",\n        \"The target video is a photorealistic high-energy easycore/pop-punk music video presented as one uninterrupted moving-camera take. There are no cuts; camera movement, performer momentum, lighting, and physical space flow continuously into the next generated segment.\",\n        \"[Shot 1] Continue exactly from the partially opened glowing doorway, with <Subject 1>'s hand still on the handle and the camera still drifting around from her left side. The opening overlap may contain the final tail of <d>[English] While the whole world moves around.</d> before the outro resolves.\",\n        \"\",\n        \"<Subject 1> (S1) sings, <d>[English] One more door.</d> as she pushes the glowing door fully open and steps through. On <d>[English] One more light.</d> warm sunrise light floods around her silhouette; the rooftop remains visible through the doorway for a moment behind her so the transition reads as one continuous physical crossing rather than a cut.\",\n        \"\",\n        \"She continues, <d>[English] One more world.</d> The space on the far side resolves into a vast quiet landscape of pale grass, white stone paths, and a distant sunrise horizon. The camera slips behind her into a gentle rear-follow shot while she keeps walking away from the doorway. The door remains standing alone for several steps, then recedes naturally in the background.\",\n        \"\",\n        \"On the final line, <d>[English] On the other side.</d> the camera rises smoothly above her shoulder and pulls backward into a broad final wide view, revealing the new world around her. Her last sung mouth movement finishes naturally; afterward her lips relax rather than continuing to sing. She keeps walking for the remaining beat as the camera continues a slow upward pullback. End on a strong, calm composition with her still moving forward into the sunrise and no additional scene change.\",\n        \"\",\n        \"overall_soundscape:\",\n        \"A soft door movement, light wind through grass, footsteps on the path, and open-air ambience accompany the final crossing.\",\n        \"\",\n        \"non_diegetic_music:\",\n        \"<Audio 1> is referenced for the fast easycore/pop-punk backing heard by the audience, including distorted guitars, bass, punchy live drums, melodic hooks, and the dynamic changes present in this song segment.\"\n      ],\n      \"seed\": \"120145114590643\",\n      \"duration_seconds\": 5\n    }\n  ]\n}",
+        "silver_estate_opening_80s_v2",
+        "silver_estate_opening_80s_v2-fingerprint",
+        960,
+        544,
+        22,
+        "video",
+        "head",
+        "disabled",
+        "source_track",
+        0,
+        15,
+        5,
+        0,
+        20
+      ],
+      "color": "#1f1f48",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 1902,
+      "type": "Note",
+      "pos": [
+        -2112,
+        -1344
+      ],
+      "size": [
+        1248,
+        320
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "CREDITS / IMPLEMENTATION",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "Ref2VA multi-reference + Motion Context audio compatibility fix and the six-clip global-reference demo: seitanism, posted in the Banodoco MiniMax H3 seamless-extension thread.\n\nRecursive GraphBuilder traversal: specialized MiniMax adaptation of Ethanfel's SxCP loop implementation in ComfyUI-Prompt-Builder.\n\nThis workflow retains the shot plan, prompts, seeds, model stack, character references, and source-song strategy from giant ref2va wf.json."
+      ],
+      "widgets_values_named": {
+        "text": "Ref2VA multi-reference + Motion Context audio compatibility fix and the six-clip global-reference demo: seitanism, posted in the Banodoco MiniMax H3 seamless-extension thread.\n\nRecursive GraphBuilder traversal: specialized MiniMax adaptation of Ethanfel's SxCP loop implementation in ComfyUI-Prompt-Builder.\n\nThis workflow retains the shot plan, prompts, seeds, model stack, character references, and source-song strategy from giant ref2va wf.json."
+      },
+      "color": "#432f66",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 940,
+      "type": "LoadAudio",
+      "pos": [
+        -1056,
+        -256
+      ],
+      "size": [
+        384,
+        192
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            14,
+            16,
+            51,
+            53,
+            55
+          ]
+        }
+      ],
+      "title": "STEP 2 — LOAD ORIGINAL SONG",
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0"
+      },
+      "widgets_values": [
+        "The silver estate was a memory now,.wav",
+        null,
+        null
+      ],
+      "widgets_values_named": {
+        "audio": "The silver estate was a memory now,.wav",
+        "upload": null
+      }
+    },
+    {
+      "id": 1906,
+      "type": "Note",
+      "pos": [
+        -3008,
+        -1088
+      ],
+      "size": [
+        736,
+        1152
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Jsonr eference",
+      "properties": {},
+      "widgets_values": [
+        "H3 LOOP PLAN — QUICK FORMAT\n\nUse the built-in H3 Chain Plan scene editor, or open its JSON panel and paste\nvalid JSON. Use double quotes, no comments, and no trailing commas.\n\n{\n  \"prompt_prefix\": \"Global subject, wardrobe, style and continuity rules.\",\n  \"defaults\": {\n    \"duration_seconds\": 15,\n    \"steps\": 20\n  },\n  \"shots\": [\n    {\n      \"id\": \"intro\",\n      \"prompt\": [\n        \"Use <Picture 1> for the subject's identity and physical features.\",\n        \"Her wardrobe remains unchanged throughout the sequence.\",\n        \"\",\n        \"Begin with an opening tracking shot backstage.\",\n        \"End while she is opening the corridor door.\"\n      ],\n      \"seed\": 123\n    },\n    {\n      \"id\": \"street\",\n      \"prompt\": [\n        \"Continue through the already-opening door without resetting her stride.\",\n        \"Keep the incoming camera direction, lighting and subject pose.\",\n        \"\",\n        \"Move from the corridor into the street.\",\n        \"End with the camera beginning a left orbit.\"\n      ],\n      \"duration_seconds\": 10,\n      \"steps\": 24,\n      \"seed\": 456\n    },\n    {\n      \"id\": \"outro\",\n      \"prompt\": [\n        \"Continue the unfinished left orbit from the previous scene.\",\n        \"Resolve the performance and finish on a calm wide composition.\"\n      ],\n      \"length\": 124\n    }\n  ]\n}\n\nSCENE OVERRIDES\n- prompt can be one string OR an array of readable lines. The node joins array\n  entries with real line breaks. Use an empty string entry for a blank line.\n- duration_seconds: requested generated duration; rounded UP to H3's 17k+5 grid.\n- length or frames: exact raw frame count; must be 5, 22, 39, 56...3592.\n- steps: sampler steps for this scene, 1–10000.\n- seed: fixed uint64 seed. Omit it for a deterministic seed from base_seed.\n- id: unique scene name used by checkpoints. Changing it can change an auto seed.\n- prompt: required scene prompt. prompt_prefix is prepended automatically.\n\nLENGTH AT 24 FPS, context=22, anchor=head\n- 5 seconds  -> raw 124 frames; clip 1 delivers 124, later clips deliver 102.\n- 10 seconds -> raw 243 frames; clip 1 delivers 243, later clips deliver 221.\n- 15 seconds -> raw 362 frames; clip 1 delivers 362, later clips deliver 340.\nLater clips lose the 22 repeated context frames after Trim. Use length for\nframe-exact control. Every non-final shot must deliver at least context_length.\n\nPRECEDENCE\nshot value > JSON defaults > H3 Chain Plan node defaults.\n\nRECOMMENDED PLAN SETTINGS\n- width/height: multiples of 32; 960x544 is a good starting point.\n- context_length: 22\n- encode_mode: video\n- anchor_mode: head\n- crop: disabled\n- audio_mode: source_track for music videos\n- audio_context_length: 0 in source_track; 22 for generated-audio continuity\n- segment_crf: 18–20\n\nRUN / RESUME\n- New run: unique run_name and Loop Start start_clip=1.\n- Resume at scene N: keep the same settings and run_name; set start_clip=N.\n- Changing a completed scene's prompt, seed, length, model settings, references,\n  or source audio invalidates its checkpoint history.\n- Change generation_fingerprint whenever model, VAE, LoRA, references, CFG,\n  scheduler, or another generation dependency changes.\n\nSOURCE-TRACK WIRING\nWire the same Load Audio output to Loop Start, Current Shot and Assemble.\nThe source song must cover the complete delivered video duration."
+      ],
+      "widgets_values_named": {
+        "text": "H3 LOOP PLAN — QUICK FORMAT\n\nUse the built-in H3 Chain Plan scene editor, or open its JSON panel and paste\nvalid JSON. Use double quotes, no comments, and no trailing commas.\n\n{\n  \"prompt_prefix\": \"Global subject, wardrobe, style and continuity rules.\",\n  \"defaults\": {\n    \"duration_seconds\": 15,\n    \"steps\": 20\n  },\n  \"shots\": [\n    {\n      \"id\": \"intro\",\n      \"prompt\": [\n        \"Use <Picture 1> for the subject's identity and physical features.\",\n        \"Her wardrobe remains unchanged throughout the sequence.\",\n        \"\",\n        \"Begin with an opening tracking shot backstage.\",\n        \"End while she is opening the corridor door.\"\n      ],\n      \"seed\": 123\n    },\n    {\n      \"id\": \"street\",\n      \"prompt\": [\n        \"Continue through the already-opening door without resetting her stride.\",\n        \"Keep the incoming camera direction, lighting and subject pose.\",\n        \"\",\n        \"Move from the corridor into the street.\",\n        \"End with the camera beginning a left orbit.\"\n      ],\n      \"duration_seconds\": 10,\n      \"steps\": 24,\n      \"seed\": 456\n    },\n    {\n      \"id\": \"outro\",\n      \"prompt\": [\n        \"Continue the unfinished left orbit from the previous scene.\",\n        \"Resolve the performance and finish on a calm wide composition.\"\n      ],\n      \"length\": 124\n    }\n  ]\n}\n\nSCENE OVERRIDES\n- prompt can be one string OR an array of readable lines. The node joins array\n  entries with real line breaks. Use an empty string entry for a blank line.\n- duration_seconds: requested generated duration; rounded UP to H3's 17k+5 grid.\n- length or frames: exact raw frame count; must be 5, 22, 39, 56...3592.\n- steps: sampler steps for this scene, 1–10000.\n- seed: fixed uint64 seed. Omit it for a deterministic seed from base_seed.\n- id: unique scene name used by checkpoints. Changing it can change an auto seed.\n- prompt: required scene prompt. prompt_prefix is prepended automatically.\n\nLENGTH AT 24 FPS, context=22, anchor=head\n- 5 seconds  -> raw 124 frames; clip 1 delivers 124, later clips deliver 102.\n- 10 seconds -> raw 243 frames; clip 1 delivers 243, later clips deliver 221.\n- 15 seconds -> raw 362 frames; clip 1 delivers 362, later clips deliver 340.\nLater clips lose the 22 repeated context frames after Trim. Use length for\nframe-exact control. Every non-final shot must deliver at least context_length.\n\nPRECEDENCE\nshot value > JSON defaults > H3 Chain Plan node defaults.\n\nRECOMMENDED PLAN SETTINGS\n- width/height: multiples of 32; 960x544 is a good starting point.\n- context_length: 22\n- encode_mode: video\n- anchor_mode: head\n- crop: disabled\n- audio_mode: source_track for music videos\n- audio_context_length: 0 in source_track; 22 for generated-audio continuity\n- segment_crf: 18–20\n\nRUN / RESUME\n- New run: unique run_name and Loop Start start_clip=1.\n- Resume at scene N: keep the same settings and run_name; set start_clip=N.\n- Changing a completed scene's prompt, seed, length, model settings, references,\n  or source audio invalidates its checkpoint history.\n- Change generation_fingerprint whenever model, VAE, LoRA, references, CFG,\n  scheduler, or another generation dependency changes.\n\nSOURCE-TRACK WIRING\nWire the same Load Audio output to Loop Start, Current Shot and Assemble.\nThe source song must cover the complete delivered video duration."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      1632,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      1632,
+      0,
+      1633,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      1633,
+      0,
+      1634,
+      0,
+      "MODEL"
+    ],
+    [
+      4,
+      1634,
+      0,
+      1635,
+      0,
+      "MODEL"
+    ],
+    [
+      5,
+      1635,
+      0,
+      5,
+      0,
+      "MODEL"
+    ],
+    [
+      8,
+      2,
+      0,
+      110,
+      0,
+      "CLIP"
+    ],
+    [
+      13,
+      1700,
+      0,
+      1701,
+      0,
+      "H3_CHAIN_PLAN"
+    ],
+    [
+      14,
+      940,
+      0,
+      1701,
+      1,
+      "AUDIO"
+    ],
+    [
+      15,
+      1701,
+      1,
+      1702,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      16,
+      940,
+      0,
+      1702,
+      1,
+      "AUDIO"
+    ],
+    [
+      17,
+      1702,
+      4,
+      110,
+      9,
+      "STRING"
+    ],
+    [
+      18,
+      1702,
+      8,
+      110,
+      10,
+      "INT"
+    ],
+    [
+      19,
+      1702,
+      9,
+      110,
+      11,
+      "INT"
+    ],
+    [
+      20,
+      1702,
+      6,
+      110,
+      12,
+      "INT"
+    ],
+    [
+      21,
+      1702,
+      12,
+      110,
+      7,
+      "AUDIO"
+    ],
+    [
+      22,
+      1702,
+      5,
+      120,
+      0,
+      "INT"
+    ],
+    [
+      23,
+      1702,
+      7,
+      123,
+      1,
+      "INT"
+    ],
+    [
+      24,
+      1702,
+      0,
+      1703,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      25,
+      110,
+      0,
+      1703,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      27,
+      110,
+      1,
+      1703,
+      3,
+      "LATENT"
+    ],
+    [
+      28,
+      1703,
+      0,
+      121,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      29,
+      120,
+      0,
+      124,
+      0,
+      "NOISE"
+    ],
+    [
+      30,
+      121,
+      0,
+      124,
+      1,
+      "GUIDER"
+    ],
+    [
+      31,
+      122,
+      0,
+      124,
+      2,
+      "SAMPLER"
+    ],
+    [
+      32,
+      123,
+      0,
+      124,
+      3,
+      "SIGMAS"
+    ],
+    [
+      33,
+      110,
+      1,
+      124,
+      4,
+      "LATENT"
+    ],
+    [
+      34,
+      124,
+      0,
+      130,
+      0,
+      "LATENT"
+    ],
+    [
+      36,
+      124,
+      0,
+      131,
+      0,
+      "LATENT"
+    ],
+    [
+      38,
+      130,
+      0,
+      132,
+      0,
+      "IMAGE"
+    ],
+    [
+      39,
+      131,
+      0,
+      132,
+      1,
+      "AUDIO"
+    ],
+    [
+      40,
+      1703,
+      1,
+      132,
+      2,
+      "INT"
+    ],
+    [
+      41,
+      1702,
+      0,
+      1704,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      42,
+      132,
+      0,
+      1704,
+      1,
+      "IMAGE"
+    ],
+    [
+      43,
+      124,
+      0,
+      1704,
+      2,
+      "LATENT"
+    ],
+    [
+      44,
+      132,
+      1,
+      1704,
+      3,
+      "AUDIO"
+    ],
+    [
+      45,
+      1701,
+      0,
+      1705,
+      0,
+      "H3_CHAIN_FLOW"
+    ],
+    [
+      46,
+      1702,
+      0,
+      1705,
+      1,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      47,
+      132,
+      0,
+      1705,
+      2,
+      "IMAGE"
+    ],
+    [
+      48,
+      124,
+      0,
+      1705,
+      3,
+      "LATENT"
+    ],
+    [
+      49,
+      1704,
+      0,
+      1705,
+      4,
+      "H3_CHAIN_SEGMENT"
+    ],
+    [
+      50,
+      1705,
+      0,
+      1706,
+      0,
+      "H3_CHAIN_MANIFEST"
+    ],
+    [
+      51,
+      940,
+      0,
+      1706,
+      1,
+      "AUDIO"
+    ],
+    [
+      52,
+      1700,
+      0,
+      1707,
+      0,
+      "H3_CHAIN_PLAN"
+    ],
+    [
+      53,
+      940,
+      0,
+      1707,
+      1,
+      "AUDIO"
+    ],
+    [
+      54,
+      1707,
+      0,
+      1708,
+      0,
+      "H3_CHAIN_MANIFEST"
+    ],
+    [
+      55,
+      940,
+      0,
+      1708,
+      1,
+      "AUDIO"
+    ],
+    [
+      56,
+      911,
+      0,
+      110,
+      3,
+      "IMAGE"
+    ],
+    [
+      58,
+      3,
+      0,
+      1914,
+      0,
+      "VAE"
+    ],
+    [
+      59,
+      1914,
+      0,
+      110,
+      1,
+      "VAE"
+    ],
+    [
+      61,
+      1915,
+      0,
+      130,
+      1,
+      "VAE"
+    ],
+    [
+      62,
+      1914,
+      0,
+      1916,
+      0,
+      "VAE"
+    ],
+    [
+      63,
+      1916,
+      0,
+      1703,
+      2,
+      "VAE"
+    ],
+    [
+      64,
+      1916,
+      0,
+      1915,
+      0,
+      "VAE"
+    ],
+    [
+      65,
+      4,
+      0,
+      1917,
+      0,
+      "VAE"
+    ],
+    [
+      66,
+      1917,
+      0,
+      110,
+      2,
+      "VAE"
+    ],
+    [
+      67,
+      1917,
+      0,
+      1918,
+      0,
+      "VAE"
+    ],
+    [
+      68,
+      1918,
+      0,
+      131,
+      1,
+      "VAE"
+    ],
+    [
+      69,
+      5,
+      0,
+      1919,
+      0,
+      "MODEL"
+    ],
+    [
+      70,
+      1919,
+      0,
+      1920,
+      0,
+      "MODEL"
+    ],
+    [
+      71,
+      1920,
+      0,
+      121,
+      0,
+      "MODEL"
+    ],
+    [
+      72,
+      1920,
+      0,
+      123,
+      0,
+      "MODEL"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "MODEL STACK — RETAINED FROM ORIGINAL",
+      "bounding": [
+        -2112,
+        -1024,
+        2200,
+        650
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "CHARACTER REFERENCES + ORIGINAL SONG",
+      "bounding": [
+        -2112,
+        -352,
+        1400,
+        600
+      ],
+      "color": "#744c8c",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "TIMED H3 LOOP",
+      "bounding": [
+        -704,
+        -352,
+        4900,
+        760
+      ],
+      "color": "#744c8c",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "FINAL ASSEMBLY",
+      "bounding": [
+        4224,
+        -320,
+        736,
+        640
+      ],
+      "color": "#2f6b3f",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "DISABLED RECOVERY PATH",
+      "bounding": [
+        4192,
+        416,
+        880,
+        700
+      ],
+      "color": "#8a5a2b",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.32643271221554027,
+      "offset": [
+        2350.1692014388173,
+        1313.5503664172925
+      ]
+    },
+    "frontendVersion": "1.49.3",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true,
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "comfyui_mcp": {
+      "workflow_uuid": "0b59d996-57f0-4d49-8314-6c83743b52ef"
+    }
+  },
+  "version": 0.4
+}
