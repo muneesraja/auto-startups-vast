@@ -1,8 +1,8 @@
 {
   "id": "e3f2b845-8f2c-4b5a-9caf-eac1029d3e7e",
   "revision": 0,
-  "last_node_id": 159,
-  "last_link_id": 301,
+  "last_node_id": 160,
+  "last_link_id": 302,
   "nodes": [
     {
       "id": 116,
@@ -755,7 +755,7 @@
           "name": "ref_images.ref_image_2",
           "shape": 7,
           "type": "IMAGE",
-          "link": null
+          "link": 302
         },
         {
           "label": "ref_videos.ref_video_0",
@@ -1483,6 +1483,72 @@
       },
       "widgets_values": [
         "spatial_reference_360.webp",
+        "image"
+      ]
+    },
+    {
+      "id": 160,
+      "type": "LoadImage",
+      "pos": [
+        -90.0,
+        5685.947343763971
+      ],
+      "size": [
+        290,
+        350
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            302
+          ]
+        },
+        {
+          "label": "MASK",
+          "name": "MASK",
+          "type": "MASK"
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.30.0",
+        "Node name for S&R": "LoadImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "widget_ue_connectable": {
+          "image": true,
+          "upload": true
+        }
+      },
+      "widgets_values": [
+        "subject_reference.webp",
         "image"
       ]
     },
@@ -2217,6 +2283,14 @@
       154,
       0,
       "MODEL"
+    ],
+    [
+      302,
+      160,
+      0,
+      136,
+      5,
+      "IMAGE"
     ]
   ],
   "groups": [
