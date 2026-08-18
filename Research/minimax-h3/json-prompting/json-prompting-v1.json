@@ -1,0 +1,93 @@
+{
+  "archetype": "Music-driven / Kinetic",
+  "duration": "12s",
+  "prompt": {
+    "concept": {
+      "title": "STOP-MOTION GRAPHIC STORM",
+      "description": "Ultra-dense stop-motion motion-graphics. Photographic character treated as paper cut-out. Hard graphic collage (geometric layers, bold color fields, ink edges) explodes around him. New hard visual event every 1.0 second. Zero breathing room.",
+      "duration": "12s kinetic stop-motion motion graphics",
+      "rhythm_structure": {
+        "0-1s": "Face slam + geometric layer",
+        "1-2s": "Profile + color wipe",
+        "2-3s": "Front body + shards",
+        "3-4s": "Back + ink explosion",
+        "4-5s": "Face + type mask",
+        "5-6s": "Collage reconfiguration",
+        "6-7s": "4-view multi-panel",
+        "7-8s": "Silhouette invert + tear",
+        "8-9s": "Rapid angle cycle",
+        "9-10s": "Color storm lock",
+        "10-11s": "Type punch",
+        "11-12s": "Hard black out"
+      }
+    },
+    "character_identity_lock": {
+      "maintain_same_character": true,
+      "reference_role": "Attached @Image1 4-panel sheet is absolute identity source (face, profile, front, back).",
+      "identity": {
+        "age_gender": "Adult male, early 30s",
+        "hair": "Completely bald",
+        "face": "Dense dark beard & mustache, strong jaw, light brown eyes, olive skin",
+        "clothing": "Black button-up overshirt open over white crew tee, black slim jeans",
+        "accessories": "Black cap with green underbrim, black leather boots"
+      },
+      "strict_consistency": [
+        "Same face & beard every cut",
+        "Same black/green cap",
+        "Same overshirt + white tee layering",
+        "Same body proportions",
+        "No age/hair/clothing color change"
+],
+      "color_rule": "Character colors locked (black/white/green). Only graphic layers may add flat color.",
+      "core_concept": "Photographic paper cut-out manipulated by stop-motion graphic layers",
+      "physics_rules": "Hard paper edges only. Character moves exclusively on 1s hard cuts. No soft morphing."
+    },
+    "camera_direction": {
+      "shot_type": "Locked frames + aggressive hard cuts every 1.0s",
+      "forbidden": ["No soft dissolves", "No fluid camera", "No continuous orbits", "No gradual transitions"],
+      "camera_journey": "Static frames only. All motion from hard graphic cuts, paper rearrangements and color-block wipes using the four reference angles as discrete cut-outs."
+    },
+    "visual_style": {
+      "overall": "High-contrast stop-motion paper-cut collage motion graphics",
+      "inspired_by": ["Paper stop-motion cut-out", "Kinetic graphic design", "Swiss-brutalist geometry + ink edges"],
+      "color_palette": ["Pure black", "Pure white", "Cap green accent", "Flat primaries only on graphic layers"],
+      "materials_and_texture": "Visible paper fiber edges, stop-motion jitter, hard geometry, ink-splatter edges, layered cut-out depth. No gradients, no photo backgrounds."
+    },
+    "motion_language": {
+      "follows_music": true,
+      "kick": "Every 1.0s kick forces hard cut or new paper layer slam",
+      "wooden_snare": "Triggers geometric shards, color wipes or multi-panel reconfigs",
+      "sub_bass": "Sustains current collage until next kick"
+    },
+    "storyboard": {
+      "total_beats": 12,
+      "beat_duration": "1.0s each",
+      "beats": [
+        {"id":"01","time":"0-1s","description":"Extreme face close-up slammed on pure white. Green underbrim only color. Black geometric triangles with paper edges."},
+        {"id":"02","time":"1-2s","description":"Hard cut to left profile full-body. Black vertical wipe reveals figure on flat green. Paper fiber edges on silhouette."},
+        {"id":"03","time":"2-3s","description":"Hard cut front full-body. Sharp geometric paper shards fly in and lock as graphic frame around character."},
+        {"id":"04","time":"3-4s","description":"Hard cut back view. Ink-edge explosion radiates from center. Character stays locked."},
+        {"id":"05","time":"4-5s","description":"Hard cut face close-up. Bold kinetic type ‘CUT’ masks lower third in torn black paper letters."},
+        {"id":"06","time":"5-6s","description":"Hard cut front. Four reference views appear as small floating paper panels orbiting in stop-motion steps."},
+        {"id":"07","time":"6-7s","description":"Hard 2×2 multi-panel of all four angles with thick black paper borders."},
+        {"id":"08","time":"7-8s","description":"Hard cut inverted silhouette on pure green. Paper-tear edges run across the figure."},
+        {"id":"09","time":"8-9s","description":"Three rapid hard cuts cycling profile→front→back inside the 1s beat."},
+        {"id":"10","time":"9-10s","description":"Front locked center. Graphic layers erupt into black/white/green color-block storm. Figure stays sharp."},
+        {"id":"11","time":"10-11s","description":"Large kinetic type ‘STORM’ punches from bottom in heavy black paper letters. Never overlaps character."},
+        {"id":"12","time":"11-12s","description":"Hard cut to pure black. All elements gone in one clean stop-motion cut."}
+      ]
+    },
+"negative_prompt": [
+      "No soft dissolves or crossfades",
+      "No fluid morphing of character",
+      "No continuous camera or orbits",
+      "No identity drift between cuts",
+      "No extra limbs or clothing color changes",
+      "No photo backgrounds or realistic environments",
+      "No gradients or soft shadows on graphics",
+      "No Chinese characters or random text",
+      "No watermarks",
+      "No slow pacing — hard visual event every second"
+    ]
+  }
+}

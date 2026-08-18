@@ -10,6 +10,9 @@ Locked budget:
     remaining seconds of the current generation moves to the next one.
   - scene_total = sum of generation durations = scene target_seconds.
   - scene_count = ceil(target_seconds / scene_budget), scene_budget default 70s.
+  - Continuity between adjacent generations is handled at render time by
+    conditioning each generation on the previous generation's rendered tail
+    (3s). No bridge generations are needed.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ GEN_MAX = 15.0
 MINIMAX_FPS = 24
 
 # Storyboard sheet grid limits (panels per generation sheet).
-PANELS_MIN = 3   # minimum grid: 1x3, 2x2, 2x3, 3x2, etc.
+PANELS_MIN = 6   # minimum grid: 2x3, 3x2, or larger
 PANELS_MAX = 12
 
 SCENE_BUDGET_DEFAULT = 70   # seconds; scene_count = ceil(target / scene_budget)

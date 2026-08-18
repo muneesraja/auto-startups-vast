@@ -1,0 +1,60 @@
+{
+  "archetype": "Cinematic Narrative",
+  "duration": "15s",
+  "prompt": {
+    "concept": {
+      "title": "SNOW CAKE DUEL",
+      "description": "A high-intensity 15-second action sequence in a snowy night garden. Two completely redesigned warriors clash with swords in a brutal, elegant fight. At the climax, when the protagonist is about to sever the opponent's arm, the arm is revealed to be made of cake. Both characters freeze and then explode into laughter.",
+      "duration": "15-second continuous action sequence"
+    },
+    "character_identity_lock": {
+      "protagonist": {
+        "name": "The Yellow Viper",
+        "age_gender": "Fierce woman in her late 20s",
+        "hair": "Short asymmetrical jet-black hair",
+        "face": "Sharp features, intense focused eyes, no smile until the end",
+        "clothing": "Yellow tracksuit with black racing stripes, black combat boots",
+        "body": "Athletic, lean, powerful posture"
+      },
+      "opponent": {
+        "name": "Lady Snowflake",
+        "age_gender": "Elegant woman in her early 30s",
+        "hair": "Long straight silver-white hair flowing in the wind",
+        "face": "Pale porcelain skin, cold expression, high cheekbones",
+        "clothing": "Black high-collar formal winter coat, dark trousers, white gloves",
+        "body": "Graceful, upright, precise movements"
+      },
+      "strict_consistency": [
+        "Exact same faces and body proportions throughout",
+        "Same clothing",
+        "No identity drift",
+        "No original Kill Bill character likenesses"
+      ]
+    },
+    "camera_direction": {
+      "shot_type": "Single continuous high-energy take with dynamic movement",
+      "forbidden": [
+        "No cuts",
+        "No teleportation",
+        "No hidden transitions"
+      ],
+      "camera_journey": "Opens on a wide shot of the two women clashing in the falling snow. Camera rapidly circles and pushes in during the sword exchange, staying low and aggressive. When the final strike is about to land, the camera locks tightly on the arm. After the cake reveal it pulls back slightly to capture both women laughing."
+    },
+    "visual_style": {
+      "overall": "Stylized cinematic action with strong graphic contrast",
+      "inspired_by": [
+        "Classic samurai night duels",
+        "High-contrast anime fight scenes",
+        "Clean, almost theatrical fight choreography"
+      ],
+      "color_palette": [
+        "Deep night blue",
+        "Pure white snow",
+        "Warm yellow of the tracksuit",
+        "Cold silver hair and black coat",
+        "Soft lantern orange accents"
+      ],
+      "materials_and_texture": "Crisp snow particles in the air, fabric movement, sharp sword reflections, no blood, clean and graphic"
+    }
+  }
+}

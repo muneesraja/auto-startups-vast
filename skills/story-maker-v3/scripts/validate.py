@@ -24,13 +24,17 @@ from tools import validators  # noqa: E402
 def main() -> int:
     p = argparse.ArgumentParser(description="Validate a story-maker-v3 artifact")
     p.add_argument("artifact", help="Path to the artifact file (md/json)")
-    p.add_argument("--schema", required=True, choices=("scenes", "storyboard", "prompts", "video_prompt"))
+    p.add_argument("--schema", required=True, choices=("beat_board", "scenes", "storyboard", "prompts", "video_prompt", "critique", "spatial_plan", "spatial_qa"))
     p.add_argument("--target-seconds", type=int, default=None)
     p.add_argument("--scenes-path", default=None, help="scenes.md (for storyboard cross-check)")
     p.add_argument("--run-dir", default=None, help="run output dir (for prompts/video_prompt schemas)")
     p.add_argument("--scene", default=None, help="scene id (for prompts/video_prompt schemas)")
     p.add_argument("--gen", default=None, help="generation id (for video_prompt schema; inferred from filename if omitted)")
     p.add_argument("--tolerance", type=int, default=15)
+    p.add_argument("--legacy", action="store_true",
+                   help="use the pre-Ref2VA 4-part validator for video_prompt (for existing runs)")
+    p.add_argument("--question-bank", default=None,
+                   help="path to directing-questions.md (for critique schema)")
     args = p.parse_args()
 
     artifact = Path(args.artifact).resolve()
@@ -46,6 +50,8 @@ def main() -> int:
         run_dir=args.run_dir,
         scene_id=args.scene,
         gen_id=args.gen,
+        legacy=args.legacy,
+        question_bank_path=args.question_bank,
     )
 
     out_path = artifact.with_suffix(artifact.suffix + ".validation.json")

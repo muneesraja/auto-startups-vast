@@ -1,19 +1,21 @@
 # Agent 2 — Scene Writer
 
-**Input:** `<run_dir>/developed_story.md` (Agent 1) + the run target duration (seconds).
+**Input:** `<run_dir>/developed_story.md` (Agent 1) + `<run_dir>/beat_board.md`
+(Agent 1b) + the run target duration (seconds).
 **Output:** `<run_dir>/scenes.md` — the scene breakdown. Then run
-`python3 scripts/validate.py scenes.md --schema scenes --target-seconds <N>` and fix
-until it passes.
+`python3 scripts/validate.py scenes.md --schema scenes --target-seconds <N> --run-dir <run_dir>`
+and fix until it passes.
 
 ## Job
 
-Split the developed story into **N scenes**, where `N = ceil(target_seconds / 70)`.
-(scene_budget = 70s; e.g. 5min/300s → 5 scenes, 140s → 2 scenes, 70s → 1 scene.)
-Each scene is later split by Agent 3 into Minimax H3 generations of at most 15
-seconds each (a ~70s scene ≈ 5 generations, each with its own storyboard sheet).
-Distribute the story beats across the scenes so each scene is a
-self-contained unit of action in ONE location, and prefer beats that break
-naturally into <=15s stretches of continuous action.
+Read the **beat board** first. It lists the story's dramatic beats with emotional
+register and rough timing. Group these beats into **N scenes**, where
+`N = ceil(target_seconds / 70)`. (scene_budget = 70s; e.g. 5min/300s → 5 scenes,
+140s → 2 scenes, 70s → 1 scene.) Each scene is later split by Agent 3 into Minimax
+H3 generations of at most 15 seconds each (a ~70s scene ≈ 5 generations, each with
+its own storyboard sheet). Group beats so each scene is a self-contained unit of
+action in ONE location, and prefer beats that break naturally into <=15s stretches
+of continuous action.
 
 ## Rules
 
@@ -45,7 +47,9 @@ target_seconds: <int>
 cast: [char_01, char_02]
 characters_present: [char_01, char_02]
 location_id: loc_forest
-beat: <one line>
+objects: [obj_01, obj_02]
+beats: [1, 2, 3]
+beat: <one line summarizing the scene's central action>
 
 ## Scene s2 — <title>
 scene_id: s2
@@ -53,14 +57,22 @@ scene_id: s2
 ```
 
 - Scene ids are `s1`, `s2`, … (sequential).
-- Every scene block MUST have all five keys: `scene_id`, `target_seconds`, `cast`,
-  `characters_present`, `location_id`, `beat`.
+- Every scene block MUST have all seven keys: `scene_id`, `target_seconds`, `cast`,
+  `characters_present`, `location_id`, `objects`, `beats`, `beat`.
+- `objects` is a list of object ids from `developed_story.md`'s `## Objects`
+  section that appear in this scene. Use `[]` if no named objects. Only list
+  hero props / key objects — background set dressing is described in the
+  storyboard, not here.
+- `beats` is a list of beat numbers from `beat_board.md` that this scene covers.
+  Each beat belongs to exactly one scene — no splitting a beat across scenes.
+  The validator cross-checks beat coverage when `beat_board.md` exists.
 - Use `## Scene <id> — <title>` headers (em-dash) — the parser keys off `## Scene `.
 
 ## Validate
 
 ```
-python3 scripts/validate.py <run_dir>/scenes.md --schema scenes --target-seconds <N>
+python3 scripts/validate.py <run_dir>/scenes.md --schema scenes --target-seconds <N> --run-dir <run_dir>
 ```
 Read `<run_dir>/scenes.md.validation.json`; on `ok:false`, fix the listed errors and
-re-run. Do not proceed to Agent 3 until scenes pass.
+re-run. The validator cross-checks `beats:` against `beat_board.md` when it exists
+in the run dir. Do not proceed to Agent 3 until scenes pass.

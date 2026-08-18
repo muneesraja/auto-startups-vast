@@ -196,6 +196,21 @@ def _image_mime_type(image_path: str) -> str:
     return mimetypes.guess_type(image_path)[0] or "image/png"
 
 
+def _video_mime_type(video_path: str) -> str:
+    ext = os.path.splitext(video_path)[1].lower()
+    mimes = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mkv": "video/x-matroska"}
+    return mimes.get(ext) or mimetypes.guess_type(video_path)[0] or "video/mp4"
+
+
+def has_node_type(class_type: str, base_url=None, auth=None) -> bool:
+    """Check whether a ComfyUI server has a given node type installed."""
+    try:
+        info = curl_json("GET", "/object_info", base_url=base_url, auth=auth, timeout=30)
+        return class_type in info
+    except Exception:
+        return False
+
+
 def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type="input"):
     if base_url is None:
         base_url = config.COMFYUI_URL
@@ -236,6 +251,56 @@ def upload_image(image_path, base_url=None, auth=None, subfolder="", image_type=
         except Exception as e:
             if attempt == 2:
                 print(f"   upload_image failed: {e}")
+                return None
+            time.sleep(3)
+
+
+def upload_video(video_path, base_url=None, auth=None, subfolder=""):
+    """Upload a video file to ComfyUI's input folder (same /upload/image endpoint).
+
+    ComfyUI's upload endpoint accepts any file type; the ``image`` form field
+    name is kept for compatibility. Returns the same dict shape as
+    :func:`upload_image` (``{name, subfolder, type}``).
+    """
+    if base_url is None:
+        base_url = config.COMFYUI_URL
+    if auth is None:
+        auth = config.COMFYUI_AUTH
+
+    base_url = base_url.rstrip("/")
+    mime_type = _video_mime_type(video_path)
+    cmd = ["curl", "-s", "-X", "POST", f"{base_url}/upload/image"]
+    cmd.extend(_resolve_args(base_url))
+    cmd.extend(_auth_args(auth))
+    cmd.extend(
+        [
+            "-F",
+            f"image=@{video_path};type={mime_type}",
+            "-F",
+            f"subfolder={subfolder}",
+            "-F",
+            "type=input",
+            "-F",
+            "overwrite=true",
+        ]
+    )
+
+    for attempt in range(3):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"curl exit {result.returncode}: stderr={result.stderr.strip()[:200]}"
+                )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError as je:
+                raise RuntimeError(
+                    f"non-JSON response (first 200 chars): {result.stdout[:200]!r}"
+                ) from je
+        except Exception as e:
+            if attempt == 2:
+                print(f"   upload_video failed: {e}")
                 return None
             time.sleep(3)
 

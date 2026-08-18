@@ -28,6 +28,7 @@ def generate_grok_t2i(
     quality: str | None = None,
     text_policy: str = "default",
     provider: str | None = None,
+    ref_urls: list[str] | None = None,
 ) -> dict:
     return _backend(provider).generate_grok_t2i(
         prompt,
@@ -36,6 +37,7 @@ def generate_grok_t2i(
         size=size,
         quality=quality,
         text_policy=text_policy,
+        image_urls=ref_urls,
     )
 
 

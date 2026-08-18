@@ -155,8 +155,9 @@ def generate_grok_t2i(
     size: str | None = None,
     quality: str | None = None,
     text_policy: str = "default",
+    image_urls: list[str] | None = None,
 ) -> dict:
-    """Generate an image via fal (default: openai/gpt-image-2)."""
+    """Generate an image via fal (default: openai/gpt-image-2, optional refs)."""
     if not _ensure_fal_key():
         return error_result("FAL_KEY is not set in environment or config.")
 
@@ -171,15 +172,18 @@ def generate_grok_t2i(
                 f"🖼️ [fal] {model} t2i quality={q} "
                 f"image_size={image_size}"
             )
+            arguments = {
+                "prompt": final_prompt,
+                "num_images": 1,
+                "quality": q,
+                "image_size": image_size,
+                "output_format": "png",
+            }
+            if image_urls:
+                arguments["image_urls"] = image_urls[:10]
             result = fal_client.subscribe(
                 _FAL_GPT_IMAGE_T2I,
-                arguments={
-                    "prompt": final_prompt,
-                    "num_images": 1,
-                    "quality": q,
-                    "image_size": image_size,
-                    "output_format": "png",
-                },
+                arguments=arguments,
             )
         else:
             # Legacy xAI Grok Imagine path

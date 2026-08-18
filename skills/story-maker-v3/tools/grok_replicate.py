@@ -277,8 +277,9 @@ def generate_grok_t2i(
     size: str | None = None,
     quality: str | None = None,
     text_policy: str = "default",
+    image_urls: list[str] | None = None,
 ) -> dict:
-    """Generate an image via Replicate."""
+    """Generate an image via Replicate (T2I, optional reference images)."""
     client = _replicate_client()
     if not client:
         return error_result("REPLICATE_API_TOKEN is not set in environment or config.")
@@ -289,7 +290,7 @@ def generate_grok_t2i(
         _throttle()
         output = client.run(
             _model_id(),
-            input=_build_input(final_prompt, resolution, size=size, quality=quality),
+            input=_build_input(final_prompt, resolution, image_urls=image_urls, size=size, quality=quality),
         )
         image_url = _save_replicate_output(output, output_path)
         return success_result(output_path, image_url)
@@ -317,19 +318,24 @@ def generate_grok_edit(
     model = _model_id()
     final_prompt = apply_prompt_text_policy(prompt, text_policy)
 
-    try:
-        _throttle()
-        output = client.run(
-            model,
-            input=_build_input(
-                final_prompt,
-                resolution,
-                image_urls,
-                size=size,
-                quality=quality,
-            ),
-        )
-        image_url = _save_replicate_output(output, output_path)
-        return success_result(output_path, image_url)
-    except Exception as e:
-        return error_result(f"Replicate edit failed: {e}")
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            _throttle()
+            output = client.run(
+                model,
+                input=_build_input(
+                    final_prompt,
+                    resolution,
+                    image_urls,
+                    size=size,
+                    quality=quality,
+                ),
+            )
+            image_url = _save_replicate_output(output, output_path)
+            return success_result(output_path, image_url)
+        except Exception as e:
+            last_err = e
+            print(f"⚠️ [replicate] edit attempt {attempt}/3 failed: {e}; retrying in 10s...")
+            time.sleep(10)
+    return error_result(f"Replicate edit failed: {last_err}")

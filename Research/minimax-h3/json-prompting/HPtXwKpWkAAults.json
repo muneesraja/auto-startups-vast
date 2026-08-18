@@ -1,0 +1,82 @@
+{
+  "archetype": "Commercial / Product Ad",
+  "duration": "12s",
+  "prompt": {
+    "concept": {
+      "title": "NIGHT PULSE",
+      "description": "A high-energy Japanese-style commercial for a premium dark chocolate bar. Urban night, fast rhythmic cuts, bold English typography, and a clear narrative of stress-to-power transformation.",
+      "duration": "12-second commercial"
+    },
+    "product_lock": {
+      "maintain_exact_product": true,
+      "identity": {
+        "name": "PULSE",
+        "material": "Matte black wrapper with sharp silver edges",
+        "color": "Deep black packaging, dark chocolate interior",
+        "logo": "Minimalist bold wordmark PULSE in pure white",
+        "details": "Thin rectangular bar, clean break lines, no extra graphics"
+      },
+      "strict_consistency": [
+        "Exact packaging design",
+        "Exact logo",
+        "Exact chocolate color and texture"
+      ]
+    },
+    "camera_direction": {
+      "shot_type": "Fast commercial cutting style",
+      "forbidden": [
+        "No slow dreamy moves",
+        "No long continuous takes"
+      ],
+      "camera_journey": "Rapid hard cuts every 1-1.5 seconds. Mix of extreme close-ups on the product, dynamic handheld urban shots, and clean beauty orbits around the chocolate bar. High energy, never static."
+    },
+    "visual_style": {
+      "overall": "Modern Japanese commercial aesthetic with English typography",
+      "inspired_by": [
+        "High-end Japanese food commercials",
+        "Tokyo night street fashion films",
+        "Clean product beauty lighting"
+      ],
+      "color_palette": [
+        "Deep night black",
+        "Electric cyan neon",
+        "Warm street orange",
+        "Pure white typography",
+        "Rich dark chocolate brown"
+      ],
+      "materials_and_texture": "Glossy wet streets, matte black packaging, sharp reflections, high contrast, crisp commercial finish"
+    },
+    "typography": {
+      "allowed_words": [
+        "PULSE",
+        "BREAK THE QUIET",
+        "ONE BITE"
+      ],
+      "treatment": {
+        "not_flat_overlay": false,
+        "required_properties": [
+          "Bold clean English sans-serif",
+          "High contrast white or cyan",
+          "Perfectly legible",
+          "Rhythmic appearance with cuts"
+        ]
+      }
+    },
+    "storyboard": {
+      "beats": [
+        {
+          "time": "0.0-2.5",
+          "description": "Fast urban night cuts. Young person walking through neon Tokyo-style streets, looking exhausted. Hard flashes of light."
+        },
+        {
+          "time": "2.5-5.0",
+          "description": "Close-up hand pulls the PULSE bar from a pocket. Sharp product beauty shot. Wrapper tears cleanly."
+        },
+        {
+          "time": "5.0-7.5",
+          "description": "Extreme close-up of the first bite. Chocolate breaks with perfect texture. Eyes light up."
+        }
+      ]
+    }
+  }
+}

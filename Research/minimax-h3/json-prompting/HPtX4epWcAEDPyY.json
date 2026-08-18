@@ -1,0 +1,116 @@
+{
+  "archetype": "Artistic / Fashion / Conceptual",
+  "duration": "15s",
+  "prompt": {
+    "concept": {
+      "title": "BRUTALIST TIDE",
+      "description": "A 15-second kinetic art piece. A Hawaiian woman moves through a stark brutalist concrete void. Camera is violent and mechanical: sudden arcs, robotic arm swings and hard cuts in framing every 1.5 seconds. Minimalist but brutal.",
+      "duration": "15-second kinetic sequence",
+      "rhythm_structure": {
+        "0-3s": "Slow emergence",
+        "3-9s": "Aggressive camera assault",
+        "9-15s": "Final ritualistic hold"
+      }
+    },
+    "character_identity_lock": {
+      "identity": {
+        "age_gender": "Young Hawaiian woman",
+        "hair": "Long thick black hair, slightly wet, heavy and natural",
+        "face": "Strong Polynesian features, calm intense gaze.",
+        "clothing": "Simple black fabric wrapped around the body like a minimalist pareo",
+        "body": "Powerful, grounded, athletic"
+      },
+      "strict_consistency": [
+        "Same face",
+        "Same hair weight and length",
+        "Same body proportions",
+        "Same black fabric"
+      ]
+    },
+    "camera_direction": {
+      "shot_type": "Violent mechanical camera language",
+      "forbidden": [
+        "No smooth cinematic floats",
+        "No gentle moves",
+        "No hidden transitions"
+      ],
+      "camera_journey": "Robotic arm and sudden arcs dominate. Every 1.5 seconds the camera snaps, swings or orbits hard. Extreme low angles, overhead drops, whip-pans and locked mechanical holds. The camera itself feels like a brutalist machine."
+    },
+    "visual_style": {
+      "overall": "Minimalist brutalist art film",
+      "inspired_by": [
+        "Tadao Ando concrete architecture",
+        "Early 2000s fashion art films",
+        "Harsh gallery lighting"
+      ],
+      "color_palette": [
+        "Raw concrete grey",
+        "Volcanic black",
+        "Deep ocean blue",
+        "Single accent of burnt hibiscus orange"
+      ],
+      "materials_and_texture": "Matte concrete, wet black fabric, hard directional light, sharp shadows, no softness"
+    },
+    "motion_language": {
+      "follows_music": true,
+      "kick": "Hard camera snap or robotic swing",
+      "wooden_snare": "Sudden change of axis",
+      "sub_bass": "Slow heavy body movement of the woman"
+    },
+    "storyboard": {
+      "beats": [
+        {
+          "time": "0.0-1.5",
+          "description": "Extreme low angle. Woman stands still in a vast concrete chamber. Hard side light."
+        },
+        {
+          "time": "1.5-3.0",
+          "description": "Robotic arm swings 90 degrees. She takes one heavy step forward."
+        },
+        {
+          "time": "3.0-4.5",
+          "description": "Sudden overhead drop. Hair and fabric react with weight."
+        },
+        {
+          "time": "4.5-6.0",
+          "description": "Violent arc around her body. She turns slowly against the camera force."
+        },
+        {
+          "time": "6.0-7.5",
+          "description": "Hard push-in to her face. Eyes locked, no emotion."
+        },
+        {
+          "time": "7.5-9.0",
+          "description": "Camera snaps to side profile. She raises one arm with deliberate strength."
+        },
+        {
+          "time": "9.0-10.5",
+          "description": "Robotic crane rises fast. She becomes small against the brutalist architecture."
+        },
+        {
+          "time": "10.5-12.0",
+          "description": "Whip pan into a tight torso shot. Fabric stretches and folds."
+        },
+        {
+          "time": "12.0-13.5",
+          "description": "Sudden reverse angle. She looks directly into the lens."
+        },
+        {
+          "time": "13.5-15.0",
+          "description": "Final mechanical hold. Wide shot. She stands centered, still under a single hard light."
+        }
+      ]
+    },
+    "negative_prompt": [
+      "No soft lighting",
+      "No romantic camera",
+      "No smooth drone moves",
+      "No tropical cliché backgrounds",
+      "No smiling",
+      "No extra characters",
+      "No text",
+      "No watermarks",
+      "No blood"
+    ]
+  }
+}

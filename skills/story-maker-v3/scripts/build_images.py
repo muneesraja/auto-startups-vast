@@ -32,6 +32,7 @@ from tools import image_pipeline as ip  # noqa: E402
 from tools import validators  # noqa: E402
 from tools.char_sheet_builder import load_character_prompt  # noqa: E402
 from tools.location_sheet_builder import load_location_prompt  # noqa: E402
+from tools.object_sheet_builder import load_object_prompt  # noqa: E402
 
 
 def _scenes(run_dir: str) -> dict:
@@ -48,20 +49,33 @@ def _storyboard(run_dir: str, scene_id: str) -> dict:
     return validators.parse_storyboard(open(path, encoding="utf-8").read())
 
 
+def _spatial_plan(run_dir: str, scene_id: str) -> dict | None:
+    """Load the spatial plan for a scene, or None if no plan exists (legacy)."""
+    from tools.spatial_validator import parse_spatial_plan
+    path = os.path.join(run_dir, f"spatial_plan_{scene_id}.md")
+    if not os.path.isfile(path):
+        return None
+    return parse_spatial_plan(open(path, encoding="utf-8").read())
+
+
 def _exists(path: str) -> bool:
     return bool(path) and os.path.isfile(path) and os.path.getsize(path) > 0
 
 
 def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
-    """Generate all character sheets + location locks referenced by scenes.md."""
+    """Generate all character sheets + location locks + object sheets referenced by scenes.md."""
     cids: list[str] = []
     lids: list[str] = []
+    oids: list[str] = []
     for sc in scenes["scenes"]:
         for cid in sc["cast"]:
             if cid and cid not in cids:
                 cids.append(cid)
         if sc["location_id"] and sc["location_id"] not in lids:
             lids.append(sc["location_id"])
+        for oid in sc.get("objects", []):
+            if oid and oid not in oids:
+                oids.append(oid)
 
     for cid in cids:
         c_path = reg.character_path(cid)
@@ -77,8 +91,10 @@ def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
             _, fields = load_character_prompt(json_path)
         if not prompt_text and not fields:
             raise SystemExit(f"missing char prompt for {cid}: {txt_path} (or .json)")
-        print(f"  char sheet {cid}: generating ...")
-        ip.generate_character_sheet(reg, cid, prompt_text=prompt_text, character_fields=fields)
+        ref_names, prompt_text = ip.parse_ref_images(prompt_text)
+        ref_urls = ip.resolve_ref_names(reg, ref_names) if ref_names else None
+        print(f"  char sheet {cid}: generating (refs: {ref_names}) ...")
+        ip.generate_character_sheet(reg, cid, prompt_text=prompt_text, character_fields=fields, ref_urls=ref_urls)
 
     for lid in lids:
         l_path = reg.location_path(lid)
@@ -94,8 +110,29 @@ def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
             _, fields = load_location_prompt(json_path)
         if not prompt_text and not fields:
             raise SystemExit(f"missing location prompt for {lid}: {txt_path} (or .json)")
-        print(f"  location lock {lid}: generating ...")
-        ip.generate_location_lock(reg, lid, prompt_text=prompt_text, location_fields=fields)
+        ref_names, prompt_text = ip.parse_ref_images(prompt_text)
+        ref_urls = ip.resolve_ref_names(reg, ref_names) if ref_names else None
+        print(f"  location lock {lid}: generating (refs: {ref_names}) ...")
+        ip.generate_location_lock(reg, lid, prompt_text=prompt_text, location_fields=fields, ref_urls=ref_urls)
+
+    for oid in oids:
+        o_path = reg.object_path(oid)
+        if _exists(o_path):
+            entry = reg.object(oid)
+            entry["output_path"] = o_path
+            print(f"  object sheet {oid}: exists, skip")
+            continue
+        txt_path = ip.object_prompt_path(reg.run_dir, oid)
+        json_path = txt_path[:-4] + ".json"
+        prompt_text, fields = load_object_prompt(txt_path)
+        if not prompt_text and not fields and os.path.isfile(json_path):
+            _, fields = load_object_prompt(json_path)
+        if not prompt_text and not fields:
+            raise SystemExit(f"missing object prompt for {oid}: {txt_path} (or .json)")
+        ref_names, prompt_text = ip.parse_ref_images(prompt_text)
+        ref_urls = ip.resolve_ref_names(reg, ref_names) if ref_names else None
+        print(f"  object sheet {oid}: generating (refs: {ref_names}) ...")
+        ip.generate_object_sheet(reg, oid, prompt_text=prompt_text, object_fields=fields, ref_urls=ref_urls)
     reg.save()
 
 
@@ -110,7 +147,18 @@ def _scene_meta(scenes: dict, scene_id: str) -> tuple[int, str | None]:
 
 
 def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
-    """Generate one storyboard sheet per generation for one scene (edit + refs)."""
+    """Generate one storyboard sheet per generation for one scene (edit + refs).
+
+    For normal story generations with a spatial plan: a deterministic spatial
+    continuity block is materialized into the sheet prompt text before the
+    paid image call. Location panorama attachment is controlled by the
+    spatial plan's ``location_reference`` field (attach for g1, omit for later
+    generations unless explicitly marked re-establishing).
+
+    Bridge generations (bK) are no longer supported and are skipped.
+    Continuity between adjacent generations is handled at render time by
+    conditioning each generation on the previous generation's rendered tail.
+    """
     idx, prev_scene_id = _scene_meta(scenes, scene_id)
     sb = _storyboard(reg.run_dir, scene_id)
     cast = sb["cast"]
@@ -119,31 +167,79 @@ def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
     if not gens:
         raise SystemExit(f"storyboard_{scene_id}.md has no generations")
 
+    spatial = _spatial_plan(reg.run_dir, scene_id)
+    spatial_gens = spatial["generations"] if spatial else {}
+
+    # Materialize spatial continuity blocks into sheet prompts before generation
+    if spatial:
+        from tools.spatial_prompt_builder import materialize_sheet_prompt
+        for gen in gens:
+            if gen.get("is_bridge"):
+                continue
+            gid = gen["gen_id"]
+            if gid not in spatial_gens:
+                continue
+            sheet_prompt_path = ip.sheet_prompt_path(reg.run_dir, scene_id, gid)
+            if not os.path.isfile(sheet_prompt_path):
+                continue
+            prompt_text = ip.read_prompt(sheet_prompt_path)
+            if not prompt_text:
+                continue
+            materialized = materialize_sheet_prompt(prompt_text, spatial, sb, gid)
+            with open(sheet_prompt_path, "w", encoding="utf-8") as f:
+                f.write(materialized)
+            print(f"  {scene_id}/{gid}: materialized spatial bible")
+
     # Previous sheet for the FIRST generation = last sheet of the previous scene.
     prev_sheet_id: str | None = None
     if prev_scene_id:
         prev_sb_path = os.path.join(reg.run_dir, f"storyboard_{prev_scene_id}.md")
         if os.path.isfile(prev_sb_path):
             prev_sb = validators.parse_storyboard(open(prev_sb_path, encoding="utf-8").read())
-            if prev_sb["generations"]:
-                prev_sheet_id = f"{prev_scene_id}_{prev_sb['generations'][-1]['gen_id']}"
+            # Find the last non-bridge generation of the previous scene
+            for g in reversed(prev_sb["generations"]):
+                if not g.get("is_bridge"):
+                    prev_sheet_id = f"{prev_scene_id}_{g['gen_id']}"
+                    break
 
+    # Pass 1: story generations (skip bridges)
+    is_first_story_gen = True
     for gen in gens:
+        if gen.get("is_bridge"):
+            continue
         gid = gen["gen_id"]
         sheet_path = reg.sheet_path(scene_id, gid)
         if _exists(sheet_path):
             print(f"  sheet {scene_id}_{gid}: exists, skip")
             prev_sheet_id = f"{scene_id}_{gid}"
+            is_first_story_gen = False
             continue
+
+        # Determine location attachment policy from spatial plan
+        attach_location = True
+        if spatial and gid in spatial_gens:
+            sg = spatial_gens[gid]
+            loc_ref = sg.get("location_reference", "")
+            # g1 always attaches; later gens attach only if explicitly marked
+            attach_location = (loc_ref == "attach") if not is_first_story_gen else True
+        is_first_story_gen = False
+
         sheet_prompt = ip.read_prompt(ip.sheet_prompt_path(reg.run_dir, scene_id, gid))
         if not sheet_prompt:
             raise SystemExit(f"missing storyboard sheet prompt for {scene_id}/{gid}")
-        print(f"  sheet {scene_id}_{gid}: generating (refs: loc={loc} prev={prev_sheet_id} chars={cast}) ...")
+        ref_names, sheet_prompt = ip.parse_ref_images(sheet_prompt)
+        extra_ref_urls = ip.resolve_ref_names(reg, ref_names) if ref_names else []
+        print(f"  sheet {scene_id}_{gid}: generating "
+              f"(refs: loc={'yes' if attach_location else 'no'} prev={prev_sheet_id} "
+              f"chars={cast} extra={ref_names}) ...")
         ip.generate_storyboard_sheet(
             reg, scene_id, gid, prompt_text=sheet_prompt,
             character_ref_ids=cast, location_ref_id=loc, prev_sheet_id=prev_sheet_id,
+            extra_ref_urls=extra_ref_urls,
+            attach_location=attach_location,
         )
         prev_sheet_id = f"{scene_id}_{gid}"
+
 
 
 def main() -> int:

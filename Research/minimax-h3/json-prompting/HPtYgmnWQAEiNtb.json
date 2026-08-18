@@ -1,0 +1,77 @@
+{
+  "archetype": "Artistic / Fashion / Conceptual",
+  "duration": "15s",
+  "prompt": {
+    "concept": {
+      "title": "VERTICAL SILENCE",
+      "description": "15-second high-energy conceptual piece. A powerful female ballet dancer is suspended by invisible cables 20 meters high inside a massive concrete silo. She moves with extreme speed and control while the camera uses aggressive speed ramps and fluid arcs.",
+      "duration": "15-second kinetic sequence"
+    },
+    "character_identity_lock": {
+      "identity": {
+        "age_gender": "Athletic woman in her mid-20s",
+        "hair": "Tight dark bun",
+        "face": "Focused, intense expression",
+        "clothing": "Simple black sleeveless leotard",
+        "body": "Strong dancer physique, long lines"
+      },
+      "strict_consistency": [
+        "Same face and body",
+        "Same black leotard",
+        "Same hair"
+      ]
+    },
+    "camera_direction": {
+      "shot_type": "Aggressive kinetic camera with speed ramps",
+      "forbidden": [
+        "No static holds longer than 1 second",
+        "No soft floating"
+      ],
+      "camera_journey": "Starts low and rockets upward in a fast vertical rise. Continuous fluid arcs and orbits around her body. Heavy use of speed ramps: sudden drops into slow motion on the peak of movements, then explosive acceleration. Camera never rests."
+    },
+    "visual_style": {
+      "overall": "High-energy brutalist kinetic art",
+      "inspired_by": [
+        "Contemporary dance films",
+        "Brutalist architecture",
+        "Action sports speed-ramp aesthetics"
+      ],
+      "color_palette": [
+        "Raw concrete grey",
+        "Deep black leotard",
+        "Harsh overhead industrial light",
+        "Slight cool blue bounce"
+      ],
+      "materials_and_texture": "Rough concrete walls, taut invisible cables, sharp body lines, high-contrast lighting, no softness"
+    },
+    "storyboard": {
+      "beats": [
+        {
+          "time": "0.0-3.0",
+          "description": "Camera launches upward from the silo floor at high speed. She is already spinning fast while suspended. Hard speed ramp into slow motion as she extends one leg."
+        },
+        {
+          "time": "3.0-7.0",
+          "description": "Fluid orbiting camera. She pulls into a tight spin then explodes outward. Speed ramp: ultra-slow on the extension, then sudden real-time acceleration."
+        },
+        {
+          "time": "7.0-11.0",
+          "description": "Camera dives and rises with her. She swings in wide arcs, body cutting through the space. Multiple rapid speed ramps synced to her strongest movements."
+        },
+        {
+          "time": "11.0-15.0",
+          "description": "Final aggressive rising spiral around her as she holds a full vertical split in the air. Last hard speed ramp into slow motion, then cut to black."
+        }
+      ]
+    },
+    "negative_prompt": [
+      "No slow contemplative pacing",
+      "No static shots",
+      "No soft lighting",
+      "No emotional close-ups",
+      "No extra people",
+      "No text",
+      "No watermarks"
+    ]
+  }
+}

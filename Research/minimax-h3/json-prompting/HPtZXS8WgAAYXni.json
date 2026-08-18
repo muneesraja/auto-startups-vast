@@ -1,0 +1,91 @@
+{
+  "archetype": "Commercial / Product Ad",
+  "duration": "10s",
+  "prompt": {
+    "concept": {
+      "title": "MAGNIFICO LATTE",
+      "description": "Clean top-down motion graphics of the word MAGNIFICO being formed as classic barista latte art inside a white ceramic coffee cup using white microfoam on dark espresso.",
+      "duration": "10-second product animation"
+    },
+    "product_lock": {
+      "maintain_exact_product": true,
+      "identity": {
+        "name": "White ceramic coffee cup",
+        "material": "Matte white ceramic, dark espresso, white microfoam",
+        "details": "Perfect circular rim, glossy dark coffee surface, realistic milk foam texture"
+      },
+      "strict_consistency": [
+        "Exact same cup shape",
+        "Exact same top-down framing",
+        "Foam only forms the word MAGNIFICO"
+      ]
+    },
+    "camera_direction": {
+      "shot_type": "Locked 100% top-down (cenital) view",
+      "forbidden": [
+        "No camera movement",
+        "No tilt",
+        "No orbit",
+        "No side view"
+      ],
+      "camera_journey": "Perfectly fixed top-down angle for the entire duration. Only the liquid surface animates."
+    },
+    "visual_style": {
+      "overall": "Premium realistic product motion graphics",
+      "inspired_by": [
+        "High-end barista content",
+        "Clean commercial food animation"
+      ],
+      "color_palette": [
+        "Matte white ceramic",
+        "Deep espresso brown-black",
+        "Pure white microfoam",
+        "Soft natural highlights"
+      ],
+      "materials_and_texture": "Realistic crema, tiny foam bubbles, soft specular light, clean surface"
+    },
+    "typography": {
+      "allowed_words": [
+        "MAGNIFICO"
+      ],
+      "treatment": {
+        "not_flat_overlay": true,
+        "required_properties": [
+          "Formed entirely by white milk foam",
+          "Perfectly legible",
+          "Centered inside the cup",
+          "Classic barista latte-art style"
+        ]
+      }
+    },
+    "storyboard": {
+      "beats": [
+        {
+          "time": "0-2s",
+          "description": "Top-down view of still dark espresso surface inside the white cup. A thin stream of white microfoam begins pouring."
+        },
+        {
+          "time": "2-6s",
+          "description": "The microfoam is precisely poured and shaped, forming the letters of MAGNIFICO from left to right in clean latte-art style."
+        },
+        {
+          "time": "6-8s",
+          "description": "The full word MAGNIFICO is completed and centered. Foam settles with realistic tiny bubbles while staying fully legible."
+        },
+        {
+          "time": "8-10s",
+          "description": "Final subtle settling of the foam under soft light. Hold on the finished word."
+        }
+      ]
+    },
+    "negative_prompt": [
+      "No camera movement",
+      "No hands visible",
+      "No side view of the cup",
+      "No extra text",
+      "No logos",
+      "No watermarks",
+      "No distorted letters"
+    ]
+  }
+}

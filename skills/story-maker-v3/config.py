@@ -82,7 +82,7 @@ REPLICATE_OUTPUT_FORMAT = os.getenv("REPLICATE_OUTPUT_FORMAT", "webp")
 REPLICATE_OUTPUT_COMPRESSION = int(os.getenv("REPLICATE_OUTPUT_COMPRESSION", "90"))
 # Replicate gpt-image-2 `aspect_ratio` accepts ratios OR pixel enums
 # (e.g. 2048x1152, 1152x2048). Prefer pixel enums to lock resolution.
-CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "2048x1152")
+CHARACTER_SHEET_SIZE = os.getenv("CHARACTER_SHEET_SIZE", "3840x2160")
 BACKGROUND_IMAGE_SIZE = os.getenv("BACKGROUND_IMAGE_SIZE", "3840x2160")
 # One storyboard sheet per Minimax generation: a clean landscape panel grid
 # (no text, no timecodes) attached verbatim as the Minimax reference image.

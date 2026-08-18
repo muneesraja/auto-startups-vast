@@ -27,7 +27,9 @@ import config
 from tools.comfyui_tools import (
     curl_json,
     download_output,
+    has_node_type,
     upload_image,
+    upload_video,
     wait_for_prompt,
 )
 from tools.duration_budget import GEN_MAX, GEN_MIN, minimax_frames
@@ -183,13 +185,27 @@ def _prune_unreachable(api: dict[str, dict], roots: set[str]) -> None:
 
 
 def simplify_minimax_graph(api: dict[str, dict], object_info: dict) -> None:
-    """Reduce the graph to: storyboard ref image + literal prompt/size/length."""
+    """Reduce the graph to: storyboard ref image + literal prompt/size/length.
+
+    ref_videos.* / ref_audios.* slots are kept when the server has the
+    corresponding loader nodes (VHS_LoadVideo / LoadAudio), so bridge clips
+    can wire them dynamically. They are pruned per-call in patch_generation
+    when not used, keeping existing single-sheet renders byte-identical.
+    """
     mm_id = _find_node(api, MINIMAX_NODE)
     mm = api[mm_id]["inputs"]
 
-    # 1. Keep all wired ref_image_* slots; drop video/audio references.
+    has_vhs = "VHS_LoadVideo" in object_info
+    has_load_audio = "LoadAudio" in object_info
+
+    # 1. Keep ref_image_* slots; keep ref_videos.* if VHS_LoadVideo is present,
+    #    keep ref_audios.* if LoadAudio is present; always drop ref_video_audios.
     for key in list(mm.keys()):
-        if key.startswith(("ref_videos.", "ref_audios.", "ref_video_audios.")):
+        if key.startswith("ref_video_audios."):
+            del mm[key]
+        elif key.startswith("ref_videos.") and not has_vhs:
+            del mm[key]
+        elif key.startswith("ref_audios.") and not has_load_audio:
             del mm[key]
 
     # 2. Inline linked prompt / width / height / length into literal values
@@ -207,6 +223,8 @@ def simplify_minimax_graph(api: dict[str, dict], object_info: dict) -> None:
                     node["inputs"][key] = api[tgt]["inputs"]["model"]
 
     # 4. Prune everything no longer reachable from the save nodes.
+    #    Note: ref_video/ref_audio loader nodes are only reachable if their
+    #    slot is still wired on the Minimax node, so unused ones get pruned.
     roots = {
         nid for nid, node in api.items()
         if node.get("class_type") in ("SaveVideo", "VHS_VideoCombine", "SaveAnimatedWEBP")
@@ -243,6 +261,78 @@ def load_api_workflow() -> dict[str, dict]:
     return api
 
 
+def _collect_ref_slots(mm: dict, prefix: str, slot_prefix: str) -> list[tuple[int, str]]:
+    """Collect and sort (index, slot_name) for a ref_* input group."""
+    slots: list[tuple[int, str]] = []
+    for key in list(mm.keys()):
+        if not key.startswith(prefix):
+            continue
+        suffix = key.split(".")[-1]
+        if not suffix.startswith(slot_prefix):
+            continue
+        try:
+            slots.append((int(suffix.split("_")[-1]), key))
+        except ValueError:
+            continue
+    slots.sort()
+    return slots
+
+
+def _wire_ref_slots(
+    api: dict[str, dict],
+    mm: dict,
+    ref_slots: list[tuple[int, str]],
+    names: list[str],
+    loader_class: str,
+    slot_prefix: str,
+    group_prefix: str,
+    default_inputs: dict,
+) -> list[tuple[int, str]]:
+    """Wire reference names into loader nodes, adding loaders dynamically.
+
+    Returns the updated ref_slots list. Mirrors the ref_images pattern:
+    grow loaders when more names than slots, set filenames, delete unused.
+    """
+    if not ref_slots and not names:
+        return ref_slots
+
+    if len(names) > len(ref_slots):
+        needed = len(names) - len(ref_slots)
+        numeric_ids = [int(k) for k in api.keys() if k.isdigit()]
+        next_id = max(numeric_ids) + 1 if numeric_ids else 1
+        next_idx = ref_slots[-1][0] + 1 if ref_slots else 0
+        for _ in range(needed):
+            new_id = str(next_id)
+            new_slot = f"{group_prefix}.{slot_prefix}_{next_idx}"
+            api[new_id] = {
+                "class_type": loader_class,
+                "inputs": dict(default_inputs),
+            }
+            mm[new_slot] = [new_id, 0]
+            ref_slots.append((next_idx, new_slot))
+            next_id += 1
+            next_idx += 1
+        ref_slots.sort()
+
+    for (_, slot), name in zip(ref_slots, names):
+        load_id = _link_target(mm.get(slot))
+        if not load_id or api.get(load_id, {}).get("class_type") != loader_class:
+            raise KeyError(f"{slot} is not fed by a {loader_class} node")
+        # Set the primary filename widget (image for LoadImage, video for VHS_LoadVideo)
+        if loader_class == "VHS_LoadVideo":
+            api[load_id]["inputs"]["video"] = name
+        elif loader_class == "LoadAudio":
+            api[load_id]["inputs"]["audio"] = name
+        else:
+            api[load_id]["inputs"]["image"] = name
+
+    # Drop unused slots and their loader nodes
+    for _, slot in ref_slots[len(names):]:
+        del mm[slot]
+
+    return ref_slots
+
+
 def patch_generation(
     api: dict[str, dict],
     *,
@@ -253,29 +343,18 @@ def patch_generation(
     height: int,
     seed: int,
     filename_prefix: str,
+    reference_video_names: list[str] | None = None,
+    reference_audio_names: list[str] | None = None,
 ) -> None:
     mm_id = _find_node(api, MINIMAX_NODE)
     mm = api[mm_id]["inputs"]
 
-    ref_slots: list[tuple[int, str]] = []
-    for key in list(mm.keys()):
-        if not key.startswith("ref_images.ref_image_"):
-            continue
-        suffix = key.split(".")[-1]
-        if not suffix.startswith("ref_image_"):
-            continue
-        try:
-            ref_slots.append((int(suffix.split("_")[-1]), key))
-        except ValueError:
-            continue
-    ref_slots.sort()
+    # --- Reference images (existing behaviour) ---
+    ref_slots = _collect_ref_slots(mm, "ref_images.ref_image_", "ref_image_")
 
     if not ref_slots:
         raise KeyError("no ref_images slots found on Minimax H3 node")
 
-    # The MiniMax node accepts up to ~9 reference images. If the workflow
-    # export has fewer wired slots, add new LoadImage nodes dynamically so the
-    # caller can pass 1-8 references without editing the JSON.
     if len(reference_image_names) > len(ref_slots):
         needed = len(reference_image_names) - len(ref_slots)
         numeric_ids = [int(k) for k in api.keys() if k.isdigit()]
@@ -300,10 +379,44 @@ def patch_generation(
             raise KeyError(f"{slot} is not fed by a LoadImage node")
         api[load_id]["inputs"]["image"] = name
 
-    # Drop unused ref image slots and their loader nodes so the graph
-    # works when fewer than the wired number of references are supplied.
     for _, slot in ref_slots[len(reference_image_names):]:
         del mm[slot]
+
+    # --- Reference videos (dynamic, like ref_images) ---
+    video_names = reference_video_names or []
+    video_slots = _collect_ref_slots(mm, "ref_videos.ref_video_", "ref_video_")
+    if video_names:
+        vhs_inputs = {
+            "video": "", "force_rate": 0, "custom_width": 0, "custom_height": 0,
+            "frame_load_cap": 0, "skip_first_frames": 0, "select_every_nth": 1,
+            "format": "AnimateDiff",
+        }
+        _wire_ref_slots(
+            api, mm, video_slots, video_names,
+            loader_class="VHS_LoadVideo",
+            slot_prefix="ref_video_",
+            group_prefix="ref_videos",
+            default_inputs=vhs_inputs,
+        )
+    else:
+        # No video refs: drop all video slots so the graph is clean
+        for _, slot in video_slots:
+            del mm[slot]
+
+    # --- Reference audios (dynamic, like ref_images) ---
+    audio_names = reference_audio_names or []
+    audio_slots = _collect_ref_slots(mm, "ref_audios.ref_audio_", "ref_audio_")
+    if audio_names:
+        _wire_ref_slots(
+            api, mm, audio_slots, audio_names,
+            loader_class="LoadAudio",
+            slot_prefix="ref_audio_",
+            group_prefix="ref_audios",
+            default_inputs={"audio": "", "upload": "audio"},
+        )
+    else:
+        for _, slot in audio_slots:
+            del mm[slot]
 
     roots = {
         nid for nid, node in api.items()
@@ -347,9 +460,16 @@ def render_generation(
     megapixels: float | None = None,
     aspect: str | None = None,
     extra_reference_paths: list[str] | None = None,
+    extra_reference_video_paths: list[str] | None = None,
+    extra_reference_audio_paths: list[str] | None = None,
     max_wait: int = 7200,
 ) -> dict:
-    """Render one <=15s Minimax H3 generation from a storyboard sheet."""
+    """Render one <=15s Minimax H3 generation from a storyboard sheet.
+
+    Video/audio references are uploaded and wired into ref_videos/ref_audios
+    dynamically, exactly like image references. When none are passed, the
+    graph is pruned to the same shape as before (single sheet ref image).
+    """
     if not os.path.isfile(sheet_path):
         return {"status": "error", "message": f"storyboard sheet missing: {sheet_path}"}
 
@@ -370,6 +490,24 @@ def render_generation(
         name2 = f"{up2.get('subfolder')}/{up2['name']}" if up2.get("subfolder") else up2["name"]
         reference_image_names.append(name2)
 
+    # Upload video references (for bridge clips conditioned on rendered tails/heads)
+    reference_video_names: list[str] = []
+    for vid_path in (extra_reference_video_paths or []):
+        upv = upload_video(vid_path, subfolder=_UPLOAD_SUBFOLDER)
+        if not upv or "name" not in upv:
+            return {"status": "error", "message": f"video reference upload failed: {vid_path}"}
+        vname = f"{upv.get('subfolder')}/{upv['name']}" if upv.get("subfolder") else upv["name"]
+        reference_video_names.append(vname)
+
+    # Upload audio references (for audio carry-over across seams)
+    reference_audio_names: list[str] = []
+    for aud_path in (extra_reference_audio_paths or []):
+        upa = upload_image(aud_path, subfolder=_UPLOAD_SUBFOLDER)
+        if not upa or "name" not in upa:
+            return {"status": "error", "message": f"audio reference upload failed: {aud_path}"}
+        aname = f"{upa.get('subfolder')}/{upa['name']}" if upa.get("subfolder") else upa["name"]
+        reference_audio_names.append(aname)
+
     api = load_api_workflow()
     stem = Path(output_path).stem
     patch_generation(
@@ -381,6 +519,8 @@ def render_generation(
         height=height,
         seed=seed,
         filename_prefix=f"story-maker-v3/{stem}",
+        reference_video_names=reference_video_names or None,
+        reference_audio_names=reference_audio_names or None,
     )
 
     queued = curl_json("POST", "/prompt", data={"prompt": api}, timeout=120)
