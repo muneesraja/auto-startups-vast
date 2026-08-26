@@ -3,7 +3,7 @@
 # name: Minimax H3 R2V - Final
 # workflow: Minimax H3 R2V - Final
 # aliases: [minimax-h3-r2v-final, minimax h3 r2v]
-# description: Prepares ComfyUI for the Minimax H3 reference-to-video workflow, installs required nodes, and downloads the five MiniMax H3 model files. No LTX models are downloaded.
+# description: Prepares ComfyUI for the Minimax H3 reference-to-video workflow, installs required nodes, and downloads the four MiniMax H3 model files. No LTX models are downloaded.
 # size: ~41GB
 # min_vram: 24GB minimum; 48GB recommended
 # ---
@@ -109,6 +109,7 @@ install_node "ComfyUI-KJNodes" "https://github.com/kijai/ComfyUI-KJNodes"
 install_node "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
 install_node "ComfyUI-SolAttn_triton" "https://github.com/kijai/ComfyUI-SolAttn_triton"
 install_node "comfyui-minimax-h3-blockcache-T8" "https://github.com/T8mars/comfyui-minimax-h3-blockcache-T8"
+install_node "ComfyUI-Spectrum-MiniMax-H3" "https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3"
 
 # ─── Load shared Hugging Face helper ──────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,14 +131,14 @@ echo ""
 echo "==> [Phase 2] Downloading models..."
 mkdir -p "$BASE_DIR/models"
 
-# MiniMax H3 Reference-to-Video model set: all five files are public and ungated.
-TOTAL=5
+# MiniMax H3 Reference-to-Video model set: all four files are public and ungated.
+TOTAL=4
 step=0
 model_step() { step=$((step + 1)); echo "[$step/$TOTAL] $1"; }
 
 model_step "MiniMax H3 ref2va diffusion model (~20GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
-  "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
+  "diffusion_models/minimax_h3_ref2va_int8_convrot.safetensors" \
   "$BASE_DIR/models"
 
 model_step "MiniMax H3 Qwen3-VL text encoder (~15GB)"
@@ -155,9 +156,17 @@ hf_download "Comfy-Org/MiniMax-H3" \
   "vae/minimax_h3_audio_vae_fp32.safetensors" \
   "$BASE_DIR/models"
 
-model_step "MiniMax H3 FL2V LightX2V Turbo 4-step LoRA"
+# MiniMax H3 LightX2V LoRAs for accelerated generation.
+echo ""
+echo "[LoRA] MiniMax H3 LightX2V Turbo models"
 hf_download "Kijai/MiniMax-H3_comfy" \
-  "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy_resized_avg_rank_21_bf16.safetensors" \
+  "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v1.0_768p_resized_avg_rank_31_bf16.safetensors" \
+  "$BASE_DIR/models"
+hf_download "Kijai/MiniMax-H3_comfy" \
+  "loras/minimax_h3_fl2v_lightx2v_turbo_8step_v1.0_resized_avg_rank_24_bf16.safetensors" \
+  "$BASE_DIR/models"
+hf_download "Kijai/MiniMax-H3_comfy" \
+  "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" \
   "$BASE_DIR/models"
 
 # ─── Phase 3: Restart / liveness recovery ────────────────────────────────────
