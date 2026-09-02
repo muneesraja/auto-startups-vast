@@ -140,11 +140,17 @@ model_step "MiniMax H3 ref2va diffusion model (~20GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
   "diffusion_models/minimax_h3_ref2va_int8_convrot.safetensors" \
   "$BASE_DIR/models"
+# Symlink alternate name used by workflows
+ln -sf "$BASE_DIR/models/diffusion_models/minimax_h3_ref2va_int8_convrot.safetensors" \
+  "$BASE_DIR/models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" 2>/dev/null || true
 
 model_step "MiniMax H3 Qwen3-VL text encoder (~15GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
   "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" \
   "$BASE_DIR/models"
+# Symlink alternate text encoder name used by some workflows
+ln -sf "$BASE_DIR/models/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" \
+  "$BASE_DIR/models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" 2>/dev/null || true
 
 model_step "MiniMax H3 video VAE (~5GB)"
 hf_download "Comfy-Org/MiniMax-H3" \
@@ -168,6 +174,12 @@ hf_download "Kijai/MiniMax-H3_comfy" \
 hf_download "Kijai/MiniMax-H3_comfy" \
   "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" \
   "$BASE_DIR/models"
+
+# Symlink alternate filenames used by some workflows
+ln -sf "$BASE_DIR/models/loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" \
+  "$BASE_DIR/models/loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" 2>/dev/null || true
+ln -sf "$BASE_DIR/models/loras/minimax_h3_fl2v_lightx2v_turbo_4step_v1.0_768p_resized_avg_rank_31_bf16.safetensors" \
+  "$BASE_DIR/models/loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy_resized_avg_rank_21_bf16.safetensors" 2>/dev/null || true
 
 # ─── Phase 3: Restart / liveness recovery ────────────────────────────────────
 echo ""
