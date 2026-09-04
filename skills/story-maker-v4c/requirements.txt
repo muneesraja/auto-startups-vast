@@ -1,0 +1,12 @@
+# story-maker-v4c — NO agent framework, NO LiteLLM.
+# Claude Code is the brain (authors artifacts, runs validators, does vision);
+# Python is the hands (deterministic media execution). These deps are the
+# image-generation + ComfyUI render + validation surface only.
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+numpy>=1.26.0
+fal-client>=0.4.0
+replicate>=1.0.0
+httpx>=0.27.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
