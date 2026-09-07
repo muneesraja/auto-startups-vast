@@ -4,7 +4,7 @@
 # workflow: minimax-h3-i2v-2stage-latent-upscale
 # aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale]
 # description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling
-# size: ~65GB + taeh3
+# size: ~69GB + taeh3
 # min_vram: 24GB
 # nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite]
 # ---
@@ -114,35 +114,43 @@ source "$BASE_DIR/_hf_download.sh"
 echo "==> Starting model downloads..."
 
 # ── VAE (video) ──
-echo "[1/8] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
+echo "[1/10] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/8] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
+echo "[2/10] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/8] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
+echo "[3/10] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
 hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
-echo "[4/8] minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors (Diffusion Model)..."
+echo "[4/10] minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors (Diffusion Model)..."
 hf_download "smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models" "minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors" "$BASE_DIR/diffusion_models"
 
+# ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
+echo "[5/10] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
+
+# ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
+echo "[6/10] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
+
 # ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[5/8] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
+echo "[7/10] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
 
 # ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[6/8] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
+echo "[8/10] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
 
 # ── Latent Upscale Model ──
-echo "[7/8] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D)..."
+echo "[9/10] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D)..."
 hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "minimax_h3_latent_upscaler_3d_fp16.safetensors" "$BASE_DIR/latent_upscale_models"
 
 # ── Tiny VAE for live preview ──
-echo "[8/8] taeh3.safetensors (Tiny VAE - live preview)..."
+echo "[10/10] taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR/vae_approx"
 
 echo "==> All downloads completed!"
