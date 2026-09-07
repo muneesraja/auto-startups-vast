@@ -172,7 +172,7 @@ hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "minimax_h3_latent_upscaler_
 
 # ── Tiny VAE for live preview ──
 echo "[11/12] taeh3.safetensors (Tiny VAE - live preview)..."
-hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR/vae_approx"
+hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR"
 
 # ── Semantic Bridge adapter model ──
 echo "[12/12] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
