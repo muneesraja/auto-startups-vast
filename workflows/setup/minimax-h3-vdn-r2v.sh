@@ -93,13 +93,16 @@ echo "==> [Phase 1] Installing required custom node packs..."
 mkdir -p "$CUSTOM_NODES_DIR"
 
 install_node() {
-  local dir="$1"
-  local url="$2"
+  local dir="$1" url="$2" pin="${3:-}"
   if [ -d "$CUSTOM_NODES_DIR/$dir/.git" ] || [ -d "$CUSTOM_NODES_DIR/$dir" ]; then
     echo "  ✅ $dir already installed"
   else
     echo "  📥 Installing $dir..."
-    git clone --depth 1 "$url" "$CUSTOM_NODES_DIR/$dir"
+    if [ -n "$pin" ]; then
+      git clone --depth 1 --branch "$pin" "$url" "$CUSTOM_NODES_DIR/$dir"
+    else
+      git clone --depth 1 "$url" "$CUSTOM_NODES_DIR/$dir"
+    fi
     NODES_INSTALLED=$((NODES_INSTALLED + 1))
   fi
   if [ -f "$CUSTOM_NODES_DIR/$dir/requirements.txt" ]; then
@@ -110,7 +113,11 @@ install_node() {
 # GetNode/SetNode, ImageResizeKJv2, ModelPatchTorchSettings, MiniMaxChunkFeedForward
 install_node "ComfyUI-KJNodes" "https://github.com/kijai/ComfyUI-KJNodes"
 # ApplyVDNH3Advanced (Video Delta Net for MiniMax-H3). No new pip deps.
-install_node "ComfyUI-VDN-H3" "https://github.com/Saganaki22/ComfyUI-VDN-H3"
+# PINNED to v1.3.1: the Minimax-H3VDN-R2V_only-VDN workflow declares
+# properties.ver=183f33d8a7 (v1.3.1). v1.4.x added a required retain_buffers
+# input that shifts every widget position -> "Invalid input ... not available"
+# for window_chunk/anchor_frames/attention_backend/retain_buffers. Confirmed 2026-09-07.
+install_node "ComfyUI-VDN-H3" "https://github.com/Saganaki22/ComfyUI-VDN-H3" "v1.3.1"
 # VHS_VideoCombine (mp4 output) + VHS_LoadImagePath (reference images)
 install_node "ComfyUI-VideoHelperSuite" "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
 # Label (rgthree) — display only
