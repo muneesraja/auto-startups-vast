@@ -136,25 +136,15 @@ echo ""
 echo "==> [Phase 2] Downloading models..."
 mkdir -p "$MODELS_DIR"
 
-# Helper: download repo file (with repo-relative prefix) into MODELS_DIR, then
-# move it under <subdir>/minimax-h3/ (the workflow's secondary-dir layout).
+# Helper: download repo file (with repo-relative prefix) directly into
+# MODELS_DIR/<subdir>/ — the ComfyUI-canonical FLAT layout. Keep the files at
+# the top of each model dir so workflow loaders resolve the bare filename;
+# an extra minimax-h3/ sub-nesting (older "secondary-dir layout") breaks the
+# loaders' reference (Missing Models: "minimax-h3\<file>"). Confirmed 2026-09-07.
 fetch_and_place() {
   local repo="$1" prefix="$2" subdir="$3"
-  local fname; fname="$(basename "$prefix")"
   echo "  Downloading $prefix ..."
   hf_download "$repo" "$prefix" "$MODELS_DIR"
-  local src="$MODELS_DIR/$prefix"
-  local dst="$MODELS_DIR/$subdir/minimax-h3"
-  if [ -f "$src" ]; then
-    mkdir -p "$dst"
-    mv "$src" "$dst/"
-    # clean empty parents up to MODELS_DIR
-    local d; d="$(dirname "$prefix")"
-    while [ "$d" != "." ] && [ "$d" != "/" ]; do
-      rmdir "$MODELS_DIR/$d" 2>/dev/null || true
-      d="$(dirname "$d")"
-    done
-  fi
 }
 
 TOTAL=5
@@ -202,8 +192,8 @@ done
 # ─── Apply workflow-required filename fixes ───────────────────────────────────
 echo ""
 echo "==> [Filename fix] Aligning CLIP filename to workflow expectation..."
-clip_src="$MODELS_DIR/text_encoders/minimax-h3/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-clip_dst="$MODELS_DIR/text_encoders/minimax-h3/qwen3vl_32b_minimax_h3_int8_convrot.comfy.safetensors"
+clip_src="$MODELS_DIR/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+clip_dst="$MODELS_DIR/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.comfy.safetensors"
 if [ -f "$clip_src" ] && [ ! -f "$clip_dst" ]; then
   cp "$clip_src" "$clip_dst"
   echo "  ✅ Created $clip_dst (copy of upstream int8_convrot)"
