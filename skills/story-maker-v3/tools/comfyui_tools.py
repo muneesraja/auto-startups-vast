@@ -323,27 +323,24 @@ def download_output(
     url = f"{base_url}/view?filename={filename}&subfolder={subfolder}&type={file_type}"
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    cmd = ["curl", "-sSL", "-o", output_path, url]
-    cmd.extend(_resolve_args(base_url))
-    cmd.extend(_auth_args(auth))
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if result.returncode != 0 or not os.path.exists(output_path):
-        return False
-
-    with open(output_path, "rb") as f:
-        magic = f.read(16)
-    if magic.startswith((b"<!DOC", b"<html", b'{"')):
+    for attempt in range(1, 4):
+        cmd = ["curl", "-sSL", "-o", output_path, url]
+        cmd.extend(_resolve_args(base_url))
+        cmd.extend(_auth_args(auth))
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(output_path):
+            with open(output_path, "rb") as f:
+                magic = f.read(16)
+            if not magic.startswith((b"<!DOC", b"<html", b'{"')):
+                if is_video:
+                    return True
+                if magic.startswith((b"\x89PNG", b"\xff\xd8\xff", b"GIF8")):
+                    return True
         try:
-            os.remove(output_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
         except OSError:
             pass
-        return False
-    if not is_video:
-        is_valid_image = magic.startswith((b"\x89PNG", b"\xff\xd8\xff", b"GIF8"))
-        if not is_valid_image:
-            try:
-                os.remove(output_path)
-            except OSError:
-                pass
-            return False
-    return True
+        if attempt < 3:
+            time.sleep(3 * attempt)
+    return False

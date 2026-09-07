@@ -192,27 +192,31 @@ def simplify_minimax_graph(api: dict[str, dict], object_info: dict) -> None:
     can wire them dynamically. They are pruned per-call in patch_generation
     when not used, keeping existing single-sheet renders byte-identical.
     """
-    mm_id = _find_node(api, MINIMAX_NODE)
-    mm = api[mm_id]["inputs"]
+    mm_nodes = [nid for nid, node in api.items() if node.get("class_type") == MINIMAX_NODE]
+    if not mm_nodes:
+        raise KeyError(f"node of class_type {MINIMAX_NODE!r} not found")
 
     has_vhs = "VHS_LoadVideo" in object_info
     has_load_audio = "LoadAudio" in object_info
 
-    # 1. Keep ref_image_* slots; keep ref_videos.* if VHS_LoadVideo is present,
-    #    keep ref_audios.* if LoadAudio is present; always drop ref_video_audios.
-    for key in list(mm.keys()):
-        if key.startswith("ref_video_audios."):
-            del mm[key]
-        elif key.startswith("ref_videos.") and not has_vhs:
-            del mm[key]
-        elif key.startswith("ref_audios.") and not has_load_audio:
-            del mm[key]
+    for mm_id in mm_nodes:
+        mm = api[mm_id]["inputs"]
+        # 1. Keep ref_image_* slots; keep ref_videos.* if VHS_LoadVideo is present,
+        #    keep ref_audios.* if LoadAudio is present; always drop ref_video_audios.
+        for key in list(mm.keys()):
+            if key.startswith("ref_video_audios."):
+                del mm[key]
+            elif key.startswith("ref_videos.") and not has_vhs:
+                del mm[key]
+            elif key.startswith("ref_audios.") and not has_load_audio:
+                del mm[key]
 
-    # 2. Inline linked prompt / width / height / length into literal values
-    #    (patched per generation later); drop the helper nodes via pruning.
-    for key, default in (("prompt", ""), ("width", 1056), ("height", 608), ("length", 125)):
-        if _link_target(mm.get(key)):
-            mm[key] = default
+        # 2. Inline linked prompt / width / height / length into literal values
+        #    (patched per generation later); drop the helper nodes via pruning.
+        for key, default in (("prompt", ""), ("width", 1056), ("height", 608), ("length", 125)):
+            if _link_target(mm.get(key)):
+                mm[key] = default
+
 
     # 3. Bypass PathchSageAttentionKJ if the server lacks it.
     if "PathchSageAttentionKJ" not in object_info:
@@ -346,77 +350,85 @@ def patch_generation(
     reference_video_names: list[str] | None = None,
     reference_audio_names: list[str] | None = None,
 ) -> None:
-    mm_id = _find_node(api, MINIMAX_NODE)
-    mm = api[mm_id]["inputs"]
+    mm_nodes = [nid for nid, node in api.items() if node.get("class_type") == MINIMAX_NODE]
+    if not mm_nodes:
+        raise KeyError(f"no {MINIMAX_NODE} nodes found in workflow")
 
-    # --- Reference images (existing behaviour) ---
-    ref_slots = _collect_ref_slots(mm, "ref_images.ref_image_", "ref_image_")
-
-    if not ref_slots:
-        raise KeyError("no ref_images slots found on Minimax H3 node")
-
-    if len(reference_image_names) > len(ref_slots):
-        needed = len(reference_image_names) - len(ref_slots)
-        numeric_ids = [int(k) for k in api.keys() if k.isdigit()]
-        next_id = max(numeric_ids) + 1 if numeric_ids else 1
-        next_idx = ref_slots[-1][0] + 1 if ref_slots else 0
-        for _ in range(needed):
-            new_id = str(next_id)
-            new_slot = f"ref_images.ref_image_{next_idx}"
-            api[new_id] = {
-                "class_type": "LoadImage",
-                "inputs": {"image": "", "upload": "image"},
-            }
-            mm[new_slot] = [new_id, 0]
-            ref_slots.append((next_idx, new_slot))
-            next_id += 1
-            next_idx += 1
-        ref_slots.sort()
-
-    for (_, slot), name in zip(ref_slots, reference_image_names):
-        load_id = _link_target(mm.get(slot))
-        if not load_id or api.get(load_id, {}).get("class_type") != "LoadImage":
-            raise KeyError(f"{slot} is not fed by a LoadImage node")
-        api[load_id]["inputs"]["image"] = name
-
-    for _, slot in ref_slots[len(reference_image_names):]:
-        del mm[slot]
-
-    # --- Reference videos (dynamic, like ref_images) ---
+    dur = max(GEN_MIN, min(GEN_MAX, float(duration_seconds)))
     video_names = reference_video_names or []
-    video_slots = _collect_ref_slots(mm, "ref_videos.ref_video_", "ref_video_")
-    if video_names:
-        vhs_inputs = {
-            "video": "", "force_rate": 0, "custom_width": 0, "custom_height": 0,
-            "frame_load_cap": 0, "skip_first_frames": 0, "select_every_nth": 1,
-            "format": "AnimateDiff",
-        }
-        _wire_ref_slots(
-            api, mm, video_slots, video_names,
-            loader_class="VHS_LoadVideo",
-            slot_prefix="ref_video_",
-            group_prefix="ref_videos",
-            default_inputs=vhs_inputs,
-        )
-    else:
-        # No video refs: drop all video slots so the graph is clean
-        for _, slot in video_slots:
-            del mm[slot]
-
-    # --- Reference audios (dynamic, like ref_images) ---
     audio_names = reference_audio_names or []
-    audio_slots = _collect_ref_slots(mm, "ref_audios.ref_audio_", "ref_audio_")
-    if audio_names:
-        _wire_ref_slots(
-            api, mm, audio_slots, audio_names,
-            loader_class="LoadAudio",
-            slot_prefix="ref_audio_",
-            group_prefix="ref_audios",
-            default_inputs={"audio": "", "upload": "audio"},
-        )
-    else:
-        for _, slot in audio_slots:
-            del mm[slot]
+
+    for mm_id in mm_nodes:
+        mm = api[mm_id]["inputs"]
+
+        # --- Reference images (existing behaviour) ---
+        ref_slots = _collect_ref_slots(mm, "ref_images.ref_image_", "ref_image_")
+        if ref_slots:
+            if len(reference_image_names) > len(ref_slots):
+                needed = len(reference_image_names) - len(ref_slots)
+                numeric_ids = [int(k) for k in api.keys() if k.isdigit()]
+                next_id = max(numeric_ids) + 1 if numeric_ids else 1
+                next_idx = ref_slots[-1][0] + 1 if ref_slots else 0
+                for _ in range(needed):
+                    new_id = str(next_id)
+                    new_slot = f"ref_images.ref_image_{next_idx}"
+                    api[new_id] = {
+                        "class_type": "LoadImage",
+                        "inputs": {"image": "", "upload": "image"},
+                    }
+                    mm[new_slot] = [new_id, 0]
+                    ref_slots.append((next_idx, new_slot))
+                    next_id += 1
+                    next_idx += 1
+                ref_slots.sort()
+
+            for (_, slot), name in zip(ref_slots, reference_image_names):
+                load_id = _link_target(mm.get(slot))
+                if not load_id or api.get(load_id, {}).get("class_type") != "LoadImage":
+                    raise KeyError(f"{slot} is not fed by a LoadImage node")
+                api[load_id]["inputs"]["image"] = name
+
+            for _, slot in ref_slots[len(reference_image_names):]:
+                del mm[slot]
+
+        # --- Reference videos (dynamic, like ref_images) ---
+        video_slots = _collect_ref_slots(mm, "ref_videos.ref_video_", "ref_video_")
+        if video_names:
+            vhs_inputs = {
+                "video": "", "force_rate": 0, "custom_width": 0, "custom_height": 0,
+                "frame_load_cap": 0, "skip_first_frames": 0, "select_every_nth": 1,
+                "format": "AnimateDiff",
+            }
+            _wire_ref_slots(
+                api, mm, video_slots, video_names,
+                loader_class="VHS_LoadVideo",
+                slot_prefix="ref_video_",
+                group_prefix="ref_videos",
+                default_inputs=vhs_inputs,
+            )
+        else:
+            # No video refs: drop all video slots so the graph is clean
+            for _, slot in video_slots:
+                del mm[slot]
+
+        # --- Reference audios (dynamic, like ref_images) ---
+        audio_slots = _collect_ref_slots(mm, "ref_audios.ref_audio_", "ref_audio_")
+        if audio_names:
+            _wire_ref_slots(
+                api, mm, audio_slots, audio_names,
+                loader_class="LoadAudio",
+                slot_prefix="ref_audio_",
+                group_prefix="ref_audios",
+                default_inputs={"audio": "", "upload": "audio"},
+            )
+        else:
+            for _, slot in audio_slots:
+                del mm[slot]
+
+        mm["prompt"] = prompt
+        mm["width"] = int(width)
+        mm["height"] = int(height)
+        mm["length"] = minimax_frames(dur)
 
     roots = {
         nid for nid, node in api.items()
@@ -426,17 +438,13 @@ def patch_generation(
         raise KeyError("workflow has no SaveVideo node")
     _prune_unreachable(api, roots)
 
-    dur = max(GEN_MIN, min(GEN_MAX, float(duration_seconds)))
-    mm["prompt"] = prompt
-    mm["width"] = int(width)
-    mm["height"] = int(height)
-    mm["length"] = minimax_frames(dur)
-
     for node in api.values():
         if node["class_type"] == "RandomNoise":
             node["inputs"]["noise_seed"] = int(seed)
-        elif node["class_type"] == "SaveVideo":
+        elif node["class_type"] in ("SaveVideo", "VHS_VideoCombine"):
             node["inputs"]["filename_prefix"] = filename_prefix
+
+
 
 
 def _collect_video_outputs(outputs: dict) -> list[dict]:
