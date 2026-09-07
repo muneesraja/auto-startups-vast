@@ -1,12 +1,12 @@
 #!/bin/bash
 # ---
-# name: MiniMax H3 I2V 2-Stage Latent Upscale (Singularity)
-# workflow: minimax-h3-i2v-2stage-latent-upscale-Singularity
-# aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity]
-# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; Singularity ref2va pruned base
+# name: MiniMax H3 I2V 2-Stage Latent Upscale (Singularity + Semantic Bridge)
+# workflow: minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge
+# aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity, minimax-h3-i2v-singularity-semantic-bridge]
+# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; Singularity ref2va pruned base + Semantic Bridge (FL2VA/text-conditioning adapter)
 # size: ~69GB + taeh3
 # min_vram: 24GB
-# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite]
+# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge]
 # ---
 
 set -e
@@ -98,9 +98,26 @@ for repo in ComfyUI-KJNodes comfyui-minimax-h3-audio-T8 Comfyui_Minimax_h3_laten
     fi
 done
 
+# ── Phase 1b: MiniMax_H3_Semantic_Bridge custom node (zip node, no pip deps) ──
+echo "==> Installing MiniMax_H3_Semantic_Bridge custom node..."
+mkdir -p "$CUSTOM_NODES_DIR"
+cd "$CUSTOM_NODES_DIR"
+if [ -d MiniMax_H3_Semantic_Bridge ]; then
+    echo "  ✅ MiniMax_H3_Semantic_Bridge already installed"
+else
+    echo "  📥 Downloading + extracting MiniMax_H3_Semantic_Bridge (zip node)..."
+    curl -fsSL --max-time 120 -o /tmp/semantic_bridge.zip         "https://huggingface.co/speach1sdef178/MiniMax-H3-Semantic-Bridge/resolve/main/MiniMax_H3_Semantic_Bridge_v1.0.zip"         || echo "  ⚠️  Semantic Bridge zip download failed (non-fatal)"
+    if [ -s /tmp/semantic_bridge.zip ]; then
+        "$COMFY_PYTHON" -c "import zipfile; zipfile.ZipFile('/tmp/semantic_bridge.zip').extractall('$CUSTOM_NODES_DIR')" || true
+        rm -f /tmp/semantic_bridge.zip
+        [ -d MiniMax_H3_Semantic_Bridge ] && echo "  ✅ Semantic Bridge node installed"
+    fi
+fi
+cd "$COMFYUI_DIR"
+
 # ── Create model directories ──
 echo "==> Creating model directories..."
-mkdir -p "$BASE_DIR"/{vae,vae_approx,text_encoders,diffusion_models,loras,latent_upscale_models}
+mkdir -p "$BASE_DIR"/{vae,vae_approx,text_encoders,diffusion_models,loras,latent_upscale_models,semantic_bridge}
 
 # ── Load shared HF download helper ──
 if [ ! -f "$BASE_DIR/_hf_download.sh" ]; then
@@ -114,48 +131,52 @@ source "$BASE_DIR/_hf_download.sh"
 echo "==> Starting model downloads..."
 
 # ── VAE (video) ──
-echo "[1/11] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
+echo "[1/12] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/11] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
+echo "[2/12] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/11] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
+echo "[3/12] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
 hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
-echo "[4/11] Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors (Diffusion Model)..."
+echo "[4/12] Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors (Diffusion Model)..."
 hf_download "WarmBloodAban/Minimax-h3_Singularity" "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors" "$BASE_DIR/diffusion_models"
 
 # ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
-echo "[5/11] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+echo "[5/12] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
-echo "[6/11] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+echo "[6/12] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[7/11] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
+echo "[7/12] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
 
 # ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[8/11] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
+echo "[8/12] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
 # ── LoRA: H3 Realism People (fal) ──
-echo "[9/11] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
+echo "[9/12] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
 hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.safetensors" "$BASE_DIR/loras"
 
 
 # ── Latent Upscale Model ──
-echo "[10/11] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D)..."
+echo "[10/12] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D)..."
 hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "minimax_h3_latent_upscaler_3d_fp16.safetensors" "$BASE_DIR/latent_upscale_models"
 
 # ── Tiny VAE for live preview ──
-echo "[11/11] taeh3.safetensors (Tiny VAE - live preview)..."
+echo "[11/12] taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR/vae_approx"
+
+# ── Semantic Bridge adapter model ──
+echo "[12/12] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
+hf_download "speach1sdef178/MiniMax-H3-Semantic-Bridge" "MiniMaxH3_SemanticBridge_v1.safetensors" "$BASE_DIR/semantic_bridge"
 
 echo "==> All downloads completed!"
 
