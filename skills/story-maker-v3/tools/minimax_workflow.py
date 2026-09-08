@@ -45,6 +45,29 @@ _UPLOAD_SUBFOLDER = "story-maker-v3"
 
 MINIMAX_NODE = "MiniMaxH3ReferenceToVideo"
 
+# Map ratio strings ("9:16", "16:9") to ComfyUI ResolutionSelector widget combo options
+ASPECT_TO_RESOLUTION_SELECTOR: dict[str, str] = {
+    "16:9": "16:9 (Widescreen)",
+    "9:16": "9:16 (Portrait Widescreen)",
+    "1:1": "1:1 (Square)",
+    "4:3": "4:3 (Standard)",
+    "3:4": "3:4 (Portrait Standard)",
+    "2:3": "2:3 (Portrait Photo)",
+    "3:2": "3:2 (Photo)",
+    "21:9": "21:9 (Ultrawide)",
+}
+
+
+def to_resolution_selector_aspect(aspect: str) -> str:
+    """Map ratio string ('9:16', '16:9', etc.) to ResolutionSelector widget value."""
+    if aspect in ASPECT_TO_RESOLUTION_SELECTOR:
+        return ASPECT_TO_RESOLUTION_SELECTOR[aspect]
+    for opt in ASPECT_TO_RESOLUTION_SELECTOR.values():
+        if aspect == opt or opt.startswith(aspect):
+            return opt
+    return ASPECT_TO_RESOLUTION_SELECTOR.get("16:9", "16:9 (Widescreen)")
+
+
 # Cached UI->API conversion for the current process
 _API_WORKFLOW_CACHE: dict[str, dict] | None = None
 
@@ -211,11 +234,29 @@ def simplify_minimax_graph(api: dict[str, dict], object_info: dict) -> None:
             elif key.startswith("ref_audios.") and not has_load_audio:
                 del mm[key]
 
-        # 2. Inline linked prompt / width / height / length into literal values
-        #    (patched per generation later); drop the helper nodes via pruning.
-        for key, default in (("prompt", ""), ("width", 1056), ("height", 608), ("length", 125)):
+        # 2. Inline linked prompt / length into literal values
+        #    (patched per generation later); drop helper nodes via pruning.
+        #    ponytail: preserve width/height links to valid nodes (e.g. ResolutionSelector
+        #    in 1-stage & 2-stage upscale graphs); only inline if target node is missing on server.
+        for key, default in (("prompt", ""), ("length", 125)):
             if _link_target(mm.get(key)):
                 mm[key] = default
+        for key, default in (("width", 1056), ("height", 608)):
+            tgt = _link_target(mm.get(key))
+            if tgt:
+                tgt_type = api.get(tgt, {}).get("class_type")
+                if not tgt_type or tgt_type not in object_info:
+                    mm[key] = default
+
+    # Also handle MinimaxH3LatentUpscaler3D mode.width/mode.height if upstream node is missing
+    for node in api.values():
+        if node.get("class_type") == "MinimaxH3LatentUpscaler3D":
+            for key, default in (("mode.width", 1056), ("mode.height", 608)):
+                tgt = _link_target(node["inputs"].get(key))
+                if tgt:
+                    tgt_type = api.get(tgt, {}).get("class_type")
+                    if not tgt_type or tgt_type not in object_info:
+                        node["inputs"][key] = default
 
 
     # 3. Bypass PathchSageAttentionKJ if the server lacks it.
@@ -349,6 +390,8 @@ def patch_generation(
     filename_prefix: str,
     reference_video_names: list[str] | None = None,
     reference_audio_names: list[str] | None = None,
+    aspect: str | None = None,
+    megapixels: float | None = None,
 ) -> None:
     mm_nodes = [nid for nid, node in api.items() if node.get("class_type") == MINIMAX_NODE]
     if not mm_nodes:
@@ -357,6 +400,27 @@ def patch_generation(
     dur = max(GEN_MIN, min(GEN_MAX, float(duration_seconds)))
     video_names = reference_video_names or []
     audio_names = reference_audio_names or []
+    asp = aspect or config.MINIMAX_ASPECT
+
+    # Update ResolutionSelector nodes if present (e.g. 1-stage or 2-stage upscale graphs)
+    res_selector_aspect = to_resolution_selector_aspect(asp)
+    res_nodes = [node for node in api.values() if node.get("class_type") == "ResolutionSelector"]
+    for rnode in res_nodes:
+        rnode["inputs"]["aspect_ratio"] = res_selector_aspect
+
+    # For single-stage workflows with a single ResolutionSelector and unlinked megapixels,
+    # allow megapixels override if specified
+    if len(res_nodes) == 1 and not _link_target(res_nodes[0]["inputs"].get("megapixels")):
+        if megapixels is not None:
+            res_nodes[0]["inputs"]["megapixels"] = float(megapixels)
+
+    # Upscaler target dimension fallback for unlinked mode.width / mode.height
+    for node in api.values():
+        if node.get("class_type") == "MinimaxH3LatentUpscaler3D":
+            if not _link_target(node["inputs"].get("mode.width")):
+                node["inputs"]["mode.width"] = int(width)
+            if not _link_target(node["inputs"].get("mode.height")):
+                node["inputs"]["mode.height"] = int(height)
 
     for mm_id in mm_nodes:
         mm = api[mm_id]["inputs"]
@@ -426,8 +490,10 @@ def patch_generation(
                 del mm[slot]
 
         mm["prompt"] = prompt
-        mm["width"] = int(width)
-        mm["height"] = int(height)
+        if not _link_target(mm.get("width")):
+            mm["width"] = int(width)
+        if not _link_target(mm.get("height")):
+            mm["height"] = int(height)
         mm["length"] = minimax_frames(dur)
 
     roots = {
@@ -529,6 +595,8 @@ def render_generation(
         filename_prefix=f"story-maker-v3/{stem}",
         reference_video_names=reference_video_names or None,
         reference_audio_names=reference_audio_names or None,
+        aspect=asp,
+        megapixels=mp,
     )
 
     queued = curl_json("POST", "/prompt", data={"prompt": api}, timeout=120)
