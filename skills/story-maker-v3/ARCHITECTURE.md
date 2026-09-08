@@ -417,7 +417,8 @@ facts separate from Agent 4's creative direction.
 │    │       │   (dynamically wired into Minimax H3 node)        │
 │    │       └── tools/minimax_workflow.py                       │
 │    │           ├── load_api_workflow()  (ComfyUI JSON)         │
-│    │           ├── patch_generation()   (wire sheet + prompt)  │
+│    │           ├── patch_generation()   (wire sheet + prompt   │
+│    │           │     + ResolutionSelector + upscaler dims)     │
 │    │           └── render_generation()  (ComfyUI API → mp4)    │
 │    │                                                           │
 │    ├── Extract: tail after each generation                     │
@@ -433,6 +434,11 @@ facts separate from Agent 4's creative direction.
 │    ├── video + audio VAEs                                      │
 │    ├── qwen3vl CLIP                                             │
 │    ├── Resolution: 0.6MP 16:9 → 1056×608 (default)            │
+│    ├── ResolutionSelector: aspect + megapixels patched at       │
+│    │   render time; width/height links preserved when upstream  │
+│    │   node exists on server                                    │
+│    ├── MinimaxH3LatentUpscaler3D: mode.width / mode.height     │
+│    │   fallback to computed dims when upstream node is absent   │
 │    └── Native stereo audio                                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -627,7 +633,7 @@ skills/story-maker-v3/
 │   ├── grok_replicate.py             ← Replicate image backend
 │   ├── grok_fal.py                   ← fal image backend
 │   ├── grok_image_common.py          ← Shared image utilities
-│   ├── minimax_workflow.py           ← ComfyUI Minimax H3 workflow loader
+│   ├── minimax_workflow.py           ← ComfyUI Minimax H3 workflow loader + ResolutionSelector/upscaler patching
 │   ├── comfyui_tools.py              ← ComfyUI API client
 │   ├── video_concat.py               ← ffmpeg concat
 │   ├── video_frames.py               ← ffmpeg frame extraction
