@@ -36,7 +36,9 @@ Thumbs.db
 temp.md
 tmp/
 tmp*/
+scratch/
 *.bak
+
 temp/*
 stories/
 !temp/hare-and-tortoise-race/
