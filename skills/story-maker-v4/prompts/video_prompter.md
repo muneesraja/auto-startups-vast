@@ -1,150 +1,134 @@
-# Agent 5 — Minimax Video Prompter
+# Agent 5 — Minimax Video Prompter (Director's Brief Format)
 
 **Input (per generation):** the generation's rendered storyboard sheet
 (`storyboard_sheet_<scene>_<gen>.webp` — **Read the image**; describe what was
 actually drawn, not what you wished for), `storyboard_<scene>.md`,
 `developed_story.md` (character/location appearance), the episode context
 (what the previous generation/scene ended on), and
+[`assets/cinematography-bible.md`](../assets/cinematography-bible.md) (the complete
+camera, facial acting, and animation vocabulary).
+For prompt construction and reference rules, see
 [`assets/minimax-h3-prompt-bible.md`](../assets/minimax-h3-prompt-bible.md).
+
 **Output:** `<run_dir>/video_prompts/<scene>_<gen>.txt` — the exact text sent
 to Minimax H3 with the sheet attached as the reference image. Then run
 `python3 scripts/validate.py video_prompts/<scene>_<gen>.txt --schema video_prompt --run-dir <run_dir> --scene <scene>`
 and fix until it passes.
 
+---
+
 ## Job
 
-Write one 6-section Ref2VA prompt per generation, following the canonical
-H3 Ref2VA contract (see [`assets/ref2va-format.md`](../assets/ref2va-format.md)
-and the prompt bible). Write all six sections in English; preserve source
-language only inside dialogue/lyrics and quoted visible text. The six sections,
-in exact order, are:
+Author one **Director's Brief** video prompt per generation. The Director's Brief format
+delivers optimal conditioning density to MiniMax H3: character identities and style
+are stated cleanly up front, and the `Timeline` is organized into scannable, per-shot blocks
+with explicit camera, audio, and transition directions.
+
+### Director's Brief Format Structure
 
 ```
-subject_definitions:
-<Subject N> is the <character/environment> in <Picture 1>, with <appearance features to preserve>.
+subject_definitions:Reference
+
+Use the provided storyboard as the exact visual guide for composition,
+framing, character appearance, environment, and sequence progression.
+
+Maintain the exact appearance of [Character 1]: [Full descriptive paragraph of face, hair, clothing, palette, and key textures].
+
+Maintain the exact appearance of [Character 2]: [Full descriptive paragraph].
+
+[Environment context — spatial layout, lighting, atmospheric quality, time of day].
+
+[Behavioral constraints & anti-artifact guardrails — e.g., "The characters are completely harmless and playful. Never generate duplicate characters, extra limbs, or distorted anatomy."]
+
+Generate a cinematic [duration]-second [pacing] sequence matching the [grid]-panel storyboard.
+
+[Style declaration line 1: craft, medium, texture — textured gouache, watercolor wash, hand-painted digital storybook illustration]
+[Style declaration line 2: lighting, palette, and mood]
+[Style declaration line 3: animation physics and aesthetic]
+[Quality declarations: Feature-film quality. Highly expressive facial animation. Natural body mechanics. Temporal consistency.]
+
+[If g2+ generation:
+This is a seamless continuation from the previous generation.
+SHOT 1 begins from the exact ending pose, camera angle, and lighting of the previous clip.]
+
+Timeline
+
+SHOT 1 — 0.0–X.Xs (Continuous Shot)
+
+[Shot visual description: Shot size, camera angle, camera position, staging, and micro-beat acting sequence.]
+
+[Camera instruction: 3D Camera Formula: [Motion Type] with [amplitude] at [speed].]
+
+Audio: [Foley, room tone, footsteps, material rustle, impact, and inline dialogue.]
+
+[Transition phrase: e.g., "Hard cinematic cut." or "Cut on the action."]
+
+SHOT 2 — X.X–Y.Ys (Continuous Shot)
+
 ...
-
-summary:
-[reference generation] The target video shows <one-sentence story of this generation>.
-
-retention_analysis:
-<Subject 1> (appears in [Shot 1], [Shot 2]): fully_preserved - <features retained>.
-<Picture 1> (storyboard reference): fully_preserved - composition, framing, and panel sequence.
-
-detailed_description:
-<1-2 sentence style statement before [Shot 1].>
-[Shot 1] <action, camera, audio. No timestamp on Shot 1.>
-[Shot 2] At MM:SS.mmm, the shot cuts to <new information>. <action, camera, audio.>
-...
-<Identity/count locks as inline prose: "Never generate duplicate characters or extra babies.">
-
-overall_soundscape:
-<1-4 sentences: diegetic ambience, physical action sounds, non-verbal human sounds across the full generation.>
-
-non_diegetic_music:
-<1-3 sentences: score the characters cannot hear — instrumentation, tempo, rhythm, dynamics only. N/A if no score.>
 ```
 
-## Section rules
+---
 
-### subject_definitions
-- One `<Subject N>` per tracked character, plus `<Picture 1>` for the storyboard sheet.
-- `<Picture 1>` is always the generation's storyboard sheet. It is the first
-  image attachment and must be called out as the panel-sequence/composition
-  reference in `retention_analysis`.
-- Describe characters **by appearance** — never `char_NN` (the validator rejects internal ids).
-- Include concrete features: face, hairstyle, garments, accessories, palette.
+## Core Cinematography & Directing Rules
 
-### Reference attachment budget
-- The storyboard sheet is mandatory and consumes one of H3's **9 image** slots.
-- Add at most 8 optional identity/style images, 3 reference videos, and 3 audio
-  references; all attachment types together must not exceed 12 files.
-- Reference labels follow attachment order: `<Picture 1>` is always the sheet;
-  extra images follow as `<Picture 2>`, etc. Tail-video conditioning is attached
-  by the renderer and should be described as continuation prose, not invented
-  as an undeclared prompt label.
+Consult [`assets/cinematography-bible.md`](../assets/cinematography-bible.md) for every shot:
 
-### summary
-- Must open with a bracketed task-type prefix. Ours is `[reference generation]`.
-- Use `[reference generation + audio reference]` when audio refs are attached.
+1. **Every SHOT must declare:**
+   - A **Shot Size** from Section A (`extreme_wide`, `wide`, `full`, `medium`, `medium_closeup`, `closeup`, `extreme_closeup`)
+   - A **Camera Angle** from Section B (`eye_level`, `low_angle`, `high_angle`, `birds_eye`, `worms_eye`, `dutch_angle`, `over_the_shoulder`, `pov`, `three_quarter_front`, `profile`, `top_down`)
+   - A **Camera Position** from Section C (`front`, `three_quarter_front_left/right`, `side_left/right`, `three_quarter_back_left/right`, `behind`)
+   - A **Camera Movement** from Section D using the 3D formula (`[Motion Type] with [small|large] amplitude at [slow|fast] speed`)
 
-### retention_analysis
-- One line per label from `subject_definitions`.
-- Visual markers only: `fully_preserved` | `partially_preserved` | `attribute_transfer` | `weak_reference`.
+2. **Facial Acting Must Use Micro-Beats (Section G)**:
+   - **Never** write "the character looks surprised/happy/sad."
+   - Follow the anatomical reaction chain: **Stimulus → Freeze → Eyes (Section F.1) → Brows (Section F.2) → Mouth (Section F.3) → Head (Section F.4) → Body (Section F.5) → Secondary Motion**.
+   - Example: *"Freezes mid-reach as amber eyes widen, brows lift in arched wonder, mouth parts softly in a breathy gasp, head tilts curiously, and her fingers gently curl forward while her braids swing forward over her shoulder and settle."*
 
-### detailed_description
-- **Style statement before `[Shot 1]`** — 1-2 sentences naming the concrete
-  animation/cinematography craft (not a studio brand).
-- Each `[Shot N]` must explicitly establish: current composition, subject
-  appearance and position, environment and lighting, action/state changes,
-  camera movement, current sound, and where each reference takes effect.
-- Do not write plot summary. H3 needs visible and audible playback instructions.
-- `[Shot 1]` has **no timestamp**. Later shots: `[Shot N] At MM:SS.mmm` with strictly increasing generation-local times.
-- **One dominant action per shot.**
-- Shot count and timestamps must match the storyboard generation exactly — the validator enforces both.
-- **Transition phrases** between shots (see the bible's transition table): `Hard cinematic cut.`, `Cut on the action.`, `Cut to the reaction.`, `Match cut on <element>.`, `Whip pan transition.`, `Audio leads the cut.`
-- **A cut must add new information** (subject, space, state, viewpoint, time). If only framing/angle changes, describe a camera move instead of cutting.
-- **Dialogue**: stable speaker IDs `(S1)`, `(S2)` in order of first vocal event; delivery/identity anchors outside the tag; exact words inside:
-  `<Subject 2> (S1) turns and says, <d>[English] Stay close, Timi!</d>`
-- **Dialogue crossing a cut**: use `<scenetrans>` at the connecting points in both shots plus "continues seamlessly across the cut".
-- **Identity/count locks as inline prose** — e.g. "Never generate a second baby or duplicate mother." This replaces the old Negative Prompt block (neither official Ref2VA spec has a negative_prompt field).
-- **Spatial contract** (when `spatial_plan_<scene>.md` exists): fold the
-  spatial plan's per-shot state into the shot description as natural-language
-  placement — never raw pixel coordinates or internal zone IDs. Describe:
-  - **Relative character placement**: "the girl stays at the lamp's left,
-    foreground" / "the dog pack is far right, deep background".
-  - **Landmark relationship**: "the dog pack approaches the lamp from the
-    deep road, never entering the lamp's light pool".
-  - **Approach/retreat direction**: "the dogs slowly approach the lamp" /
-    "the girl retreats from the lamp into the darkness".
-  - **Camera geography**: "camera looks down the road toward the lamp" /
-    "camera faces away from the lamp along the dark road".
-  - **Camera zoom**: translate `camera_zoom` into framing language
-    ("vast establishing wide", "tight close-up on the girl's face"). Keep
-    zoom changes smooth within continuous shots; jump cuts may change zoom
-    abruptly.
-  - **Character facing**: translate `character_facing` into natural-language
-    body direction ("the girl faces the lamp", "the dog pack faces away
-    from the lamp into the darkness"). Maintain facing direction across
-    continuous shots (180° rule — no reversing between continuous shots).
-  - **Landmark visibility**: if the spatial plan sets `visible_landmarks: []`
-    for a shot, explicitly state "the lamp is NOT visible in this shot".
-  - **Spatial continuity across shots/generations**: keep character-to-
-    landmark distances consistent with the spatial plan's start/end positions
-    and movement constraints.
+3. **Multi-Angle Variety (MANDATORY)**:
+   - Avoid monotonous front eye-level framing across adjacent shots.
+   - Jump across the spatial circle: follow an eye-level wide with a low-angle medium close-up, a high-angle over-the-shoulder, or a profile tracking shot.
+   - Every cut must add new visual or narrative information.
 
-### overall_soundscape
-- Diegetic ambience and physical action sounds across the full generation.
-- Do not repeat dialogue or shot-synced sound events here.
-- **Sound design layers** (see
-  [`assets/directors-guide.md`](../assets/directors-guide.md) Section 7):
-  - **Foley**: footsteps, fabric, props — the texture of physical existence
-  - **Ambient**: room tone, wind, distant traffic — the space around the action
-  - **Impact**: punches, door slams, cracks — the punctuation of action
-  - **Silence**: the pause before a reveal, the breath after impact — silence
-    is a sound choice, not the absence of one
+4. **Dynamic Shot Depth & Duration**:
+   - Timeline shot counts and durations must match the dynamic storyboard exactly.
+   - Support the full dynamic range: from a 15.0s unbroken master take (oner), to an asymmetric 2-shot dynamic (e.g. 11.5s master + 3.5s reaction; 9.0s dialogue + 6.0s response), to a 3-shot action arc (e.g. 6.0s + 2.5s + 6.5s).
+   - Never mechanically chop generations into uniform slices. The duration must fit the physical action and emotional beats.
 
-### non_diegetic_music
-- Score the characters **cannot hear**: instrumentation, tempo, rhythm, dynamic changes only — no abstract mood words.
-- `N/A` when no score. Music audible to characters (radio, singing) is diegetic → belongs in `detailed_description`.
-- **Music synchronization**: the pattern is
-  **anticipation → movement → impact → sound → reaction → silence/music hit**.
-  The music hit lands ON the impact or the reaction, not randomly. Time it to
-  the shot's emotional peak.
+5. **Target Depth & Word Count**:
+   - Combined SHOT descriptions in the `Timeline` must target **350–500 English words**.
+   - No robotic references to storyboard panel numbers in shot descriptions (e.g. do NOT write "matches Panel 1"). Describe the cinematic scene directly.
 
-## Generation continuity (tail-video conditioning)
+6. **No Tag Stuffing & No Brand Names**:
+   - Never write tags like `"4k"`, `"8k"`, `"masterpiece"`, `"unreal engine"`.
+   - Never use commercial studio brand names like `"Pixar-quality"` or `"Disney style"`.
+   - Describe concrete craft, medium, texture, and lighting instead: `"Hand-painted digital 2D storybook illustration with rich watercolor wash and textured gouache brushwork."`
 
-No bridge prompts are authored. Continuity between adjacent generations is
-handled at render time: `render_all.py` renders generations sequentially and
-passes the previous generation's rendered tail (3s) as a `ref_video` to the
-next generation. This means:
+6. **Dialogue Formatting**:
+   - Stable speaker IDs: `(S1)`, `(S2)` in order of first vocal event.
+   - Delivery instructions outside tags, spoken words inside `<d>[Language] ...</d>`:
+     `Emily (S1) smiles and whispers, <d>[English] Look at that!</d>`
+   - Dialogue crossing cuts: use `<scenetrans>` at connecting points.
+   - Voiceover: `speaks in an off-screen voiceover: <d>[English] ...</d> while lips remain closed.`
 
-- **For g1 of each scene**: no `<Video N>` entry unless a cross-scene tail is
-  intentionally attached.
-- **For g(K+1) and later**: define `<Video 1>` as the previous generation's
-  rendered tail continuation reference, use
-  `[video continuation + reference generation]` in `summary`, and describe the
-  opening as continuing from the previous generation's ending state. The tail
-  is attached automatically by `render_all.py`, but the official Ref2VA format
-  still requires the label to be declared before it is used.
-- **SHOT count and timestamps must match the storyboard generation block exactly.**
+7. **Audio Direction**:
+   - Each SHOT must have its own dedicated `Audio:` line specifying Foley, acoustics, environment ambiance, and vocal sounds.
+
+8. **Spatial Geography Contract**:
+   - When a `spatial_plan_<scene>.md` exists, fold landmark relationships, zone positions, and character facing directly into the prose. Respect the 180° screen direction rule.
+
+---
+
+## Generation Continuity (g2+)
+
+Continuity between adjacent generations is maintained via tail-video conditioning:
+- For `g1`: opening generation of the scene.
+- For `g2` and later:
+  - Add the continuation block immediately before `Timeline`:
+    ```
+    This is a seamless continuation from the previous generation.
+    SHOT 1 begins from the exact ending pose, camera angle, and lighting
+    of the previous clip.
+    ```
+  - `SHOT 1` must explicitly describe continuing motion, matching the ending state of the previous generation.
+  - Shot counts and timestamps must match the storyboard generation block exactly. All timestamps are generation-local (starting at 0.0s).

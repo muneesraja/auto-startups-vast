@@ -183,15 +183,36 @@ def resolve_character_sheet_fields(character: dict[str, Any]) -> dict[str, Any]:
         "action_poses": character.get("action_poses") or _default_action_poses(name, species),
         "detail_closeups": detail_closeups,
         "appearance": appearance,
+        "environment_setting": character.get("environment_setting") or "real-world environment",
     }
 
 
 def build_character_sheet_prompt(
     character: dict[str, Any], *, render_style: str, template: str | None = None,
 ) -> str:
-    """Fill ``character_sheet_template.md`` from a character dict."""
+    """Fill character sheet template (realistic or stylized) from a character dict."""
     fields = resolve_character_sheet_fields(character)
-    template_text = template or _load_prompt_file("character_sheet_template")
+    is_realistic = any(
+        kw in (render_style or "").lower()
+        for kw in ("realistic", "photoreal", "live-action", "candid", "r34l1sm")
+    )
+    if template:
+        template_text = template
+    elif is_realistic:
+        template_text = _load_prompt_file("character_sheet_realistic_template")
+    else:
+        template_text = _load_prompt_file("character_sheet_template")
+
+    if is_realistic and not template:
+        return template_text.format(
+            character_name=fields["character_name"],
+            species=fields["species"],
+            age=fields["age"],
+            distinctive_features=_bullet_block(fields["distinctive_features"]),
+            clothing_accessories=_bullet_block(fields["clothing_accessories"]),
+            environment_setting=fields["environment_setting"],
+        )
+
     return template_text.format(
         character_name=fields["character_name"],
         species=fields["species"],

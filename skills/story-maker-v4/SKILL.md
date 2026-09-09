@@ -58,6 +58,14 @@ Never author a storyboard or video prompt from the scene beat alone.
   ref2va UNet, video + audio VAEs, qwen3vl CLIP). The workflow JSON lives at
   repo root `workflows/comfyui/Minimax H3 R2V - Final.json` — it is referenced,
   not copied (override with `MINIMAX_H3_WORKFLOW`).
+- **Illustration styles (optional):** for 2D storybook, folk / flat-geometric,
+  vintage editorial, or semi-realistic painterly concept-art looks, install the
+  H3-native style LoRAs with
+  `bash workflows/setup/minimax-h3-r2v-style-lora.sh` and point
+  `MINIMAX_H3_WORKFLOW` at
+  `workflows/comfyui/minimax-h3-r2v-style-lora.json`. Presets, trigger words and
+  strengths: [`assets/style-lora-presets.md`](assets/style-lora-presets.md).
+  Only H3 adapters load into H3 — Flux/SDXL/Qwen-Image LoRAs will not work.
 - `ffmpeg` for concat.
 - Python deps: `pip install -r skills/story-maker-v4/requirements.txt`
   (replicate, fal-client, httpx, Pillow, numpy, python-dotenv; **no** google-adk,
@@ -205,13 +213,30 @@ python3 scripts/validate.py "$RUN/scenes.md" --schema scenes --target-seconds "$
 Read `$RUN/scenes.md.validation.json`. If `ok:false`, fix every listed error and
 re-run. **Do not proceed until it passes.**
 
+### A3-Pre. Scene & Shot Depth Analysis (Director's Prerequisite)
+
+Before authoring spatial geography or storyboard boundaries, analyze the scene's
+dramatic beats, physical choreography, and dialogue tempo to establish the
+**Dynamic Shot Depth & Duration Plan**:
+- **Never mechanically split generations into identical shot counts or arbitrary ~3.5s slices.**
+- **Continuous Master Take / Oner (1 Shot, 10.0–15.0s)**: Unbroken continuous action,
+  majestic entrances, sovereign character traversals, or continuous tracking shots.
+- **Asymmetric 2-Shot Dynamic (2 Shots per 15s)**: Complete dialogue statements and
+  rebuttals (e.g. 9.0s + 6.0s), or expansive continuous setups followed by punchy
+  reaction reveals (e.g. 11.5s master descent + 3.5s reaction cut; 5.0s confrontation +
+  10.0s lethal whisper and pull-back freeze).
+- **Dynamic Action Arc (3 Shots per 15s)**: High-stakes physical sequences with varying
+  tempo (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
+- **Rapid Montage (4+ Shots per 15s)**: Strictly reserved for high-tempo preparation,
+  chaotic impacts, or rapid-fire flashbacks.
+
 ### A3a. Plan scene spatial geography (Agent 3a)
 
 For each scene `sN`, author `$RUN/spatial_plan_sN.md` per
-[`prompts/spatial_planner.md`](prompts/spatial_planner.md): a 2.5D coordinate
-contract with landmarks, zones, per-generation spatial state (location
-reference, anchor, positions, movement constraints), and per-shot camera/
-subject state. This must be done **before** A3 (storyboard). Then:
+[`prompts/spatial_planner.md`](prompts/spatial_planner.md) guided by the Director's
+Dynamic Shot Depth Plan: a 2.5D coordinate contract with landmarks, zones, per-generation
+spatial state (location reference, anchor, positions, movement constraints), and per-shot
+camera/subject state. Then:
 
 ```bash
 python3 scripts/validate.py "$RUN/spatial_plan_sN.md" --schema spatial_plan \
@@ -233,10 +258,10 @@ dialogue, `shot_size` + `composition` fields, 8-value transition grammar).
 **The 15s rule is load-bearing: a shot that does not fit in the
 current generation moves whole to the next one.**
 
-For dependable H3 scene production, prefer **3–5 purposeful shots per 15s
-generation** (1.5–6.0s each) with readable grids (`3x2`, `2x3`, `3x3`). Reserve
-5+ shots for intentional montage; each shot gets a distinct `shot_size` / camera
-angle and its own SFX or vocal beat. Then:
+Shot durations must reflect the **Dynamic Shot Depth Plan** established in A3-Pre:
+shots range dynamically from 1.5s shock cuts to full 15.0s master takes, varying
+rhythm naturally (fast-slow-fast, building tension, or sustained emotional hold).
+Then:
 
 ```bash
 python3 scripts/validate.py "$RUN/storyboard_sN.md" --schema storyboard \
@@ -369,16 +394,21 @@ do not block GATE 1 but should be reviewed.
 
 For each scene `sN` and generation `gK`: **Read** the sheet
 (`$RUN/storyboard_sheet_sN_gK.webp`) to see what was actually drawn, plus
-`storyboard_sN.md`, the episode context, and
-[`assets/minimax-h3-prompt-bible.md`](assets/minimax-h3-prompt-bible.md).
+`storyboard_sN.md`, the episode context,
+[`assets/minimax-h3-prompt-bible.md`](assets/minimax-h3-prompt-bible.md), and
+[`assets/minimax-h3-modes-guide.md`](assets/minimax-h3-modes-guide.md).
 Author `$RUN/video_prompts/sN_gK.txt` per [`prompts/video_prompter.md`](prompts/video_prompter.md):
 a 6-section Ref2VA prompt (`subject_definitions` / `summary` /
 `retention_analysis` / `detailed_description` / `overall_soundscape` /
-`non_diegetic_music`), with `[Shot N] At MM:SS.mmm` timestamps in
-**generation-local seconds**, the 8-value transition grammar (see the bible's
-transition table — vary transitions; a cut must add new information),
-`<d>[English] ...</d>` dialogue with stable speaker IDs, identity/count locks
-as inline prose, and two separate audio sections. Then:
+`non_diegetic_music`), adhering to the "One Job" rule across reference assets,
+aiming for 350–500 words in `detailed_description` without tag stuffing,
+framing key acting/vocal beats in MCU/CU to preserve facial fidelity,
+applying 3D camera motion syntax (`[Motion Type] with [amplitude] at [speed]`),
+using `[Shot N] At MM:SS.mmm` timestamps in **generation-local seconds**,
+the 8-value transition grammar (see the bible's transition table — vary transitions;
+a cut must add new information), `<d>[English] ...</d>` dialogue with stable speaker IDs,
+identity/count locks as inline prose, standardized seamless continuation phrasing for g2+,
+and two separate audio sections. Then:
 
 ```bash
 python3 scripts/validate.py "$RUN/video_prompts/sN_gK.txt" \
@@ -387,8 +417,8 @@ python3 scripts/validate.py "$RUN/video_prompts/sN_gK.txt" \
 
 Fix until `ok:true` (it checks all six sections present and ordered, shot
 count + timestamps against the storyboard, label definitions, dialogue tags,
-and rejects `char_NN` tokens). Use `--legacy` to validate pre-Ref2VA prompts
-from existing runs.
+warns on tag stuffing or shallow description, and rejects `char_NN` tokens).
+Use `--legacy` to validate pre-Ref2VA prompts from existing runs.
 
 **═══ GATE 2 ═══**
 

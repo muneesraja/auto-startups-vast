@@ -1,3 +1,4 @@
+<!-- Mode: Stylized Animation / 3D CGI / 2D Anime. For realistic/photorealistic mode, use character_sheet_realistic_template.md -->
 Create a lean, studio-quality stylized animation character identity sheet for use as an image-edit reference. Maximize character pixels; minimize UI chrome, white empty space, and text.
 
 Identity (for the image model only — do NOT render as large on-sheet essay text):

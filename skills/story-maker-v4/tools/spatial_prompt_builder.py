@@ -75,6 +75,20 @@ _FACING_PROSE = {
     "profile_right": "in right-facing profile, looking screen-right",
 }
 
+# Camera angle vocabulary mapped to dynamic cinematic staging prose.
+_ANGLE_PROSE = {
+    "eye_level": "at natural eye level",
+    "low_angle": "low-angle looking up for dramatic scale and presence",
+    "high_angle": "high-angle looking down showing terrain and vulnerability",
+    "bird_eye": "top-down bird's-eye perspective surveying the layout",
+    "worm_eye": "ground-level worm's-eye angle tilted steeply upward",
+    "side_profile": "strict 90-degree side-profile view capturing horizontal silhouette",
+    "three_quarter": "dynamic three-quarter cinematic angle balancing depth and expression",
+    "over_the_shoulder": "over-the-shoulder perspective looking past foreground character",
+    "dutch_angle": "canted Dutch angle tilted diagonally creating tension",
+    "reverse_shot": "reverse-angle facing back opposite the previous view",
+}
+
 
 def _horizontal_placement(x: float) -> str:
     """Convert panorama X coordinate to left/centre/right."""
@@ -109,14 +123,26 @@ def _render_facing(direction: str, landmark_descs: dict[str, str]) -> str:
     return direction.replace("_", " ")
 
 
-def _render_camera(camera_zone: str, camera_facing: str, camera_zoom: str,
-                   zone_defs: dict[str, Any], landmark_descs: dict[str, str]) -> str:
-    """Render camera placement, facing, and zoom into concrete geometry prose."""
+def _render_camera(
+    camera_zone: str,
+    camera_facing: str,
+    camera_zoom: str,
+    zone_defs: dict[str, Any],
+    landmark_descs: dict[str, str],
+    camera_angle: str = "",
+) -> str:
+    """Render camera placement, angle, facing, and zoom into concrete geometry prose."""
     parts: list[str] = []
 
     # Camera zone
     zone_name = camera_zone.replace("_", " ") if camera_zone else "the scene"
     parts.append(f"camera placed in {zone_name}")
+
+    # Camera angle (if specified)
+    if camera_angle in _ANGLE_PROSE:
+        parts.append(_ANGLE_PROSE[camera_angle])
+    elif camera_angle:
+        parts.append(f"{camera_angle.replace('_', ' ')} view")
 
     # Camera facing
     facing_prose = camera_facing.replace("_", " ")
@@ -250,14 +276,16 @@ def _render_character_positions(
 def build_spatial_block(
     plan: dict[str, Any],
     storyboard: dict[str, Any],
-    gen_id: str,
+    gen_id: str | None = None,
 ) -> str:
-    """Build the spatial continuity bible text for one generation.
+    """Build the spatial continuity bible text for one generation or full scene.
 
     Args:
         plan: Parsed spatial plan (from parse_spatial_plan).
         storyboard: Parsed storyboard (from parse_storyboard).
-        gen_id: Generation ID (e.g. "g1", "g2").
+        gen_id: Generation ID (e.g. "g1", "g2", None, or "all").
+            If None or "all", builds a combined spatial block covering all
+            normal generations in the scene.
 
     Returns:
         The full generated block text (including start/end markers).
@@ -266,19 +294,30 @@ def build_spatial_block(
         ValueError: If the generation is not found in the plan or storyboard,
             or if the plan has no shots for this generation.
     """
-    gdef = plan["generations"].get(gen_id)
-    if not gdef:
-        raise ValueError(f"generation {gen_id} not found in spatial plan")
-    if not gdef.get("shots"):
-        raise ValueError(f"generation {gen_id} has no shot-level spatial blocks")
+    if gen_id and gen_id != "all":
+        target_gids = [gen_id]
+    else:
+        target_gids = [
+            g["gen_id"] for g in storyboard.get("generations", [])
+            if not g.get("is_bridge") and g["gen_id"] in plan.get("generations", {})
+        ]
+        if not target_gids:
+            target_gids = list(plan.get("generations", {}).keys())
+        if not target_gids:
+            raise ValueError("no generations found in spatial plan or storyboard")
 
-    # Find the storyboard generation
-    sb_gen = next(
-        (g for g in storyboard.get("generations", []) if g["gen_id"] == gen_id),
-        None,
-    )
-    if not sb_gen:
-        raise ValueError(f"generation {gen_id} not found in storyboard")
+    for gid in target_gids:
+        gdef = plan["generations"].get(gid)
+        if not gdef:
+            raise ValueError(f"generation {gid} not found in spatial plan")
+        if not gdef.get("shots"):
+            raise ValueError(f"generation {gid} has no shot-level spatial blocks")
+        sb_gen = next(
+            (g for g in storyboard.get("generations", []) if g["gen_id"] == gid),
+            None,
+        )
+        if not sb_gen:
+            raise ValueError(f"generation {gid} not found in storyboard")
 
     landmark_defs = plan["landmark_defs"]
     zone_defs = plan["zone_defs"]
@@ -286,11 +325,10 @@ def build_spatial_block(
                       for lid, ldef in landmark_defs.items()}
 
     # Generation geography
-    geography = gdef.get("anchor_view", "")
+    first_gdef = plan["generations"][target_gids[0]]
+    geography = first_gdef.get("anchor_view", "") or first_gdef.get("generation_geography", "")
     if not geography:
-        geography = gdef.get("generation_geography", "")
-    if not geography:
-        geography = f"Wide staging of {gen_id}."
+        geography = f"Wide staging of {', '.join(target_gids)}."
 
     # Collect lighting from all zones for the environment bible
     zone_lightings: set[str] = set()
@@ -324,40 +362,46 @@ def build_spatial_block(
     lines.append("## CONTINUITY RULES")
     lines.append("")
 
-    movement = _render_movement(gdef.get("movement_constraints", ""))
-    if movement:
-        lines.append(f"- {movement}")
+    for gid in target_gids:
+        gdef = plan["generations"][gid]
+        movement = _render_movement(gdef.get("movement_constraints", ""))
+        if movement:
+            prefix = f"[{gid}] " if len(target_gids) > 1 else ""
+            lines.append(f"- {prefix}{movement}")
 
-    start_positions = gdef.get("start_positions", [])
-    end_positions = gdef.get("end_positions", [])
-    if start_positions:
+    first_starts = plan["generations"][target_gids[0]].get("start_positions", [])
+    last_ends = plan["generations"][target_gids[-1]].get("end_positions", [])
+    if first_starts:
         lines.append("- Character start positions:")
-        pos_text = _render_character_positions(start_positions, zone_defs)
+        pos_text = _render_character_positions(first_starts, zone_defs)
         for line in pos_text.split("\n"):
             lines.append(f"  - {line}")
-    if end_positions:
+    if last_ends:
         lines.append("- Character end positions:")
-        pos_text = _render_character_positions(end_positions, zone_defs)
+        pos_text = _render_character_positions(last_ends, zone_defs)
         for line in pos_text.split("\n"):
             lines.append(f"  - {line}")
 
-    # Landmark visibility rules (per panel range) are listed here as rules
-    for sb_shot in sb_gen.get("shots", []):
-        shot_num = str(sb_shot["shot"])
-        panels = sb_shot.get("panels", [])
-        if not panels:
-            continue
-        sp_shot = gdef["shots"].get(shot_num)
-        if not sp_shot:
-            continue
+    # Landmark visibility rules (per panel range)
+    for gid in target_gids:
+        gdef = plan["generations"][gid]
+        sb_gen = next(g for g in storyboard.get("generations", []) if g["gen_id"] == gid)
+        for sb_shot in sb_gen.get("shots", []):
+            shot_num = str(sb_shot["shot"])
+            panels = sb_shot.get("panels", [])
+            if not panels:
+                continue
+            sp_shot = gdef["shots"].get(shot_num)
+            if not sp_shot:
+                continue
 
-        if len(panels) == 1:
-            panel_label = f"Panel {panels[0]}"
-        else:
-            panel_label = f"Panels {panels[0]}–{panels[-1]}"
+            if len(panels) == 1:
+                panel_label = f"Panel {panels[0]}"
+            else:
+                panel_label = f"Panels {panels[0]}–{panels[-1]}"
 
-        visible = sp_shot.get("visible_landmarks", [])
-        lines.append(f"- {panel_label}: {_render_landmarks(visible, landmark_defs)}")
+            visible = sp_shot.get("visible_landmarks", [])
+            lines.append(f"- {panel_label}: {_render_landmarks(visible, landmark_defs)}")
 
     lines.append("")
 
@@ -367,48 +411,53 @@ def build_spatial_block(
     lines.append("## PANEL STAGING")
     lines.append("")
 
-    for sb_shot in sb_gen.get("shots", []):
-        shot_num = str(sb_shot["shot"])
-        panels = sb_shot.get("panels", [])
-        if not panels:
-            continue
+    for gid in target_gids:
+        gdef = plan["generations"][gid]
+        sb_gen = next(g for g in storyboard.get("generations", []) if g["gen_id"] == gid)
+        for sb_shot in sb_gen.get("shots", []):
+            shot_num = str(sb_shot["shot"])
+            panels = sb_shot.get("panels", [])
+            if not panels:
+                continue
 
-        sp_shot = gdef["shots"].get(shot_num)
-        if not sp_shot:
-            # Shot not in spatial plan — skip (validator catches this)
-            continue
+            sp_shot = gdef["shots"].get(shot_num)
+            if not sp_shot:
+                # Shot not in spatial plan — skip (validator catches this)
+                continue
 
-        if len(panels) == 1:
-            panel_label = f"Panel {panels[0]}"
-        else:
-            panel_label = f"Panels {panels[0]}–{panels[-1]}"
+            if len(panels) == 1:
+                panel_label = f"Panel {panels[0]}"
+            else:
+                panel_label = f"Panels {panels[0]}–{panels[-1]}"
 
-        transition = sb_shot.get("transition", "")
-        shot_label = f"### {panel_label} — Shot {shot_num}"
-        if transition and transition != "continuous":
-            shot_label += f" ({transition.replace('_', ' ')} cut)"
-        lines.append(shot_label)
-        lines.append("")
+            transition = sb_shot.get("transition", "")
+            shot_label = f"### {panel_label} — Shot {shot_num}"
+            if transition and transition != "continuous":
+                shot_label += f" ({transition.replace('_', ' ')} cut)"
+            lines.append(shot_label)
+            lines.append("")
 
-        # Camera geometry
-        camera_text = _render_camera(
-            sp_shot.get("camera_zone", ""),
-            sp_shot.get("camera_facing", ""),
-            sp_shot.get("camera_zoom", ""),
-            zone_defs,
-            landmark_descs,
-        )
-        lines.append(f"- Camera: {camera_text}")
+            # Camera geometry with angle
+            angle = sp_shot.get("camera_angle") or sb_shot.get("camera_angle") or ""
+            camera_text = _render_camera(
+                sp_shot.get("camera_zone", ""),
+                sp_shot.get("camera_facing", ""),
+                sp_shot.get("camera_zoom", ""),
+                zone_defs,
+                landmark_descs,
+                camera_angle=angle,
+            )
+            lines.append(f"- Camera: {camera_text}")
 
-        # Subject staging
-        positions = sp_shot.get("on_screen_positions", [])
-        facing = sp_shot.get("character_facing", {})
-        if positions:
-            pos_text = _render_positions(positions, zone_defs, facing, landmark_descs)
-            for pos_line in pos_text.split("\n"):
-                lines.append(f"- Subject staging: {pos_line}")
+            # Subject staging
+            positions = sp_shot.get("on_screen_positions", [])
+            facing = sp_shot.get("character_facing", {})
+            if positions:
+                pos_text = _render_positions(positions, zone_defs, facing, landmark_descs)
+                for pos_line in pos_text.split("\n"):
+                    lines.append(f"- Subject staging: {pos_line}")
 
-        lines.append("")
+            lines.append("")
 
     lines.append(LOCK_END)
     return "\n".join(lines)
@@ -447,7 +496,7 @@ def materialize_sheet_prompt(
     prompt_text: str,
     plan: dict[str, Any],
     storyboard: dict[str, Any],
-    gen_id: str,
+    gen_id: str | None = None,
 ) -> str:
     """Materialize the spatial bible into a sheet prompt.
 
@@ -457,7 +506,7 @@ def materialize_sheet_prompt(
         prompt_text: The authored sheet prompt text.
         plan: Parsed spatial plan.
         storyboard: Parsed storyboard.
-        gen_id: Generation ID.
+        gen_id: Generation ID or None/"all" for full scene.
 
     Returns:
         The prompt text with the spatial bible injected at the top.
@@ -475,16 +524,17 @@ def validate_materialized_prompt(
     prompt_text: str,
     plan: dict[str, Any],
     storyboard: dict[str, Any],
-    gen_id: str,
+    gen_id: str | None = None,
 ) -> list[str]:
     """Validate that a materialized prompt has correct spatial coverage.
 
     Returns a list of error messages (empty if valid).
     """
     errors: list[str] = []
+    target_label = gen_id or "scene"
 
     if not has_spatial_block(prompt_text):
-        errors.append(f"missing spatial continuity bible for {gen_id}")
+        errors.append(f"missing spatial continuity bible for {target_label}")
         return errors
 
     # Extract the block content (new or old marker)
@@ -494,59 +544,70 @@ def validate_materialized_prompt(
         re.DOTALL,
     )
     if not m:
-        errors.append(f"malformed spatial continuity bible for {gen_id}")
+        errors.append(f"malformed spatial continuity bible for {target_label}")
         return errors
 
     block = m.group(1)
 
-    gdef = plan["generations"].get(gen_id)
-    if not gdef:
-        errors.append(f"generation {gen_id} not in spatial plan")
-        return errors
-
-    sb_gen = next(
-        (g for g in storyboard.get("generations", []) if g["gen_id"] == gen_id),
-        None,
-    )
-    if not sb_gen:
-        errors.append(f"generation {gen_id} not in storyboard")
-        return errors
+    if gen_id and gen_id != "all":
+        target_gids = [gen_id]
+    else:
+        target_gids = [
+            g["gen_id"] for g in storyboard.get("generations", [])
+            if not g.get("is_bridge") and g["gen_id"] in plan.get("generations", {})
+        ]
+        if not target_gids:
+            target_gids = list(plan.get("generations", {}).keys())
 
     # Check required sections
     if "## ENVIRONMENT BIBLE" not in block:
-        errors.append(f"spatial bible for {gen_id} missing ENVIRONMENT BIBLE")
+        errors.append(f"spatial bible for {target_label} missing ENVIRONMENT BIBLE")
     if "## CONTINUITY RULES" not in block:
-        errors.append(f"spatial bible for {gen_id} missing CONTINUITY RULES")
+        errors.append(f"spatial bible for {target_label} missing CONTINUITY RULES")
     if "## PANEL STAGING" not in block:
-        errors.append(f"spatial bible for {gen_id} missing PANEL STAGING")
+        errors.append(f"spatial bible for {target_label} missing PANEL STAGING")
 
-    # Check each storyboard shot with panels is covered
-    for sb_shot in sb_gen.get("shots", []):
-        shot_num = str(sb_shot["shot"])
-        panels = sb_shot.get("panels", [])
-        if not panels:
+    for gid in target_gids:
+        gdef = plan["generations"].get(gid)
+        if not gdef:
+            errors.append(f"generation {gid} not in spatial plan")
             continue
-        sp_shot = gdef["shots"].get(shot_num)
-        if not sp_shot:
-            continue  # validator catches missing shots
 
-        # Check that the panel range is mentioned
-        if len(panels) == 1:
-            panel_ref = f"Panel {panels[0]}"
-        else:
-            panel_ref = f"Panels {panels[0]}"
+        sb_gen = next(
+            (g for g in storyboard.get("generations", []) if g["gen_id"] == gid),
+            None,
+        )
+        if not sb_gen:
+            errors.append(f"generation {gid} not in storyboard")
+            continue
 
-        if panel_ref not in block:
-            errors.append(
-                f"spatial bible for {gen_id} missing panel coverage for "
-                f"shot {shot_num} ({panel_ref})"
-            )
+        # Check each storyboard shot with panels is covered
+        for sb_shot in sb_gen.get("shots", []):
+            shot_num = str(sb_shot["shot"])
+            panels = sb_shot.get("panels", [])
+            if not panels:
+                continue
+            sp_shot = gdef["shots"].get(shot_num)
+            if not sp_shot:
+                continue  # validator catches missing shots
 
-        # Check camera is mentioned
-        camera_zone = sp_shot.get("camera_zone", "")
-        if camera_zone and camera_zone.replace("_", " ") not in block.lower():
-            errors.append(
-                f"spatial bible for {gen_id} shot {shot_num} missing camera zone"
-            )
+            # Check that the panel range is mentioned
+            if len(panels) == 1:
+                panel_ref = f"Panel {panels[0]}"
+            else:
+                panel_ref = f"Panels {panels[0]}"
+
+            if panel_ref not in block:
+                errors.append(
+                    f"spatial bible for {gid} missing panel coverage for "
+                    f"shot {shot_num} ({panel_ref})"
+                )
+
+            # Check camera is mentioned
+            camera_zone = sp_shot.get("camera_zone", "")
+            if camera_zone and camera_zone.replace("_", " ") not in block.lower():
+                errors.append(
+                    f"spatial bible for {gid} shot {shot_num} missing camera zone"
+                )
 
     return errors

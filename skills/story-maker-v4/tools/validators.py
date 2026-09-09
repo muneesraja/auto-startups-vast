@@ -81,6 +81,35 @@ SCREEN_DIRECTIONS = (
     "held", "top_to_bottom", "bottom_to_top",
 )
 
+# Camera angle taxonomy for dynamic cinematic staging.
+CAMERA_ANGLES = (
+    "eye_level",
+    "low_angle",
+    "high_angle",
+    "bird_eye",
+    "birds_eye",
+    "worm_eye",
+    "worms_eye",
+    "side_profile",
+    "profile",
+    "three_quarter",
+    "three_quarter_front",
+    "three_quarter_back",
+    "over_the_shoulder",
+    "dutch_angle",
+    "reverse_shot",
+    "pov",
+    "top_down",
+)
+
+# Focus / depth of field taxonomy (see assets/directors-guide.md Section 2 and assets/cinematography-bible.md Section C-bis).
+FOCUS_TYPES = (
+    "shallow_focus",
+    "deep_focus",
+    "rack_focus",
+    "soft_focus",
+)
+
 # Suggested emotion vocabulary for beat boards (warn-only — not enforced).
 # See prompts/beat_board.md and assets/directors-guide.md Section 1.
 BEAT_EMOTIONS = (
@@ -375,6 +404,8 @@ def parse_storyboard(md: str) -> dict[str, Any]:
             "acting_beat": kv.get("acting_beat", "").strip(),
             "layout": kv.get("layout", "").strip(),
             "screen_direction": kv.get("screen_direction", "").strip().lower(),
+            "camera_angle": kv.get("camera_angle", "").strip().lower(),
+            "focus": kv.get("focus", "").strip().lower(),
         })
         cur_gen["shots"].append(cur_shot)
         cur_shot = None
@@ -557,6 +588,9 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
 
     prev_end = 0.0
     total = 0.0
+    all_scene_panels: list[int] = []
+    any_partial_gen_panels = False
+    last_panel_count = None
     for gen in gens:
         gid = f"{sid}/{gen['gen_id']}"
 
@@ -681,6 +715,24 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
             elif direction not in SCREEN_DIRECTIONS:
                 res.error(f"{slabel}: screen_direction {direction!r} not in {SCREEN_DIRECTIONS}")
 
+            ca = shot.get("camera_angle", "")
+            if ca and ca not in CAMERA_ANGLES:
+                res.error(f"{slabel}: camera_angle {ca!r} not in {CAMERA_ANGLES}")
+            elif not ca:
+                res.warn(f"{slabel}: missing 'camera_angle:' (encouraged for dynamic multi-angle cinematography)")
+
+            # focus validation (advisory-only for missing, error if invalid value)
+            foc = shot.get("focus", "")
+            if foc and foc not in FOCUS_TYPES:
+                res.error(f"{slabel}: focus {foc!r} not in {FOCUS_TYPES}")
+            elif not foc:
+                res.warn(f"{slabel}: missing 'focus:' (encouraged for cinematic depth control — see directors-guide Section 2)")
+            if foc == "rack_focus" and shot.get("shot_size") == "extreme_closeup":
+                res.warn(
+                    f"{slabel}: rack_focus on an extreme_closeup has minimal focal depth — "
+                    "rack focus typically requires medium, full, or wide staging across multiple planes"
+                )
+
             if not shot["action"]:
                 res.error(f"{slabel}: missing 'action:'")
             if not shot["camera"]:
@@ -726,13 +778,30 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         if shots and shots[-1]["end"] is not None and abs(shots[-1]["end"] - gen["end"]) > eps:
             res.error(f"{gid}: last shot ends at {shots[-1]['end']}s, generation ends at {gen['end']}s (must fill the generation)")
         if panel_count is not None and used_panels:
+            last_panel_count = panel_count
+            all_scene_panels.extend(used_panels)
             expected = list(range(1, panel_count + 1))
             if sorted(used_panels) != expected:
-                res.error(f"{gid}: shots use panels {sorted(used_panels)}; must use each of 1..{panel_count} exactly once")
+                is_valid_slice = (
+                    sorted(used_panels) == list(range(min(used_panels), max(used_panels) + 1))
+                    and 1 <= min(used_panels) and max(used_panels) <= panel_count
+                )
+                if is_valid_slice:
+                    any_partial_gen_panels = True
+                else:
+                    res.error(f"{gid}: shots use panels {sorted(used_panels)}; must use each of 1..{panel_count} exactly once")
             if used_panels != sorted(used_panels):
                 res.error(f"{gid}: panels must be assigned in column-major order (top-to-bottom within each column, then left-to-right) across shots")
         prev_end = gen["end"]
         total = gen["end"]
+
+    if any_partial_gen_panels and last_panel_count is not None:
+        expected_scene = list(range(1, last_panel_count + 1))
+        if sorted(all_scene_panels) != expected_scene:
+            res.error(
+                f"scene {sid}: shots across all generations use panels {sorted(all_scene_panels)}; "
+                f"must use each of 1..{last_panel_count} exactly once"
+            )
 
     if not sb["handoff"]:
         res.error(f"scene {sid}: scene-end handoff block is missing")
@@ -939,6 +1008,7 @@ def validate_prompts(
         from .spatial_validator import parse_spatial_plan
         plan = parse_spatial_plan(open(spatial_plan_path, encoding="utf-8").read())
 
+    seen_prompt_files: set[str] = set()
     for gen in sb["generations"]:
         gid = gen["gen_id"]
         sheet_p = image_pipeline.sheet_prompt_path(run_dir, scene_id, gid)
@@ -961,16 +1031,23 @@ def validate_prompts(
             for w in drift_warnings:
                 res.warn(f"{scene_id}/{gid}: {w}")
 
-        # Prompt-quality checks
-        quality_warnings = _check_prompt_quality(prompt_text)
-        for w in quality_warnings:
-            res.warn(f"{scene_id}/{gid}: {w}")
+        # Prompt-quality checks (run once per distinct sheet prompt file)
+        if sheet_p not in seen_prompt_files:
+            seen_prompt_files.add(sheet_p)
+            quality_warnings = _check_prompt_quality(prompt_text)
+            for w in quality_warnings:
+                res.warn(f"{scene_id}/{gid}: {w}")
 
     return res
 
 
 _PROMPT_SHOT_RE = re.compile(
     r"^SHOT\s+(\d+)\s*[—-]\s*(\d+(?:\.\d+)?)\s*[–—-]\s*(\d+(?:\.\d+)?)\s*s",
+    re.M | re.I,
+)
+
+_BRIEF_SHOT_RE = re.compile(
+    r"^SHOT\s+(\d+)\s*[—–-]\s*(\d+(?:\.\d+)?)\s*[—–-]\s*(\d+(?:\.\d+)?)\s*s",
     re.M | re.I,
 )
 
@@ -1005,6 +1082,16 @@ _DIALOGUE_RE = re.compile(r"<d>\s*\[(\w+)\]\s*(.*?)\s*</d>", re.S)
 
 # House style prohibits studio/brand imitation; describe craft attributes instead.
 _PROHIBITED_STYLE_BRANDS = ("pixar", "disney", "dreamworks", "ghibli")
+
+# Prompt-stuffing keywords discouraged in MiniMax H3 (community best practice).
+_PROMPT_STUFFING_PATTERNS = [
+    re.compile(r"\bmasterpiece\b", re.I),
+    re.compile(r"\btrending on artstation\b", re.I),
+    re.compile(r"\bunreal engine\b", re.I),
+    re.compile(r"\boctane render\b", re.I),
+    re.compile(r"\bhyperrealistic\b", re.I),
+    re.compile(r"\b(?:4k|8k)\s+(?:resolution|uhd|quality)\b", re.I),
+]
 
 
 def validate_video_prompt_legacy(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
@@ -1074,12 +1161,28 @@ def _parse_ref2va_sections(text: str) -> dict[str, str]:
         sections[sec] = body
     return sections
 
+def is_directors_brief(text: str) -> bool:
+    """Detect if a video prompt is in the Director's Brief format."""
+    if "summary:" in text and "retention_analysis:" in text and "detailed_description:" in text:
+        return False
+    if "Timeline" in text or "timeline" in text.lower():
+        if "negative prompt" not in text.lower():
+            return True
+    return bool(re.search(r"^\s*subject_definitions\s*:\s*Reference\b", text, re.M | re.I))
 
-def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
-    """Validate a 6-section Ref2VA video prompt against the storyboard.
 
-    Sections (exact order): subject_definitions, summary, retention_analysis,
-    detailed_description, overall_soundscape, non_diegetic_music.
+def validate_video_prompt_brief(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
+    """Validate a Director's Brief format video prompt against the storyboard.
+
+    Format structure:
+    - subject_definitions:Reference header
+    - Identity statements ("Maintain the exact appearance of...")
+    - Preamble with style & quality declarations (no prohibited brand names)
+    - Optional g2+ continuation statement
+    - Timeline section header
+    - Contiguous SHOT blocks with timestamps (SHOT N — start–ends (Continuous Shot))
+    - Dedicated Audio: line per shot
+    - Dialogue formatting with speaker IDs
     """
     res = ValidationResult()
     eps = 0.15
@@ -1090,6 +1193,166 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
     if not text.strip():
         res.error("video prompt is empty")
         return res
+
+    # char_NN rejection
+    for tok in sorted(set(re.findall(r"char_\d+", text))):
+        res.error(f"prompt references internal id {tok!r} — describe characters by appearance instead")
+
+    # Prohibited studio / brand names check
+    for brand in _PROHIBITED_STYLE_BRANDS:
+        if re.search(rf"\b{re.escape(brand)}\b", text, re.IGNORECASE):
+            res.error(
+                f"prompt uses brand reference '{brand}'; describe concrete animation "
+                "craft (line, shape, color, timing, materials) instead"
+            )
+
+    # Header check
+    if not re.search(r"^\s*subject_definitions\s*:\s*Reference\b", text, re.MULTILINE | re.IGNORECASE):
+        if not re.search(r"^\s*subject_definitions\s*:", text, re.MULTILINE | re.IGNORECASE):
+            res.error("prompt must start with 'subject_definitions:Reference'")
+
+    # Visual guide reference to storyboard
+    if "storyboard" not in text.lower():
+        res.error("prompt must reference the provided storyboard as visual guide")
+
+    # Timeline section header
+    timeline_match = re.search(r"^\s*Timeline\s*$", text, re.MULTILINE | re.IGNORECASE)
+    if not timeline_match:
+        res.error("prompt must contain a 'Timeline' section header")
+        return res
+
+    timeline_start = timeline_match.end()
+    timeline_text = text[timeline_start:]
+    preamble_text = text[:timeline_match.start()]
+
+    # Check for identity descriptions in preamble
+    if "maintain the exact appearance" not in preamble_text.lower():
+        res.warn("preamble should include 'Maintain the exact appearance of [Character]: ...' identity descriptions")
+
+    # g2+ continuation check
+    gen_index = next(
+        (i for i, g in enumerate(sb.get("generations", [])) if g.get("gen_id") == gen_id),
+        0,
+    )
+    if gen_index > 0:
+        if "continuation" not in preamble_text.lower() and "continuation" not in timeline_text[:300].lower():
+            res.error(
+                f"generation {gen_id} must declare seamless continuation from the previous generation "
+                "(e.g. 'This is a seamless continuation from the previous generation.')"
+            )
+
+    # Shots parsing in Timeline
+    shot_headers = list(_BRIEF_SHOT_RE.finditer(timeline_text))
+    sb_shots = gen.get("shots", [])
+    if len(shot_headers) != len(sb_shots):
+        res.error(
+            f"Timeline has {len(shot_headers)} SHOT blocks, "
+            f"storyboard generation {gen_id} has {len(sb_shots)}"
+        )
+
+    gen_start = gen.get("start") or 0.0
+    gen_dur = (gen.get("end") or 0.0) - gen_start
+
+    # Validate shot ranges and extract shot bodies
+    prev_end = 0.0
+    for i, m in enumerate(shot_headers):
+        s_num = int(m.group(1))
+        start = float(m.group(2))
+        end = float(m.group(3))
+
+        if s_num != i + 1:
+            res.error(f"SHOT {s_num} out of order — expected SHOT {i+1}")
+
+        if i == 0 and abs(start - 0.0) > eps:
+            res.error(f"SHOT 1 must start at 0.0s (got {start}s)")
+        elif i > 0 and abs(start - prev_end) > eps:
+            res.error(f"SHOT {s_num} start {start}s != previous shot end {prev_end}s (shots must be contiguous)")
+
+        if end <= start:
+            res.error(f"SHOT {s_num} end {end}s must be greater than start {start}s")
+
+        if i < len(sb_shots):
+            want_start = (sb_shots[i].get("start") or 0.0) - gen_start
+            want_end = (sb_shots[i].get("end") or 0.0) - gen_start
+            if abs(start - want_start) > eps:
+                res.error(
+                    f"SHOT {s_num} start {start:.1f}s != storyboard shot start {want_start:.1f}s "
+                    "(generation-local seconds)"
+                )
+            if abs(end - want_end) > eps:
+                res.error(
+                    f"SHOT {s_num} end {end:.1f}s != storyboard shot end {want_end:.1f}s "
+                    "(generation-local seconds)"
+                )
+
+        if end > duration_budget.GEN_MAX + eps:
+            res.error(f"SHOT {s_num} ends at {end}s — beyond the {duration_budget.GEN_MAX:.0f}s Minimax limit")
+
+        prev_end = end
+
+        # Extract shot body up to next shot header or end of timeline
+        body_start = m.end()
+        body_end = shot_headers[i + 1].start() if i + 1 < len(shot_headers) else len(timeline_text)
+        shot_body = timeline_text[body_start:body_end]
+
+        # Check for Audio line in shot body
+        if not re.search(r"^\s*Audio\s*:", shot_body, re.MULTILINE | re.IGNORECASE):
+            res.error(f"SHOT {s_num} missing an 'Audio:' line for Foley/sound/dialogue direction")
+
+    if shot_headers:
+        last_end = float(shot_headers[-1].group(3))
+        if abs(last_end - gen_dur) > eps:
+            res.error(f"last SHOT ends at {last_end:.1f}s, generation duration is {gen_dur:.1f}s")
+
+    # Dialogue tags check
+    for m in _DIALOGUE_RE.finditer(text):
+        lang = m.group(1)
+        if not lang:
+            res.error(f"<d> tag missing language code: {m.group(0)[:50]}")
+        pre = text[max(0, m.start() - 220):m.start()]
+        if not re.search(r"\((?:S\d+,?)+\)", pre) and not re.search(r"\b(?:S\d+)\b", pre):
+            res.error("dialogue must attribute a speaker ID like (S1) before each <d> tag")
+
+    # Prompt stuffing patterns warning
+    for pat in _PROMPT_STUFFING_PATTERNS:
+        match = pat.search(text)
+        if match:
+            res.warn(
+                f"prompt contains quality tag {match.group(0)!r}; MiniMax H3 adheres "
+                "best to natural descriptive prose rather than prompt-stuffing tags"
+            )
+
+    # Word count check on Timeline
+    timeline_words = len(timeline_text.split())
+    if timeline_words < 120:
+        res.warn(
+            f"Timeline has {timeline_words} words; optimal depth for MiniMax H3 is "
+            "350-500 words to guide Context-IR"
+        )
+    elif timeline_words > 650:
+        res.warn(
+            f"Timeline has {timeline_words} words; exceeding ~500-600 words may dilute "
+            "temporal conditioning focus"
+        )
+
+    return res
+
+
+def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
+    """Validate a video prompt (Ref2VA or Director's Brief) against the storyboard."""
+    if is_directors_brief(text):
+        return validate_video_prompt_brief(text, sb, gen_id)
+
+    res = ValidationResult()
+    eps = 0.15
+    gen = next((g for g in sb.get("generations", []) if g["gen_id"] == gen_id), None)
+    if gen is None:
+        res.error(f"generation {gen_id!r} not found in storyboard")
+        return res
+    if not text.strip():
+        res.error("video prompt is empty")
+        return res
+
 
     # char_NN rejection (carried from legacy)
     for tok in sorted(set(re.findall(r"char_\d+", text))):
@@ -1276,7 +1539,37 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
     if not sections["non_diegetic_music"].strip():
         res.error("non_diegetic_music section is empty (use 'N/A' if no score)")
 
+    # --- prompt stuffing tags check (warning) ---
+    for pat in _PROMPT_STUFFING_PATTERNS:
+        match = pat.search(text)
+        if match:
+            res.warn(
+                f"prompt contains quality tag {match.group(0)!r}; MiniMax H3 adheres "
+                "best to natural descriptive prose rather than prompt-stuffing tags"
+            )
+
+    # --- detailed_description depth / word count check (warning) ---
+    dd_words = len(dd_text.split())
+    if dd_words < 120:
+        res.warn(
+            f"detailed_description has {dd_words} words; optimal depth for MiniMax H3 is "
+            "350-500 words to guide Context-IR"
+        )
+    elif dd_words > 650:
+        res.warn(
+            f"detailed_description has {dd_words} words; exceeding ~500-600 words may dilute "
+            "temporal conditioning focus"
+        )
+
+    # --- g2+ continuation reference in detailed_description (warning) ---
+    if gen_index > 0 and "<Video 1>" not in dd_text:
+        res.warn(
+            f"generation {gen_id} detailed_description does not reference <Video 1>; "
+            "opening shot should explicitly describe seamless continuation from <Video 1>"
+        )
+
     return res
+
 
 
 # ---------------------------------------------------------------------------

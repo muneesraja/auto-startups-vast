@@ -68,11 +68,14 @@ def _ntfy(message: str) -> None:
 def _find_sheet(run_dir: str, scene_id: str, gen_id: str) -> str:
     """Find the storyboard sheet image for a generation."""
     for ext in ("webp", "png", "jpg", "jpeg"):
+        scene_sheet = os.path.join(run_dir, f"storyboard_sheet_{scene_id}.{ext}")
+        if _exists(scene_sheet):
+            return scene_sheet
         sheet_path = os.path.join(run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{ext}")
         if _exists(sheet_path):
             return sheet_path
     raise FileNotFoundError(
-        f"storyboard sheet missing: {run_dir}/storyboard_sheet_{scene_id}_{gen_id}.<ext>"
+        f"storyboard sheet missing: {run_dir}/storyboard_sheet_{scene_id}.<ext> or storyboard_sheet_{scene_id}_{gen_id}.<ext>"
     )
 
 

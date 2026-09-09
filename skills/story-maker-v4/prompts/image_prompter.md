@@ -165,12 +165,18 @@ naturally requires similar poses.
 
 ## Character sheet prompt (`characters/<cid>.txt`)
 
-A T2I prompt (no reference images) that produces a clean character turnaround /
-identity plate: the character on a neutral background, full body, front + side
-poses, consistent wardrobe and features. Pull appearance/species/wardrobe from
-`developed_story.md`'s `## Characters` entry for that `cid`. End with the
-**no-text clause**: "no text, no labels, no captions, no watermarks." Keep it
-16:9-portrait friendly (the backend uses `CHARACTER_SHEET_SIZE`).
+A T2I prompt (no reference images) producing an identity reference plate. Pull appearance/wardrobe from `developed_story.md`'s `## Characters`.
+
+- **Realistic / Live-Action Mode**:
+  Author a 16:9 photographic identity plate (Full-Body Portrait + Close-Up Portrait).
+  - Optics: 85mm lens, shallow depth of field, natural lighting.
+  - Skin: authentic skin pores, natural texture, subtle facial asymmetry.
+  - Setting: slightly blurred, physically grounded real-world environment.
+  - Negative prompt: `airbrushed, plastic skin, cgi, 3d render, doll-like, overly symmetrical, cartoon, illustration, painting, smooth skin, anime, videogame`.
+- **Stylized / Animation Mode**:
+  Author a 6-view turnaround and expression grid following `character_sheet_template.md`.
+
+Always end with the no-text clause: "no text, no labels, no captions, no watermarks."
 
 ## Location lock prompt (`locations/<lid>.txt`)
 

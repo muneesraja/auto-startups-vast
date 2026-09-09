@@ -59,80 +59,57 @@ Event density per beat drives pacing:
 
 ## 2. Shot Design
 
-### Shot sizes (the "why")
+For the complete vocabulary, taxonomy, and emotional mappings, see [`cinematography-bible.md`](cinematography-bible.md) (Sections A, B, and C).
 
-| `shot_size` | When to use it | What it communicates |
-|---|---|---|
-| `extreme_wide` | Establish geography, scale, isolation | The world is bigger than the character; where are we? |
-| `wide` | Environment + character position | Character in context; spatial relationships |
-| `full` | Character body language, posture | How they carry themselves; full-body action |
-| `medium` | Interaction, two-character dynamics | Relationship, conversation, physical exchange |
-| `medium_closeup` | Emotion + context | Face readable, body still visible; the everyday shot |
-| `closeup` | Emotion, important detail, intimacy | What they feel; what matters; the audience leans in |
-| `extreme_closeup` | Micro-detail, intense emotion, symbolic object | Total focus; the telling detail; overwhelming feeling |
+### Shot sizes (the "why")
+The 7 foundational shot sizes (`extreme_wide`, `wide`, `full`, `medium`, `medium_closeup`, `closeup`, `extreme_closeup`) balance spatial context against emotional proximity. Closeups (`CU`/`MCU`) drive character acting and dialogic intensity; wide shots (`WS`/`EWS`) anchor geography, scale, and environmental isolation.
 
 ### Camera angles (the "why")
-
-| Angle | What it communicates |
-|---|---|
-| Eye level | Neutral, empathetic, "we are with them" |
-| Low angle | Power, dominance, awe — the character looms |
-| High angle | Vulnerability, smallness, isolation — the character shrinks |
-| Bird's-eye | God's-eye overview, pattern, abstraction — the chessboard view |
-| Worm's-eye | Ground-level wonder looking up — a child's perspective |
-| Dutch angle | Unease, disorientation, tension — the world is wrong |
-| Over-the-shoulder | Conversation, spatial relationship — we're in the room |
-| POV | Immersion, subjectivity — we see what they see |
+The 12 primary camera angles (`eye_level`, `low_angle`, `high_angle`, `birds_eye`, `worms_eye`, `dutch_angle`, `over_the_shoulder`, `pov`, `three_quarter_front`, `three_quarter_back`, `profile`, `top_down`) establish psychological dynamics. Low angles build awe and authority; high angles evoke helplessness; three-quarter angles give depth and dimensional volume.
 
 ### Camera positions
-Front, side/profile, 3/4 front, 3/4 back, behind, top-down. Vary position
-across shots in a generation — six identical front-facing shots feel flat.
-The 3/4 front angle is the workhorse of character animation: it shows face
-AND body depth.
+Front, side/profile, 3/4 front, 3/4 back, behind, top-down. Vary position across shots in a generation — avoid monotonous front-facing shots. The 3/4 front angle is the workhorse of character animation: it shows face AND body depth simultaneously.
+
+### Focus as storytelling (the "why")
+Focus is not just an optical property; it is internal editing within a single continuous take. For the vocabulary, see [`cinematography-bible.md`](cinematography-bible.md) Section C-bis:
+- **`shallow_focus`**: The cinematic default for character intimacy. Throwing the background into gentle blur strips away visual distractions and forces viewer empathy into micro-acting (eyes, brows, mouth).
+- **`deep_focus`**: Keeps foreground, midground, and background all in sharp register. Essential for ensemble tension and environmental storytelling where foreground action and background consequences play simultaneously.
+- **`rack_focus`**: Shifts optical focus between narrative planes mid-take without cutting. The primary visual vehicle for cause-and-effect reveals: starting on an object or speaker in the foreground, then shifting focus to a reacting character in the background.
+- **`soft_focus`**: Diffuses contrast for dreamlike reverie, nostalgic flashback, hallucination, or psychological detachment.
+
+---
+
 
 ## 3. Camera Movement (the "why")
 
-The director's principle: **the camera moves because the story demands it —
-not because movement is cool.**
+The director's principle: **the camera moves because the story demands it — not because movement is cool.**
 
-| Move | When to use it | What it means |
-|---|---|---|
-| Push In | Realization, growing emotion, intimacy | "We're getting closer to the truth" |
-| Pull Out | Revelation, context, withdrawal | "Now we see the whole picture" or "leaving them behind" |
-| Tracking | Following action, building tension | "We're moving with them" |
-| Arc | Revealing, circling, shifting perspective | "Let's look at this from another angle" |
-| Crane | Grandeur, liberation, scale change | "The world opens up" |
-| Whip Pan | Energy, urgency, transition | "Quick — look over there!" |
-| Static | Stillness, observation, letting action breathe | "Watch this. Don't look away." |
-| Handheld | Immediacy, chaos, documentary feel | "We're really here, it's really happening" |
+For the complete catalog of 22 native camera movements, composite moves (Dolly Zoom, Crane, Orbit, Steadicam), and the mandatory 3D formula (`[Motion Type] with [amplitude] at [speed]`), see [`cinematography-bible.md`](cinematography-bible.md) Section D.
 
-**When NOT to move:** static shots let the action carry the frame. If the
-character's performance is the point, hold still. A push-in during a tender
-moment says "this matters"; a push-in during every moment says nothing.
+- **Push In**: Realization, growing emotion, intimacy — "We're getting closer to the truth"
+- **Pull Out**: Revelation, context, withdrawal — "Now we see the whole picture" or "leaving them behind"
+- **Tracking**: Following action, building momentum — "We're moving with them"
+- **Arc Shot**: Revealing, circling, shifting perspective — "Let's look at this from another angle"
+- **Crane Up/Down**: Grandeur, liberation, scale change — "The world opens up"
+- **Whip Pan**: Energy, urgency, transition — "Quick — look over there!"
+- **Static Shot**: Stillness, observation, letting action breathe — "Watch this. Don't look away."
+- **Handheld / Shake**: Immediacy, chaos, documentary reality — "We're really here, it's really happening"
+
+**When NOT to move:** Static shots let the action carry the frame. If the character's performance is the point, hold still. A push-in during a tender moment says "this matters"; a push-in during every moment says nothing.
+
+**Equipment feel:** When selecting camera movements, consider the physical rig feel (see [`cinematography-bible.md`](cinematography-bible.md) Section D Equipment Feel Cheatsheet). A `Shake Slightly` conveys handheld documentary urgency and lived-in tension; a `Tracking Shot with smooth Push In at slow speed` evokes the gliding elegance of a Steadicam; a `Static Shot` locks the camera onto sturdy sticks to let performances breathe.
+
+---
 
 ## 4. Composition
 
-Composition is how you arrange everything inside the frame. In animation you
-control literally everything — so there's no excuse for accidental composition.
+Composition is how you arrange everything inside the frame. In animation you control literally everything — so there's no excuse for accidental composition.
 
-| `composition` value | When to use it | What it does |
-|---|---|---|
-| `rule_of_thirds` | Default — most shots | Dynamic balance, natural eye flow |
-| `center` | Focus, formality, symmetry | The subject IS the frame |
-| `symmetry` | Order, ritual, fairy-tale | Formal, deliberate, otherworldly |
-| `leading_lines` | Guide the eye to the subject | Architecture, roads, shadows pointing at the hero |
-| `negative_space` | Isolation, scale, anticipation | The emptiness tells the story |
-| `depth` | Immersion, parallax | Foreground/midground/background — the world has layers |
-| `silhouette` | Mystery, drama, recognizable shape | Form over detail; backlight + dark figure |
-| `frame_within_frame` | Voyeurism, confinement, focus | Doorways, windows, arches framing the subject |
-| `visual_hierarchy` | One clear subject per frame | The eye knows where to look first |
-| `headroom` | Balanced framing | Too much = floating; too little = cramped |
-| `look_room` | Space in the direction the character looks | They need somewhere to look INTO |
-| `screen_direction` | Maintain consistent direction across cuts | 180° rule: keep characters facing the same way shot to shot |
+For the complete 12 composition rules (`rule_of_thirds`, `center`, `symmetry`, `leading_lines`, `negative_space`, `depth`, `silhouette`, `frame_within_frame`, `visual_hierarchy`, `headroom`, `look_room`, `screen_direction`), see [`cinematography-bible.md`](cinematography-bible.md) Section H.
 
-**One clear subject per frame.** If the audience doesn't know where to look,
-the composition has failed. Use `visual_hierarchy` to make the subject
-unmissable — lighting, color contrast, leading lines, or scale.
+**One clear subject per frame.** If the audience doesn't know where to look, the composition has failed. Use `visual_hierarchy` to make the subject unmissable — lighting, color contrast, leading lines, or scale.
+
+---
 
 ## 5. Editing & Cuts (motivated-cut thinking)
 
@@ -172,11 +149,15 @@ If only the framing or angle changes — push in, pan, arc — the camera can do
 that in one shot. Cutting for a framing change is a wasted cut. The validator
 errors on same-characters + same-shot_size + hard_cut for exactly this reason.
 
+---
+
 ## 6. Animation Direction
 
 Animation is not "the character turns around." Animation is a sequence of
 micro-beats: **hear sound → freeze → eyes move → head turns → body follows →
 reaction.** Those little beats are what make animation feel alive.
+
+For the exhaustive anatomical acting vocabulary (18 eye reactions, 10 brow reactions, 16 mouth/jaw reactions, 12 head reactions, 18 body postures) and worked micro-beat sequences, see [`cinematography-bible.md`](cinematography-bible.md) Sections F & G.
 
 Write `action:` as a sequence of comma-separated micro-beats in time order,
 not a single verb.
@@ -202,6 +183,7 @@ Write: `action: The baby freezes, eyes dart to the sound, head turns, body follo
 ### Secondary motion
 Cloth, hair, ears, tail — follow the primary action with a delay. Secondary
 motion sells the weight and reality of the movement.
+
 
 ## 7. Sound + Editing
 

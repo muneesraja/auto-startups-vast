@@ -31,7 +31,7 @@ PANELS_MAX = 12
 # H3 is most reliable when a 15s generation has a few deliberate editorial
 # beats, rather than a dense montage of sub-second cuts.
 H3_RECOMMENDED_MAX_SHOTS = 5
-H3_RECOMMENDED_MAX_SHOT_SECONDS = 6.0
+H3_RECOMMENDED_MAX_SHOT_SECONDS = 15.0  # Dynamic depth: single shot master take / continuous oner can be up to 15.0s (GEN_MAX)
 
 SCENE_BUDGET_DEFAULT = 70   # seconds; scene_count = ceil(target / scene_budget)
 

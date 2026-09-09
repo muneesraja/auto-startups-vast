@@ -1,17 +1,20 @@
 # Agent 3a — Spatial Planner
 
-You are Agent 3a, the **spatial planner**. You author `spatial_plan_sN.md` for
-one scene **before** Agent 3 writes `storyboard_sN.md`. The spatial plan is the
-authoritative reusable scene map: it encodes zones, landmarks, distances,
-camera geography, and per-generation/per-shot spatial state so that downstream
-agents (3, 4, 5, 7) can keep character-to-landmark geography consistent across
-independently rendered MiniMax H3 generations.
+You are Agent 3a, the **spatial planner**. Guided by the Director's **Dynamic Shot
+Depth Plan** (which establishes dynamic shot counts and durations from 1.5s to 15.0s
+based on the scene's dramatic beats), you author `spatial_plan_sN.md` for one scene.
+The spatial plan is the authoritative reusable scene map: it encodes zones,
+landmarks, distances, camera geography, and per-generation/per-shot spatial state
+so that downstream agents (3, 4, 5, 7) keep character-to-landmark geography consistent
+across independently rendered MiniMax H3 generations.
 
 ## When to run
 
-- After `scenes.md` is validated and the scene's location lock exists (or its
-  prompt is authored).
-- Before `storyboard_sN.md`.
+- After `scenes.md` is validated and the Director has established the scene's
+  Dynamic Shot Depth Plan (deciding whether generations use 1-shot master takes,
+  2-shot asymmetric holds, 3-shot action arcs, etc.).
+- Coordinates and shot blocks in `spatial_plan_sN.md` must directly reflect the
+  dynamic shot breakdown of each generation.
 - One `spatial_plan_sN.md` per scene. If the scene has no spatial plan, the
   pipeline falls back to legacy behaviour (warning, not error).
 
@@ -134,6 +137,10 @@ visible_landmarks: [landmark_id, ...]   # [] means the landmark must NOT appear
   than 2 steps on the ladder (e.g. `wide` → `medium` is OK, but
   `extreme_wide` → `extreme_closeup` is a jump of 5 and is an error for
   continuous shots; use a cut instead).
+- `camera_angle`: one of `eye_level`, `low_angle`, `high_angle`, `bird_eye`,
+  `worm_eye`, `side_profile`, `three_quarter`, `over_the_shoulder`,
+  `dutch_angle`, `reverse_shot`. Matches the storyboard's camera angle and
+  controls vertical angle and cinematic perspective.
 - `character_facing`: semicolon-separated `cid=direction` entries, one per
   on-screen character. Direction vocabulary:
   - `toward_<landmark>` / `away_from_<landmark>` — facing toward or away

@@ -256,10 +256,10 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 - **Pass:** medium or wide two-shots when two characters interact meaningfully.
 - **Fail:** two-character interaction always in singles (no relationship framing).
 
-### Q2.19 — Is the camera angle (high/low/dutch) used intentionally?
-- **Check:** storyboard_sN.md — angle choices serve the story.
-- **Pass:** low angle for power, high angle for vulnerability, dutch for unease.
-- **Fail:** angle choices are random or contradict the emotional intent.
+### Q2.19 — Is camera angle varied across shots to prevent front eye-level monotony?
+- **Check:** storyboard_sN.md and spatial_plan_sN.md — shots explicitly declare `camera_angle:` and avoid repeating flat eye-level front views.
+- **Pass:** scene employs a dynamic cinematographic palette across its shots (e.g. `low_angle` for scale/wonder, `high_angle`/`bird_eye` for spatial layout and discovery, `side_profile` for directional traversal, `over_the_shoulder` for depth/connection).
+- **Fail:** shots default monotonously to front eye-level framing (flat, repetitive staging).
 
 ### Q2.20 — Are extreme close-ups reserved for peak moments?
 - **Check:** storyboard_sN.md — extreme_closeup is rare and impactful.
@@ -1232,3 +1232,25 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
   non_diegetic_music.
 - **Pass:** no duplicated dialogue or mood-only score descriptions.
 - **Fail:** dialogue repeated in soundscape or abstract emotion words used as music direction.
+
+### Q9.16 — Does every attached reference asset follow the "One Job" rule?
+- **Check:** video_prompts/*.txt — `subject_definitions` and `retention_analysis`
+  assign one distinct primary responsibility per asset (e.g. `<Picture 1>` for
+  storyboard staging, `<Picture 2>` for identity, `<Video 1>` for tail continuation).
+- **Pass:** no competing or ambiguous roles between reference assets.
+- **Fail:** two reference images assigned overlapping identity or styling roles.
+
+### Q9.17 — Does detailed_description meet optimal depth (350–500 words) without prompt stuffing?
+- **Check:** video_prompts/*.txt — `detailed_description` contains between 350 and
+  500 English words of executable scene direction without tag spam (`4k`, `masterpiece`,
+  `unreal engine`).
+- **Pass:** rich, natural descriptive sentences providing precise micro-beat and camera guidance.
+- **Fail:** under-specified prompt (<250 words), plot summary, or comma-separated tag chains.
+
+### Q9.18 — Are facial expressions framed at appropriate scale (MCU/CU) for key acting beats?
+- **Check:** video_prompts/*.txt — spoken dialogue, critical emotional shifts, or
+  subtle character reactions are framed in Medium Close-Up or Close-Up rather than
+  distant wide shots where H3 facial fidelity degrades.
+- **Pass:** acting moments are framed close enough to maintain facial feature fidelity.
+- **Fail:** critical emotional turning points remain in extreme wide shots with small, unresolvable faces.
+

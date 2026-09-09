@@ -792,7 +792,163 @@ def test_legacy_validator_still_works():
     assert res.ok, res.errors
 
 
-# --- shot_size + composition schema fields (Phase 1) ------------------------
+def test_ref2va_prompt_warns_on_prompt_stuffing():
+    stuffed = REF2VA_PROMPT.replace(
+        "The target video uses polished stylized 3D cartoon animation",
+        "The target video uses masterpiece, unreal engine, 8k resolution 3D cartoon animation",
+    )
+    res = validators.validate_video_prompt(stuffed, _sb(), "g1")
+    assert res.ok  # warnings do not block ok
+    assert any("prompt-stuffing" in w for w in res.warnings)
+
+
+def test_ref2va_prompt_warns_on_shallow_description():
+    res = validators.validate_video_prompt(REF2VA_PROMPT, _sb(), "g1")
+    assert res.ok
+    assert any("optimal depth for MiniMax H3 is 350-500 words" in w for w in res.warnings)
+
+
+def test_ref2va_prompt_warns_on_g2_missing_video1_in_description():
+    prompt = textwrap.dedent("""
+        subject_definitions:
+        <Subject 1> is the toddler in the white onesie in <Picture 1>, with chubby cheeks and big eyes.
+        <Subject 2> is the tiny green dinosaur in <Picture 1>, with large yellow eyes and a playful expression.
+        <Picture 1> is the storyboard reference for [Shot 1], defining viewpoint and staging.
+        <Video 1> is the previous generation's rendered tail and continuation starting point.
+
+        summary:
+        [video continuation + reference generation] The target video continues from the corridor into the courtyard.
+
+        retention_analysis:
+        <Subject 1> (appears in [Shot 1]): fully_preserved - the toddler's onesie and face are retained.
+        <Subject 2> (appears in [Shot 1]): fully_preserved - the dinosaur is retained.
+        <Picture 1> (storyboard reference): fully_preserved - composition, framing, and panel sequence.
+        <Video 1> (continuation starting point): fully_preserved - ending pose and motion.
+
+        detailed_description:
+        Polished stylized 3D cartoon animation with warm natural lighting and soft dust-filled corridor air.
+        [Shot 1] The toddler in the white onesie kneels beside the tiny green dinosaur in the corridor light. The toddler reaches out slowly and pats the dinosaur's head while the camera pushes in with small amplitude at slow speed.
+
+        overall_soundscape:
+        Quiet corridor room tone, gentle fabric rustle, and one soft cheerful chirp.
+
+        non_diegetic_music:
+        Gentle pizzicato strings at a slow tempo, softly fading under the final smile.
+    """).strip()
+    res = validators.validate_video_prompt(prompt, _sb(), "g2")
+    assert res.ok, res.errors
+    assert any("does not reference <Video 1>" in w for w in res.warnings)
+
+
+# --- Director's Brief video prompt format tests ---------------------------
+
+DIRECTORS_BRIEF_PROMPT = textwrap.dedent("""
+    subject_definitions:Reference
+
+    Use the provided storyboard as the exact visual guide for composition,
+    framing, character appearance, environment, and sequence progression.
+
+    Maintain the exact appearance of the toddler in the white onesie: rosy cheeks, soft brown hair, round face.
+    Maintain the exact appearance of the tiny green dinosaur: cream-colored belly, yellow eyes, small snout.
+
+    Warm dusty corridor with afternoon sunlight pouring through high arched windows.
+
+    The baby dinosaur is completely harmless, playful, and adorable. Never generate duplicate characters.
+
+    Generate a cinematic 15.0-second sequence matching the storyboard.
+
+    Hand-painted digital storybook illustration with textured watercolor and gouache.
+    Warm golden tones and soft amber highlights.
+    Fluid character animation with expressive facial acting.
+
+    Timeline
+
+    SHOT 1 — 0.0–7.2s (Continuous Shot)
+
+    A three-quarter front medium shot shows the toddler running forward along the corridor.
+    The toddler giggles with wide sparkling eyes and raised brows, little feet padding against the stones.
+    The camera tracks backward with large amplitude at fast speed ahead of the toddler.
+    Audio: Soft patter of toddler socks on stone tiles, gentle breeze through window.
+    Cut on the action.
+
+    SHOT 2 — 7.2–15.0s (Continuous Shot)
+
+    A low-angle medium closeup captures the tiny green dinosaur leaping gently into the toddler's lap.
+    The toddler's eyes widen with sparkling delight, brows lift into soft arches, and mouth parts into a joyful smile.
+    The camera pushes in with small amplitude at slow speed toward their faces.
+    Audio: Happy dinosaur chirp, toddler giggling, fabric rustling as they tumble together softly.
+""").strip()
+
+
+def test_directors_brief_passes():
+    res = validators.validate_video_prompt(DIRECTORS_BRIEF_PROMPT, _sb(), "g1")
+    assert res.ok, res.errors
+
+
+def test_directors_brief_catches_missing_timeline():
+    bad = DIRECTORS_BRIEF_PROMPT.replace("Timeline", "Storyline")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
+    assert not res.ok
+    assert any("Timeline" in e for e in res.errors)
+
+
+def test_directors_brief_catches_brand_name():
+    bad = DIRECTORS_BRIEF_PROMPT.replace("Hand-painted digital", "Pixar-style 3D")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
+    assert not res.ok
+    assert any("brand reference" in e for e in res.errors)
+
+
+def test_directors_brief_catches_missing_audio():
+    bad = DIRECTORS_BRIEF_PROMPT.replace("Audio: Soft patter", "Sound: Soft patter")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
+    assert not res.ok
+    assert any("Audio" in e for e in res.errors)
+
+
+def test_directors_brief_catches_shot_mismatch():
+    bad = DIRECTORS_BRIEF_PROMPT.replace("SHOT 2 — 7.2–15.0s", "SHOT 2 — 8.0–15.0s")
+    res = validators.validate_video_prompt(bad, _sb(), "g1")
+    assert not res.ok
+    assert any("start" in e for e in res.errors)
+
+
+def test_directors_brief_g2_requires_continuation():
+    # g2 in _sb() is 15.0 to 27.0s (12s duration), 1 shot: 0.0 to 12.0s
+    g2_prompt = textwrap.dedent("""
+        subject_definitions:Reference
+
+        Use the provided storyboard as the exact visual guide for composition,
+        framing, character appearance, environment, and sequence progression.
+
+        Maintain the exact appearance of the toddler in the white onesie: rosy cheeks.
+        Maintain the exact appearance of the tiny green dinosaur: cream-colored belly.
+
+        Warm corridor.
+
+        Generate a cinematic 12.0-second sequence matching the storyboard.
+        Hand-painted digital storybook illustration with textured watercolor.
+
+        Timeline
+
+        SHOT 1 — 0.0–12.0s (Continuous Shot)
+
+        A medium shot of the toddler petting the dinosaur.
+        The camera is static with small amplitude at slow speed.
+        Audio: Gentle purring from the dinosaur.
+    """).strip()
+    res = validators.validate_video_prompt(g2_prompt, _sb(), "g2")
+    assert not res.ok
+    assert any("continuation" in e for e in res.errors)
+
+    # Adding continuation fixes it
+    g2_good = g2_prompt.replace(
+        "Timeline",
+        "This is a seamless continuation from the previous generation.\nSHOT 1 begins from the ending pose.\n\nTimeline"
+    )
+    res2 = validators.validate_video_prompt(g2_good, _sb(), "g2")
+    assert res2.ok, res2.errors
+
 
 def test_shot_sizes_has_7_values():
     assert len(validators.SHOT_SIZES) == 7
@@ -1850,3 +2006,26 @@ def test_validate_critique_report_count_mismatch():
     # Summary says Fail: 0 but there's 1 FAIL → mismatch
     assert not res.ok
     assert any("Fail" in e and "!=" in e for e in res.errors)
+
+
+def test_build_character_sheet_prompt_realistic():
+    """Verify build_character_sheet_prompt selects realistic template when realistic style is requested."""
+    from tools.char_sheet_builder import build_character_sheet_prompt
+
+    char_dict = {
+        "id": "char_bodyguard",
+        "name": "Bodyguard",
+        "species": "Human",
+        "age": "early 30s",
+        "appearance": "Muscular build, dark tan skin with natural texture, short cropped hair, sharp jawline.",
+        "distinctive_features": ["Mustache", "Sharp jawline", "Natural skin pores"],
+        "clothing_accessories": ["Black formal suit", "Sunglasses in pocket", "Small earpiece"],
+        "environment_setting": "Chennai street background slightly blurred",
+    }
+    prompt = build_character_sheet_prompt(char_dict, render_style="Photorealistic cinematic live-action")
+    assert "FULL-BODY PORTRAIT" in prompt
+    assert "CLOSE-UP PORTRAIT" in prompt
+    assert "85mm lens" in prompt
+    assert "Negative prompt:" in prompt
+    assert "airbrushed, plastic skin, cgi" in prompt
+

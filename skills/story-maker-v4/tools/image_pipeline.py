@@ -202,8 +202,18 @@ class AssetRegistry:
     def object_path(self, oid: str) -> str:
         return os.path.join(self.assets_dir, "objects", f"{oid}.{_img_ext()}")
 
-    def sheet_path(self, scene_id: str, gen_id: str) -> str:
-        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{_img_ext()}")
+    def sheet_path(self, scene_id: str, gen_id: str = "") -> str:
+        ext = _img_ext()
+        if gen_id:
+            gen_path = os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{ext}")
+            if os.path.isfile(gen_path):
+                return gen_path
+        scene_path = os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}.{ext}")
+        if os.path.isfile(scene_path):
+            return scene_path
+        if gen_id:
+            return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{ext}")
+        return scene_path
 
     def resolve_ref_name(self, name: str) -> str | None:
         """Resolve a ref_images name to a hosted URL.
@@ -493,8 +503,19 @@ def object_prompt_path(run_dir: str, oid: str) -> str:
     return os.path.join(image_prompts_dir(run_dir), "objects", f"{oid}.txt")
 
 
-def sheet_prompt_path(run_dir: str, scene_id: str, gen_id: str) -> str:
-    return os.path.join(image_prompts_dir(run_dir), scene_id, f"storyboard_sheet_{gen_id}.txt")
+def sheet_prompt_path(run_dir: str, scene_id: str, gen_id: str | None = None) -> str:
+    """Path to the storyboard sheet prompt file.
+
+    If a scene-level prompt (storyboard_sheet.txt) exists, returns that.
+    Otherwise returns the per-generation prompt (storyboard_sheet_{gen_id}.txt).
+    """
+    scene_dir = os.path.join(image_prompts_dir(run_dir), scene_id)
+    scene_sheet = os.path.join(scene_dir, "storyboard_sheet.txt")
+    if os.path.isfile(scene_sheet):
+        return scene_sheet
+    if gen_id:
+        return os.path.join(scene_dir, f"storyboard_sheet_{gen_id}.txt")
+    return scene_sheet
 
 
 def parse_ref_images(prompt_text: str) -> tuple[list[str], str]:

@@ -173,22 +173,31 @@ def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
     # Materialize spatial continuity blocks into sheet prompts before generation
     if spatial:
         from tools.spatial_prompt_builder import materialize_sheet_prompt
-        for gen in gens:
-            if gen.get("is_bridge"):
-                continue
-            gid = gen["gen_id"]
-            if gid not in spatial_gens:
-                continue
-            sheet_prompt_path = ip.sheet_prompt_path(reg.run_dir, scene_id, gid)
-            if not os.path.isfile(sheet_prompt_path):
-                continue
-            prompt_text = ip.read_prompt(sheet_prompt_path)
-            if not prompt_text:
-                continue
-            materialized = materialize_sheet_prompt(prompt_text, spatial, sb, gid)
-            with open(sheet_prompt_path, "w", encoding="utf-8") as f:
-                f.write(materialized)
-            print(f"  {scene_id}/{gid}: materialized spatial bible")
+        scene_sheet_path = os.path.join(ip.image_prompts_dir(reg.run_dir), scene_id, "storyboard_sheet.txt")
+        if os.path.isfile(scene_sheet_path):
+            prompt_text = ip.read_prompt(scene_sheet_path)
+            if prompt_text:
+                materialized = materialize_sheet_prompt(prompt_text, spatial, sb, "all")
+                with open(scene_sheet_path, "w", encoding="utf-8") as f:
+                    f.write(materialized)
+                print(f"  {scene_id}: materialized scene-level spatial bible")
+        else:
+            for gen in gens:
+                if gen.get("is_bridge"):
+                    continue
+                gid = gen["gen_id"]
+                if gid not in spatial_gens:
+                    continue
+                sheet_prompt_path = ip.sheet_prompt_path(reg.run_dir, scene_id, gid)
+                if not os.path.isfile(sheet_prompt_path):
+                    continue
+                prompt_text = ip.read_prompt(sheet_prompt_path)
+                if not prompt_text:
+                    continue
+                materialized = materialize_sheet_prompt(prompt_text, spatial, sb, gid)
+                with open(sheet_prompt_path, "w", encoding="utf-8") as f:
+                    f.write(materialized)
+                print(f"  {scene_id}/{gid}: materialized spatial bible")
 
     # Previous sheet for the FIRST generation = last sheet of the previous scene.
     prev_sheet_id: str | None = None

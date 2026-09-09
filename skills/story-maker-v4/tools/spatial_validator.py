@@ -49,6 +49,27 @@ CAMERA_ZOOM_TERMS = (
     "medium_closeup", "closeup", "extreme_closeup",
 )
 
+# Camera angle taxonomy for dynamic cinematic staging.
+CAMERA_ANGLES = (
+    "eye_level",
+    "low_angle",
+    "high_angle",
+    "bird_eye",
+    "birds_eye",
+    "worm_eye",
+    "worms_eye",
+    "side_profile",
+    "profile",
+    "three_quarter",
+    "three_quarter_front",
+    "three_quarter_back",
+    "over_the_shoulder",
+    "dutch_angle",
+    "reverse_shot",
+    "pov",
+    "top_down",
+)
+
 # Regex for parsing coordinate values: x=1920,y=2000,z=0
 _COORD_RE = re.compile(r"[xyz]\s*=\s*(\d+(?:\.\d+)?)", re.I)
 
@@ -261,6 +282,7 @@ def parse_spatial_plan(md: str) -> dict[str, Any]:
                     "camera_zone": kv.get("camera_zone", "").strip(),
                     "camera_facing": kv.get("camera_facing", "").strip(),
                     "camera_zoom": kv.get("camera_zoom", "").strip(),
+                    "camera_angle": kv.get("camera_angle", "").strip().lower(),
                     "character_facing": _parse_character_facing(
                         kv.get("character_facing", "")
                     ),
@@ -620,6 +642,15 @@ def validate_spatial_plan(
                     f"{glabel} shot {shot_num}: camera_zoom '{zoom}' "
                     f"is not valid (use one of: "
                     f"{', '.join(CAMERA_ZOOM_TERMS)})"
+                )
+
+            # Check camera_angle vocabulary
+            angle = sp_shot.get("camera_angle", "")
+            if angle and angle not in CAMERA_ANGLES:
+                res.error(
+                    f"{glabel} shot {shot_num}: camera_angle '{angle}' "
+                    f"is not valid (use one of: "
+                    f"{', '.join(CAMERA_ANGLES)})"
                 )
 
         # Cross-check shots against storyboard if available

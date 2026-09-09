@@ -1,25 +1,26 @@
-# Storyboard sheet spec (one sheet per Minimax generation) — for Agent 4
+# Storyboard sheet spec (one sheet per scene, shared across 2 generations) — for Agent 4
 
 Agent 4 reads this spec and composes ONE GPT Image 2 (Replicate) prompt per
-**generation** that paints that generation's clean panel grid. The prompt text
-is saved to `<run_dir>/image_prompts/<scene>/storyboard_sheet_<gen>.txt`;
+**scene** (`storyboard_sheet.txt`) that paints that scene's clean 6-panel grid (or per-generation
+`storyboard_sheet_<gen>.txt` for single-generation scenes).
+The prompt text is saved to `<run_dir>/image_prompts/<scene>/storyboard_sheet.txt`;
 `build_images.py` dispatches it with the location lock (optional) + previous
-sheet + character sheets as edit references. The sheet is the reference image
-for the Minimax H3 video render, so it must be visually readable and
-continuity-locked.
+sheet + character sheets as edit references. The sheet is attached verbatim
+as `<Picture 1>` for both `g1` and `g2` video renders in Minimax H3.
 
-This is a **spec**, not a fill-in template. Agent 4 turns one generation block
-of `storyboard_<scene>.md` (Agent 3's plan) into a single prompt. The sheet is
-NOT cropped or upscaled — it is attached verbatim as the Minimax H3 reference
-image for that generation's render, so the sheet IS the visual contract:
-composition, framing, character appearance, environment, and sequence
-progression.
+In a 30s scene with 2 generations:
+- **Panels 1, 2, 3 (Left Column)**: Key poses for Generation `g1` (0–15s).
+- **Panels 4, 5, 6 (Right Column)**: Key poses for Generation `g2` (15–30s).
 
-When a `spatial_plan_<scene>.md` exists, `build_images.py` materializes a
-**SPATIAL CONTINUITY BIBLE** at the **top** of the prompt file before the paid
-image call. Agent 4 writes the creative sections (CANVAS, SEQUENCE
-PROGRESSION, PANEL DIRECTIONS, RENDERING STYLE, HARD EXCLUSIONS) and must
-**not** manually author the generated spatial sections.
+This is a **spec**, not a fill-in template. Agent 4 turns the storyboard and spatial plan
+into a single cohesive scene sheet. The sheet is NOT cropped or upscaled — it is attached
+verbatim as `<Picture 1>` in the Minimax H3 video prompts, serving as the definitive visual
+contract: composition, camera angle, character appearance, environment, and temporal progression.
+
+When a `spatial_plan_<scene>.md` exists, `materialize_spatial_prompts.py` (or `build_images.py`)
+materializes a **SPATIAL CONTINUITY BIBLE** at the **top** of the prompt file before the image call.
+Agent 4 writes the creative sections (CANVAS, SEQUENCE PROGRESSION, PANEL DIRECTIONS, RENDERING
+STYLE, HARD EXCLUSIONS) and must **not** manually author the generated spatial sections.
 
 ## Layout (load-bearing — the Minimax render depends on it)
 

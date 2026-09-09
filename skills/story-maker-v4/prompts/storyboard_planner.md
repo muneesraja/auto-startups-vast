@@ -68,15 +68,23 @@ as a `ref_video`. This means:
   folder. Reuse the existing cids and their exact wardrobe. Never invent a new
   `char_NN` not in the manifest.
 - **Shots are contiguous within a generation** and together fill it exactly.
-  For dependable H3 scene production, a typical 15s generation has **3–5
-  purposeful shots**, each **1.5–6.0s**. Reserve denser cutting for a deliberate
-  montage and never add a cut merely for variety. A shot shorter than ~1.0s may
-  be too brief; a shot longer than ~6.0s needs sustained action or camera
-  progression. Exception: tender /
-  dialogue-heavy beats — these can run 6–15s in a single shot with multiple
-  action-motivated camera moves (see the dragon exemplar in
-  `Research/minimax-h3/dragon/story-board-2.md`: 2 shots / 15s, 1 hard cut,
-  3 camera moves inside shot 1).
+- **Dynamic Shot Depth & Duration Planning**: Before assigning cuts, the Director
+  must analyze the scene beats, dialogue, and physical choreography to determine
+  the natural dramatic pacing and shot depth:
+  * **1-Shot Master Take / Oner (10.0s – 15.0s)**: Unbroken continuous action,
+    majestic character entrances, or continuous multi-point tracking shots where
+    cutting would break cinematic immersion or momentum.
+  * **Asymmetric 2-Shot Dynamic (2 shots per 15s)**: Complete dialogue statements
+    and rebuttals (e.g. 9.0s statement + 6.0s rebuttal), or expansive continuous
+    setups followed by punchy reaction reveals (e.g. 11.5s master descent + 3.5s
+    reaction cut; 5.0s confrontation + 10.0s lethal whisper and freeze).
+  * **Dynamic Action Arc (3 shots per 15s)**: High-stakes physical sequences with
+    varying tempo (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
+  * **Rapid Montage (4+ shots per 15s)**: Reserved strictly for high-tempo
+    sequences or rapid-fire montages.
+  * **Never mechanically slice every generation into arbitrary equal intervals.**
+    Vary shot durations organically to establish a living cinematic rhythm
+    (fast-slow-fast, building tension, or sustained emotional hold).
 
 ### Transition grammar (8 values)
 
@@ -138,6 +146,21 @@ the composition has failed. Use `visual_hierarchy` to make the subject
 unmissable. Maintain `screen_direction` across cuts (180° rule — keep
 characters facing the same way shot to shot).
 
+### Depth of field & focus (`focus:` field)
+
+Shots may optionally carry a `focus:` field from the 4-value taxonomy (see
+[`assets/directors-guide.md`](../assets/directors-guide.md) Section 2 and
+[`assets/cinematography-bible.md`](../assets/cinematography-bible.md) Section C-bis):
+
+| `focus` | When to use |
+|---|---|
+| `shallow_focus` | Character intimacy, isolating emotion, blurring busy backgrounds (default) |
+| `deep_focus` | Ensemble staging, environmental context, multiple planes in sharp focus |
+| `rack_focus` | Mid-shot focus shift from foreground to background (or reverse) |
+| `soft_focus` | Dream sequence, memory, nostalgic flashback, hazy trance |
+
+Default if omitted: `shallow_focus`. If using `rack_focus`, describe the focus shift progression in the shot's `action:` micro-beats.
+
 ### Motivated-cut thinking
 
 Before cutting, ask: Does this cut answer a question the previous shot raised?
@@ -177,15 +200,22 @@ Animation principles to apply:
 - **Exaggeration**: push poses beyond realism for emotional clarity
 - **Secondary motion**: cloth, hair, ears, tail follow the primary action with delay
 
-- **`panels`**: each shot claims 1–4 panels of the generation's sheet, showing
-  the shot's key poses in order. Panels are numbered 1..N **column-major**
-  (top-to-bottom within each column, then left-to-right across columns) and
-  each panel belongs to exactly one shot.
+- **1 Scene = 1 Storyboard Sheet = 2 Video Prompts (30s total scene)**:
+  Each 30-second scene is executed through **two 15s video generations** (`g1` and `g2`)
+  anchored by **one 6-panel storyboard sheet** (`storyboard_sheet.txt`, grid `3x2` or `2x3`).
+  `g1` covers Shots 1–2 (Panels 1, 2, 3), and `g2` covers Shots 3–4 (Panels 4, 5, 6)
+  continuing seamlessly from `g1`'s tail video.
+- **`camera_angle`**: mandate dynamic cinematography across shots. Never default
+  monotonously to front eye-level framing. Use one of:
+  `eye_level`, `low_angle`, `high_angle`, `bird_eye`, `worm_eye`, `side_profile`,
+  `three_quarter`, `over_the_shoulder`, `dutch_angle`, `reverse_shot`.
+  Vary angles shot-to-shot: pair a wide high-angle establishing shot with a low-angle
+  hero close-up, a dynamic side-profile tracking shot, or an over-the-shoulder reaction.
+- **`panels`**: each shot claims 1–4 panels of the sheet, showing the shot's key poses
+  in order. Panels are numbered 1..N **column-major** (top-to-bottom within each column,
+  then left-to-right across columns) and each panel belongs to exactly one shot.
   `panel_grid: RxC` must satisfy R*C = total panels (6–12). Default grid is
-  `3x2` (3 rows × 2 columns — left column = beginning, right column = end).
-  For longer generations, use `3x3` (beginning → middle → end across columns).
-  Minimum grid is 2x3 or 3x2 — never smaller. Larger grids (3x3, 2x4, 4x3,
-  etc.) are encouraged for generations with more shots or key poses.
+  `3x2` (3 rows × 2 columns — left column = beginning/g1, right column = end/g2).
 - **`camera`**: describe motion with the Minimax vocabulary (see
   [`assets/minimax-h3-prompt-bible.md`](../assets/minimax-h3-prompt-bible.md)):
   Zoom In/Out, Push In/Pull Out, Pan Left/Right, Truck Left/Right, Tilt
@@ -219,9 +249,11 @@ panels: [1]
 characters_present: [char_01]
 shot_size: extreme_closeup
 composition: visual_hierarchy, negative_space
+focus: shallow_focus
 acting_beat: held breath → eyes widen → curious lean-in
 layout: eye-level macro, face silhouette against dark basement negative space
 screen_direction: held
+camera_angle: eye_level
 action: Extreme close-up on the toddler's wide brown eyes peering curiously into the dark dusty basement.
 camera: Push In fast on eyes.
 audio: Heavy breathing, ambient basement hum.
@@ -235,6 +267,7 @@ composition: leading_lines, depth
 acting_beat: excited bounce → quick waddle-run → glance back
 layout: low tracking position, tiny feet foreground, boxes receding down corridor
 screen_direction: left_to_right
+camera_angle: low_angle
 action: Low-angle tracking shot of the toddler's tiny feet in mismatched socks padding through dust past cardboard boxes.
 camera: Low Angle Tracking Shot at fast speed.
 audio: Soft padding footsteps on dust.
@@ -248,6 +281,7 @@ composition: rule_of_thirds, leading_lines
 acting_beat: reach for canvas → push aside → awestruck pause in gold light
 layout: curtain edge foreground, toddler left third, glowing egg deep midground
 screen_direction: left_to_right
+camera_angle: three_quarter
 action: The toddler pushes aside a hanging canvas sheet; a golden light shaft illuminates a large speckled glowing egg.
 camera: Handheld whip pan right to reveal the glowing egg.
 audio: Fabric rustle, faint magical shimmer hum.

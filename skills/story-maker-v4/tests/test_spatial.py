@@ -1171,3 +1171,65 @@ def test_no_generate_spatial_anchor_function():
     """generate_spatial_anchor should no longer exist in image_pipeline."""
     import tools.image_pipeline as ip
     assert not hasattr(ip, "generate_spatial_anchor")
+
+
+def test_camera_angle_taxonomy_and_prose_rendering():
+    """camera_angle is parsed, validated, and rendered into staging prose."""
+    from tools.spatial_prompt_builder import build_spatial_block
+    from tools.validators import validate_storyboard
+    plan = parse_spatial_plan(VALID_SPATIAL_PLAN)
+    sb = parse_storyboard(STORYBOARD_FOR_SPATIAL)
+
+    # Inject camera_angle into a shot in plan
+    plan["generations"]["g1"]["shots"]["1"]["camera_angle"] = "low_angle"
+    block = build_spatial_block(plan, sb, "g1")
+    assert "low-angle looking up for dramatic scale and presence" in block
+
+    # Verify storyboard validation accepts valid camera_angle
+    sb_md = STORYBOARD_FOR_SPATIAL.replace("camera: Static Shot.", "camera: Static Shot.\ncamera_angle: dutch_angle")
+    parsed_sb = parse_storyboard(sb_md)
+    res = validate_storyboard(sb_md)
+    assert res.ok
+    assert any(s.get("camera_angle") == "dutch_angle" for g in parsed_sb["generations"] for s in g["shots"])
+
+
+def test_scene_level_storyboard_sheet_materialization():
+    """Scene-level storyboard sheet covers multiple generations and validates."""
+    from tools.spatial_prompt_builder import (
+        build_spatial_block, materialize_sheet_prompt, validate_materialized_prompt,
+    )
+    plan = parse_spatial_plan(VALID_SPATIAL_PLAN)
+    sb = parse_storyboard(STORYBOARD_FOR_SPATIAL)
+
+    # Build scene-level block covering g1 and g2
+    block = build_spatial_block(plan, sb, "all")
+    assert "Shot 1" in block
+    assert "Shot 2" in block
+
+    authored = "A shared scene storyboard sheet prompt.\n\nDescription.\n"
+    materialized = materialize_sheet_prompt(authored, plan, sb, "all")
+
+    # Both g1 and g2 pass validation on the shared sheet
+    errors_g1 = validate_materialized_prompt(materialized, plan, sb, "g1")
+    errors_g2 = validate_materialized_prompt(materialized, plan, sb, "g2")
+    errors_all = validate_materialized_prompt(materialized, plan, sb, "all")
+    assert errors_g1 == []
+    assert errors_g2 == []
+    assert errors_all == []
+
+
+def test_sheet_prompt_path_prefers_scene_level(tmp_path):
+    """sheet_prompt_path returns storyboard_sheet.txt if it exists."""
+    import tools.image_pipeline as ip
+    scene_dir = tmp_path / "image_prompts" / "s1"
+    scene_dir.mkdir(parents=True)
+    scene_sheet = scene_dir / "storyboard_sheet.txt"
+    scene_sheet.write_text("scene prompt")
+
+    resolved = ip.sheet_prompt_path(str(tmp_path), "s1", "g1")
+    assert resolved == str(scene_sheet)
+
+    # If scene_sheet does not exist, returns per-gen sheet
+    scene_sheet.unlink()
+    resolved_gen = ip.sheet_prompt_path(str(tmp_path), "s1", "g1")
+    assert resolved_gen == str(scene_dir / "storyboard_sheet_g1.txt")
