@@ -8,15 +8,16 @@ This reference bible provides the complete cinematography, camera grammar, facia
 
 Shot size controls emotional intimacy and spatial context. Vary shot sizes across shots within every generation.
 
-| Shot Size | Abbreviation | Frame Coverage | Dramatic & Emotional Purpose |
-|-----------|--------------|----------------|------------------------------|
-| `extreme_wide` | EWS | Full environment, character occupies < 10% of frame | Establishes geography, loneliness, awe, epic scale, world-building |
-| `wide` | WS | Full environment, characters fully visible with room around | Spatial relationships, staging multiple characters, action flow |
-| `full` | FS | Head to toe, character fills 80-90% vertical frame | Posture, body language, physical locomotion, outfit reveal |
-| `medium` | MS | Waist up | Conversational workhorse, two-character dialogue, hand gestures |
-| `medium_closeup` | MCU | Chest up | Primary acting shot: balances facial emotion with physical posture |
-| `closeup` | CU | Face fills frame (chin to forehead/hairline) | Intimacy, intense realization, emotional vulnerability, micro-acting |
-| `extreme_closeup` | ECU | Single feature (eyes, mouth, trembling hands, prop) | Visceral intensity, high stakes, tactile detail, symbolic anchor |
+| Shot Size | Abbreviation | Frame Coverage | Dramatic & Emotional Purpose | Animation / AI Pipeline Use |
+|-----------|--------------|----------------|------------------------------|-----------------------------|
+| `extreme_wide` | EWS | Full environment, character occupies < 10% of frame | Establishes geography, loneliness, awe, epic scale, world-building | Scene openers — "where are we." Also useful to reset geography after a run of close-ups. Reliable for AI since character detail is minimal. |
+| `wide` | WS | Full environment, characters fully visible with room around | Spatial relationships, staging multiple characters, action flow | Establishing character-in-environment shots. Moderate AI cost — full characters need consistency but environment carries the frame. |
+| `full` | FS | Head to toe, character fills 80-90% vertical frame | Posture, body language, physical locomotion, outfit reveal | Establishing a character's posture, costume, or physical action (fighting, dancing, walking). Moderate AI cost. |
+| `medium` | MS | Waist up | Conversational workhorse, two-character dialogue, hand gestures | Standard conversation shot. Shows some body language (hand gestures) alongside the face. Reliable for AI. |
+| `medium_closeup` | MCU | Chest up | Primary acting shot: balances facial emotion with physical posture | Softer than CU — good for calm dialogue or narration-over-character shots where you want the face readable but less confrontational. Reliable for AI. |
+| `closeup` | CU | Face fills frame (chin to forehead/hairline) | Intimacy, intense realization, emotional vulnerability, micro-acting | Dialogue-heavy emotional scenes, reaction shots. Your workhorse shot for character-driven storytelling. Reliable for AI — isolates face. |
+| `extreme_closeup` | ECU | Single feature (eyes, mouth, trembling hands, prop) | Visceral intensity, high stakes, tactile detail, symbolic anchor | Emotional peaks — a tear, a flinch, a gasp. Also good for building tension before a reveal. Very reliable for AI — isolates detail, avoids full-character consistency issues. |
+| `macro_extreme_closeup` | MECU | Beyond ECU — textures, a single object (ring, droplet, scar) | Product-style or symbolic beats: a key turning, ink spreading on paper | Best-in-class for AI generation — fully isolates detail, zero character consistency demands. Great for insert-style symbolic beats. |
 
 ### Combination & Framing Modifiers
 - **Single**: One character isolated in frame, focusing audience empathy entirely on their internal reaction or state.
@@ -25,8 +26,11 @@ Shot size controls emotional intimacy and spatial context. Vary shot sizes acros
 - **Dirty Single**: Focuses on one primary subject while framing a subtle shoulder, back, or profile of another character in the foreground, grounding spatial proximity.
 - **Clean Single**: Focuses entirely on one subject with zero foreground obstructions or foreign character elements.
 - **Over-the-Shoulder (OTS)**: Camera looks past one character's shoulder/nape at another, anchoring spatial orientation (180° axis).
-- **Insert Shot**: Quick cut to a prop, letter, clock, or mechanical trigger that drives the immediate scene logic.
+- **Insert Shot**: Quick cut to a prop, letter, clock, or mechanical trigger that drives the immediate scene logic. Useful in AI pipelines because you can generate it independently of character consistency.
+- **Low-Angle Insert Shot**: Insert shot filmed from below — gives a small object unexpected weight or menace (e.g., a knife on a table shot from below to feel more threatening).
 - **Cutaway**: Brief cut to an external element or environmental reaction away from the primary characters.
+- **Back Shot**: Camera behind the subject, facing away. Mystery/reveal builder — hides the face, builds anticipation before a turn-around reveal. Also used for quiet, contemplative moments (character looking out at a view). Cheap for AI since no face consistency is needed.
+- **Voyeur Shot**: Framed as if the audience/camera is secretly watching (through a gap, window, foliage). Builds tension or implies surveillance/threat — a stalker's POV, a hidden observer. Use deliberately; it reads as unsettling.
 
 ---
 
@@ -34,20 +38,20 @@ Shot size controls emotional intimacy and spatial context. Vary shot sizes acros
 
 Camera angle dictates power dynamics, psychological tension, and viewer empathy.
 
-| Angle | Physical Setup | Emotional & Psychological Effect |
-|-------|----------------|----------------------------------|
-| `eye_level` | Lens at character's exact eye height | Neutral, intimate, democratic — places the viewer on equal footing with the character |
-| `low_angle` | Lens placed below character looking upward | Power, dominance, heroism, towering presence, or ominous authority |
-| `high_angle` | Lens placed above character looking downward | Vulnerability, helplessness, insignificance, isolation, diminutive scale |
-| `birds_eye` | Directly overhead (90° vertical down) | God's-eye perspective, geometric layout, spatial map, detachment, fate |
-| `worms_eye` | Ground level looking straight up | Extreme scale, towering awe, child-like wonder, dramatic ground impact |
-| `dutch_angle` | Camera tilted off-axis on roll axis (10°–30°) | Psychological disquiet, madness, vertigo, physical instability, impending crisis |
-| `over_the_shoulder` | Past one subject's shoulder toward another | Conversational grounding, perspective alignment, subjective confrontation |
-| `pov` | Exactly where the character's eyes are | Total immersion, raw subjectivity, terror, firsthand discovery |
-| `three_quarter_front` | 45° offset from straight front | The cinematic default: provides three-dimensional depth, facial curvature, and body volume |
-| `three_quarter_back` | 45° offset from behind | Mystery, impending journey, contemplation, observation without engagement |
-| `profile` | Strict 90° side view | Graphic silhouette, equal standoff, parallel motion tracking, emotional detachment |
-| `top_down` | Overhead flat tabletop view | Ritual, sorting, tactile interaction, meal, map inspection, craft |
+| Angle | Physical Setup | Emotional & Psychological Effect | Animation / AI Pipeline Use |
+|-------|----------------|----------------------------------|-----------------------------|
+| `eye_level` | Lens at character's exact eye height | Neutral, intimate, democratic — places the viewer on equal footing with the character | Default for most dialogue — doesn't editorialize. Reliable for AI. |
+| `low_angle` | Lens placed below character looking upward | Power, dominance, heroism, towering presence, or ominous authority | Villain entrances, hero triumphant poses. Good for AI — character foreshortening is stylistic, not a defect. |
+| `high_angle` | Lens placed above character looking downward | Vulnerability, helplessness, insignificance, isolation, diminutive scale | Moments of defeat or isolation. Reliable for AI — character is small in frame. |
+| `birds_eye` | Directly overhead (90° vertical down) | God's-eye perspective, geometric layout, spatial map, detachment, fate | Shows spatial layout — a maze, a battlefield, a city. Risky for AI if full characters are visible (body distortion). |
+| `worms_eye` | Ground level looking straight up | Extreme scale, towering awe, child-like wonder, dramatic ground impact | Dramatic, disorienting — towering buildings, a giant creature. Risky for AI with full characters (spatial/identity drift). |
+| `dutch_angle` | Camera tilted off-axis on roll axis (10°–30°) | Psychological disquiet, madness, vertigo, physical instability, impending crisis | Used sparingly for psychological tension or altered states. Reliable for AI — tilt is a simple camera property. |
+| `over_the_shoulder` | Past one subject's shoulder toward another | Conversational grounding, perspective alignment, subjective confrontation | Standard for conversations — keeps both characters' spatial relationship clear. Moderate AI cost (two characters). |
+| `pov` | Exactly where the character's eyes are | Total immersion, raw subjectivity, terror, firsthand discovery | Immersive beats — waking up, seeing something for the first time. Reliable for AI since it drops full-character rendering. |
+| `three_quarter_front` | 45° offset from straight front | The cinematic default: provides three-dimensional depth, facial curvature, and body volume | Workhorse framing for animation. Reliable for AI — best balance of facial detail and body volume. |
+| `three_quarter_back` | 45° offset from behind | Mystery, impending journey, contemplation, observation without engagement | Cheap for AI — no face consistency needed. Good for contemplative walking shots. |
+| `profile` | Strict 90° side view | Graphic silhouette, equal standoff, parallel motion tracking, emotional detachment | Good for silhouette-style drama or showing two characters facing off. Reliable for AI. |
+| `top_down` | Overhead flat tabletop view | Ritual, sorting, tactile interaction, meal, map inspection, craft | Great for tabletop action: maps, food prep, hands assembling. Very reliable for AI — avoids full-character framing. |
 
 ---
 
@@ -361,3 +365,44 @@ Audio: [Detailed soundscape: Foley, environment acoustics, vocalizations or <d>[
 SHOT 2 — X.X–Y.Ys (Continuous Shot)
 ...
 ```
+
+---
+
+## Section J — Pipeline Cost Heuristic (AI Generation Reliability)
+
+Since the pipeline generates via Minimax H3/ComfyUI with character-consistency constraints, some shots are cheaper and more reliable to generate than others. Use this heuristic when planning storyboards — prefer reliable shots for continuity-critical moments, and budget expensive shots for hero beats where the visual payoff justifies the risk.
+
+### Cheap / Reliable (prefer for continuity-critical or high-volume shots)
+
+| Shot Type | Why It's Reliable |
+|-----------|-------------------|
+| Insert shots (`extreme_closeup`, `macro_extreme_closeup`) | Isolate a single object or detail — no full-character identity to maintain |
+| Top-down / tabletop shots | Avoids full-character framing entirely; hands and objects only |
+| Back shots / `three_quarter_back` | Character visible but face hidden — no facial consistency demands |
+| POV shots | Camera becomes the character's eyes — no character rendering at all |
+| ECU on face | Isolates facial detail in a tight crop — consistency is easier when there's only one face filling the frame |
+| Profile silhouettes | Graphic shape, not detailed features — tolerant of minor AI drift |
+| Wide / extreme_wide establishing shots | Character is < 10% of frame — environment carries the shot, identity consistency is nearly invisible |
+
+### Moderate Cost (standard production shots)
+
+| Shot Type | Considerations |
+|-----------|----------------|
+| Medium / medium_closeup singles | One character, chest-up or waist-up — the AI workhorse. Reliable if character descriptions are locked. |
+| Two-shots (medium) | Two characters in frame — moderate consistency demands. Keep character separation clean. |
+| OTS (over-the-shoulder) | One character partially visible (shoulder/back), one facing camera — foreground character needs less detail. |
+| Low-angle / high-angle singles | One character with dramatic perspective — generally reliable, mild foreshortening risk. |
+
+### Expensive / Risky (budget for hero beats only)
+
+| Shot Type | Why It's Risky |
+|-----------|----------------|
+| 360° arc shots | Camera circles the subject — identity and spatial consistency must hold across 360° of rotation. Highest artifact risk (warping, drift). |
+| Full-body tracking shots | Camera moves alongside a walking/running character — sustained identity + locomotion + environment consistency across many frames. |
+| Worm's-eye / bird's-eye with full characters | Extreme angles with complete character bodies visible — spatial distortion and identity drift are common AI artifacts. |
+| Group shots (3+ characters, full body) | Multiple characters need simultaneous identity consistency — each additional character multiplies the failure surface. |
+| Crane / aerial with characters | Camera moves through 3D space while maintaining character detail — combines movement artifacts with consistency demands. |
+
+### Decision Rule for Agents
+
+> When in doubt, **prefer a cheap shot that tells the story over an expensive shot that looks impressive but risks artifacts.** Reserve expensive shots for the 1–2 hero beats per scene where visual spectacle is the narrative point. For continuity-critical generation boundaries (g1→g2 handoffs), default to reliable shots — a clean handoff matters more than a flashy angle.
