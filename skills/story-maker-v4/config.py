@@ -71,7 +71,9 @@ MINIMAX_ASPECT = os.getenv("MINIMAX_ASPECT", "16:9")
 # ---------------------------------------------------------------------------
 
 DEFAULT_IMAGE_PROVIDER = "replicate"
-GROK_REPLICATE_MODEL = os.getenv("GROK_REPLICATE_MODEL", "openai/gpt-image-2")
+GROK_REPLICATE_MODEL = os.getenv(
+    "GROK_REPLICATE_MODEL", "openai/gpt-image-2.5-sunburst"
+)
 # Fallback quality when a call does not pass quality= explicitly
 REPLICATE_IMAGE_QUALITY = os.getenv("REPLICATE_IMAGE_QUALITY", "low")
 # Sheet assets (character + storyboard): medium quality, 4K pixel enums from Replicate
