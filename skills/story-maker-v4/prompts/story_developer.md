@@ -36,9 +36,32 @@ into scenes.
   stand, what they touch, how the light shifts. Never write inner thoughts. A
   character's fear is shown by trembling hands, wide eyes, a step backward — not
   by "she felt afraid."
-- **Anti-sameness.** Do NOT pad with repeated walk/run/chase loops. Every beat must
-  advance character, conflict, or stakes. Consecutive beats must differ in setting,
-  cast, or emotional register.
+- **Unbound Storytelling Standards (MANDATORY).** Eliminate sanitized AI prose, polite
+  textbook dialogue, and abstract emotion labels. Follow
+  [`assets/unbound-storytelling-guide.md`](../assets/unbound-storytelling-guide.md):
+  - **Physicalize Subtext:** Show emotion through involuntary anatomical reactions (jaw
+    clench, pupil dilation, white knuckles, skidding boots) rather than adjectives.
+  - **Authentic Vernacular:** Characters speak in fast, clipped, colloquial bursts with
+    regional flavor, interruptions, and subtextual humor—never sterile polite grammar.
+  - **Elastic Tempo:** Frantic acceleration → sudden mechanical snap → dead acoustic
+    vacuum → comedic or dramatic payoff.
+  - **Tactile Worldbuilding:** Anchor every beat in 2+ non-visual senses (smell of charred
+    iron, sizzling oil, cold draft, metallic clang).
+  - **Earned Warmth:** Ban moralizing lectures; express bonds through teasing, swagger,
+    and shared actions.
+- **Prop Allocation & Dining Ergonomics (MANDATORY).** When writing scenes involving meals, food, drinks, or tool usage:
+  - **Individual Portions:** Always allocate **individual vessels/portions** (e.g. "two steaming ceramic bowls, one placed squarely in front of each brother") when multiple characters eat simultaneously.
+  - **Ban Single-Vessel Cramming:** Never depict multiple characters eating out of a single shared bowl/plate simultaneously—this causes severe visual entanglement and model rendering artifacts.
+  - **Serving vs. Eating:** Distinguish between *Serving* (placing down separate bowls or serving from a pot) and *Eating* (each character interacting with their own bowl and utensils).
+  - Exception: A single object is permitted only when the explicit plot point is an unresolved tug-of-war conflict over one physical item.
+- **Dialogue Progression & Anti-Stutter (Status Quo Pivot).**
+  - **No Circular Dialogue:** Dialogue and character reactions must never repeat the same rhetorical accusation, defense, or argument across consecutive beats or cuts (e.g., if boys blame each other in Beat 1, they must NOT repeat "He broke it! / No, he broke it!" in Beat 2).
+  - **Authority Arrival Pivot:** When a new character enters (parent, authority, rival), characters freeze, drop the previous squabble, and pivot immediately to an appeal, plea, excuse, or bargaining (e.g., looking at Mom with wide pleading eyes asking for a replacement toy or food).
+  - **Knowing Response & Swagger:** The arriving character responds with knowing swagger or maternal insight ("I know what you two really want"), immediately propelling the story forward into the next action or resolution.
+- **Commercial Button & Slogan Delivery Arc (for Branded Stories/Ads).**
+  - When a product slogan, tagline, or commercial button is required, dedicate a clear 10-second beat/generation for the payoff.
+  - Structure the beat: brief setup (1.5–2s) → slogan delivered in natural colloquial character voice inside `<d>[Language] ...</d>` with parental warmth/swagger (4–6s) → satisfying sensory crunch and visual hold/smile button (2–3s).
+  - Integrate brand lines into the character's living vernacular rather than reciting stiff corporate ad copy.
 - **Anime/cartoon production thinking.** Before prose expansion, choose a concrete
   production target: line/edge treatment, shape language, color script, background
   finish, and animation timing model (full, limited, smear, held pose). Give each

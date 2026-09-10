@@ -85,14 +85,18 @@ Consult [`assets/cinematography-bible.md`](../assets/cinematography-bible.md) fo
    - Follow the anatomical reaction chain: **Stimulus → Freeze → Eyes (Section F.1) → Brows (Section F.2) → Mouth (Section F.3) → Head (Section F.4) → Body (Section F.5) → Secondary Motion**.
    - Example: *"Freezes mid-reach as amber eyes widen, brows lift in arched wonder, mouth parts softly in a breathy gasp, head tilts curiously, and her fingers gently curl forward while her braids swing forward over her shoulder and settle."*
 
-3. **Multi-Angle Variety (MANDATORY)**:
-   - Avoid monotonous front eye-level framing across adjacent shots.
-   - Jump across the spatial circle: follow an eye-level wide with a low-angle medium close-up, a high-angle over-the-shoulder, or a profile tracking shot.
+3. **Dynamic Cinematography Rule (MANDATORY)**:
+   - Avoid monotonous front eye-level framing across cuts.
+   - Every shot must have an intentional camera angle (`low_angle`, `high_angle`, `worm_eye`, `bird_eye`, `side_profile`, `three_quarter`, `dutch_angle`, `over_the_shoulder`, `pov`, `reverse_shot`).
+   - Static eye-level framing repeated across cuts triggers an anti-monotony warning in the validator.
+   - Jump across the spatial circle: follow a high-angle wide establishing shot with a low-angle medium close-up, a dynamic side-profile tracking shot, or a canted dutch-angle tumble.
+   - Every shot must feature motivated camera movement (`Tracking Shot`, `Push In`, `Pull Out`, `Crane Up/Down`, `Arc Shot`, `Tilt Up/Down`, `Whip Pan`). Monotonous static shots repeated across cuts trigger an anti-monotony warning in the validator.
    - Every cut must add new visual or narrative information.
 
-4. **Dynamic Shot Depth & Duration**:
+4. **Dynamic Shot Depth & Duration (1-Shot Master Oners & Asymmetric Cuts)**:
    - Timeline shot counts and durations must match the dynamic storyboard exactly.
-   - Support the full dynamic range: from a 15.0s unbroken master take (oner), to an asymmetric 2-shot dynamic (e.g. 11.5s master + 3.5s reaction; 9.0s dialogue + 6.0s response), to a 3-shot action arc (e.g. 6.0s + 2.5s + 6.5s).
+   - Support the full dynamic range: from an unbroken 15.0s master take (oner), to an asymmetric 2-shot dynamic (e.g. 11.5s master + 3.5s reaction; 9.0s dialogue + 6.0s response), to a 3-shot action arc (e.g. 6.0s + 2.5s + 6.5s).
+   - **For a 1-Shot Master Take (10.0s–15.0s)**: Write the entire timeline under `[Shot 1]` with NO cut timestamps. Describe continuous, motivated camera movement that tracks the action throughout the full 15s duration (e.g. tracking alongside characters, curving down a chute, dynamic crane/tilt) with seamless unbroken Foley, soundscape, and dialogue.
    - Never mechanically chop generations into uniform slices. The duration must fit the physical action and emotional beats.
 
 5. **Target Depth & Word Count**:
@@ -104,18 +108,30 @@ Consult [`assets/cinematography-bible.md`](../assets/cinematography-bible.md) fo
    - Never use commercial studio brand names like `"Pixar-quality"` or `"Disney style"`.
    - Describe concrete craft, medium, texture, and lighting instead: `"Hand-painted digital 2D storybook illustration with rich watercolor wash and textured gouache brushwork."`
 
-6. **Dialogue Formatting**:
+7. **Dialogue Formatting & Authentic Vernacular**:
    - Stable speaker IDs: `(S1)`, `(S2)` in order of first vocal event.
    - Delivery instructions outside tags, spoken words inside `<d>[Language] ...</d>`:
      `Emily (S1) smiles and whispers, <d>[English] Look at that!</d>`
    - Dialogue crossing cuts: use `<scenetrans>` at connecting points.
    - Voiceover: `speaks in an off-screen voiceover: <d>[English] ...</d> while lips remain closed.`
+   - Follow [`assets/unbound-storytelling-guide.md`](../assets/unbound-storytelling-guide.md): dialogue must use rapid, colloquial rhythm, authentic regional expressions, and comedic/dramatic subtext—never polite textbook AI prose.
+   - **Anti-Repetition & Authority Pivot:** Dialogue must never repeat identical accusations or lines across cuts (e.g. ban repeating "He broke it! / No! He broke it!"). When an authority enters, characters pivot to pleading/asking for what they want, and the authority answers with knowing swagger ("I know what you two really want").
+   - **Commercial Button Delivery:** For brand slogans or commercial buttons (5.0–10.0s), frame the speaker in a warm medium shot holding the hero product naturally, delivering the motto in authentic vernacular followed by a satisfying sensory crunch and hold.
 
-7. **Audio Direction**:
-   - Each SHOT must have its own dedicated `Audio:` line specifying Foley, acoustics, environment ambiance, and vocal sounds.
+8. **Audio Direction (Tactile Foley)**:
+   - Each SHOT must have its own dedicated `Audio:` line specifying tactile Foley (scraping metal, sizzling fat, strained tin, boots on diamond plate), acoustics (reverb, echoing hollow room), environment ambiance, and vocal sounds.
 
-8. **Spatial Geography Contract**:
+9. **Spatial Geography Contract**:
    - When a `spatial_plan_<scene>.md` exists, fold landmark relationships, zone positions, and character facing directly into the prose. Respect the 180° screen direction rule.
+
+10. **Prop Allocation & Dining Ergonomics (MANDATORY)**:
+    - In timeline shot descriptions, explicitly specify **individual props/vessels** when multiple characters eat, drink, or use tools (e.g., "Two separate steaming noodle bowls are placed on the table, one directly before Lebo frame-left and one before Thabo frame-right. Each boy eats from his own bowl with his own chopsticks").
+    - **Never depict multiple characters eating out of a single shared bowl simultaneously** to prevent limb entanglement and AI visual collapse.
+
+11. **Unbound Storytelling Standards (MANDATORY)**:
+    - Follow [`assets/unbound-storytelling-guide.md`](../assets/unbound-storytelling-guide.md). Eliminate sanitized AI tropes.
+    - Physicalize all subtext using involuntary anatomical micro-reactions (`Stimulus -> Freeze -> Ocular -> Brow/Mouth -> Posture -> Secondary Motion`).
+    - Structure kinetic pacing: frantic acceleration → sudden mechanical snap → dead acoustic silence → comedic or dramatic payoff.
 
 ---
 

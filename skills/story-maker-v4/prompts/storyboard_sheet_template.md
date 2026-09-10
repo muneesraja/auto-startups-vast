@@ -9,8 +9,11 @@ sheet + character sheets as edit references. The sheet is attached verbatim
 as `<Picture 1>` for both `g1` and `g2` video renders in Minimax H3.
 
 In a 30s scene with 2 generations:
-- **Panels 1, 2, 3 (Left Column)**: Key poses for Generation `g1` (0–15s).
-- **Panels 4, 5, 6 (Right Column)**: Key poses for Generation `g2` (15–30s).
+- **Panels 1, 2, 3 (Left Column)**: Key narrative milestones for Generation `g1` (0–15s).
+  * If `g1` is a **1-Shot Master Take / Oner** (10.0s–15.0s unbroken continuous take), Panels 1, 2, and 3 depict the progressive temporal milestones of that single continuous take: opening staging (Panel 1), mid-take action peak/dynamic progression (Panel 2), and concluding settle (Panel 3).
+  * If `g1` is an **asymmetric 2-shot**, panels map proportionally to duration (e.g. Panels 1 & 2 for a 10s setup, Panel 3 for a 5s reaction).
+  * If `g1` is a **3-shot dynamic action arc**, each shot claims its dedicated key panel.
+- **Panels 4, 5, 6 (Right Column)**: Key narrative milestones for Generation `g2` (15–30s) following the exact same story-driven allocation.
 
 This is a **spec**, not a fill-in template. Agent 4 turns the storyboard and spatial plan
 into a single cohesive scene sheet. The sheet is NOT cropped or upscaled — it is attached
@@ -115,12 +118,16 @@ attached separately. This section is only for the in-shot identity lock.
 
 ### 4. PROP CONTINUITY
 
-If the scene has important props (e.g. a toy clay pot, a stick, a lantern):
+If the scene has important props (e.g. a toy clay pot, a stick, a lantern, food vessels):
 
 - List the prop and its appearance.
 - State when it first appears and how it persists across panels.
 - Note any transformations (shatters, drops, etc.) and in which panel they
   happen.
+- **Multi-Character Prop Ergonomics (MANDATORY)**:
+  - If multiple characters are eating, drinking, or using tools, **allocate distinct individual props/vessels** (e.g., "Two separate steaming ceramic bowls, one placed squarely in front of Lebo frame-left and one in front of Thabo frame-right, each boy holding his own wooden chopsticks").
+  - **Never prompt multiple characters eating out of a single shared bowl simultaneously**—this creates limb distortion, merged hands, and spatial chaos.
+  - Distinguish between a serving vessel (e.g. Mom holding a central pot or delivering bowls) and the eating vessels (two separate bowls on the table).
 
 ### 5. CONTINUITY RULES
 

@@ -68,23 +68,36 @@ as a `ref_video`. This means:
   folder. Reuse the existing cids and their exact wardrobe. Never invent a new
   `char_NN` not in the manifest.
 - **Shots are contiguous within a generation** and together fill it exactly.
-- **Dynamic Shot Depth & Duration Planning**: Before assigning cuts, the Director
+- **Dynamic Shot Depth & Story-First Pacing (MANDATORY)**: Before assigning cuts, the Director
   must analyze the scene beats, dialogue, and physical choreography to determine
   the natural dramatic pacing and shot depth:
-  * **1-Shot Master Take / Oner (10.0s – 15.0s)**: Unbroken continuous action,
-    majestic character entrances, or continuous multi-point tracking shots where
-    cutting would break cinematic immersion or momentum.
-  * **Asymmetric 2-Shot Dynamic (2 shots per 15s)**: Complete dialogue statements
-    and rebuttals (e.g. 9.0s statement + 6.0s rebuttal), or expansive continuous
-    setups followed by punchy reaction reveals (e.g. 11.5s master descent + 3.5s
-    reaction cut; 5.0s confrontation + 10.0s lethal whisper and freeze).
-  * **Dynamic Action Arc (3 shots per 15s)**: High-stakes physical sequences with
-    varying tempo (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
-  * **Rapid Montage (4+ shots per 15s)**: Reserved strictly for high-tempo
-    sequences or rapid-fire montages.
-  * **Never mechanically slice every generation into arbitrary equal intervals.**
-    Vary shot durations organically to establish a living cinematic rhythm
-    (fast-slow-fast, building tension, or sustained emotional hold).
+  * **1-Shot Master Take / Oner (10.0s – 15.0s)**: When the narrative beat is a continuous
+    physical sequence (e.g., continuous sliding down a cavern, sovereign entrance, unbroken
+    falling action, high-stakes continuous tracking, or sustained emotional dialogue), the shot
+    **MUST NOT be cut**. Author it as an unbroken single-shot Master Take (10.0–15.0s) filling
+    the entire generation.
+  * **Asymmetric 2-Shot Dynamic (2 shots per 15s)**: Unequal dramatic division based on
+    action/reaction or statement/rebuttal (e.g. 11.5s setup + 3.5s punchy reaction reveal;
+    9.0s statement + 6.0s rebuttal; 5.0s confrontation + 10.0s lethal whisper and freeze).
+  * **Dynamic Action Arc (3 shots per 15s)**: High-stakes physical sequences with varying tempo
+    (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
+  * **Rapid Montage (4+ shots per 15s)**: Reserved strictly for high-tempo preparation,
+    chaotic impacts, or rapid flashbacks.
+  * **STRICT PROHIBITION**: Never mechanically slice every generation into arbitrary equal intervals
+    (e.g. 2 equal 7.5s slices or 4 equal 3.75s slices). Never default blindly to 2 shots per generation
+    or 4 shots per scene. Vary shot durations organically to establish a living cinematic rhythm.
+- **Multi-Character Prop Staging & Separation (MANDATORY)**:
+  * When multiple characters are dining, eating, or using tools simultaneously, **allocate individual props/vessels** in distinct spatial zones (e.g. "two steaming ceramic noodle bowls, one positioned directly in front of each brother").
+  * In `action:` describe each character interacting with their own dedicated prop and utensils (e.g., "Lebo scoops noodles from his bowl frame-left; Thabo holds his bowl frame-right with both hands").
+  * **Never stage multiple characters eating out of one single bowl simultaneously**—this creates visual crowding and limb distortion in image/video generation. (Single props are strictly reserved for physical tug-of-war conflict).
+- **Dialogue Progression & Anti-Loop Rule**:
+  * Dialogue must move forward with every cut. Never repeat the same blame, accusation, or question across consecutive shots (e.g., do not repeat "He broke it! / No, he broke it!" when a parent enters after an argument).
+  * **Authority Arrival Pivot:** When an authority figure enters, immediately pivot the dialogue from mutual squabbling to a shared plea, appeal, excuse, or silence, allowing the newcomer to deliver a knowing, witty response ("I know what you two really want") that triggers the resolution.
+- **10-Second Commercial Button Formula (for Branded Stories/Ads)**:
+  * Structure commercial button generations (10.0–15.0s total) for maximum brand elegance and authentic swagger:
+    - **Shot 1 (Setup & Hook, 2.0–3.0s)**: Characters reacting, smelling food, or locking eyes with the hero product.
+    - **Shot 2 (Authentic Slogan / Maternal Swagger, 5.0–7.0s)**: Speaker delivers the core tagline/motto in natural, regional vernacular inside `dialogue:` with confident posture and warm lighting.
+    - **Shot 3 (Sensory Crunch / Brand Button, 3.0–5.0s)**: Close-up on the hero product/satisfying crunch, beaming smile, and held brand tableau.
 
 ### Transition grammar (8 values)
 
@@ -200,30 +213,38 @@ Animation principles to apply:
 - **Exaggeration**: push poses beyond realism for emotional clarity
 - **Secondary motion**: cloth, hair, ears, tail follow the primary action with delay
 
-- **1 Scene = 1 Storyboard Sheet = 2 Video Prompts (30s total scene)**:
-  Each 30-second scene is executed through **two 15s video generations** (`g1` and `g2`)
-  anchored by **one 6-panel storyboard sheet** (`storyboard_sheet.txt`, grid `3x2` or `2x3`).
-  `g1` covers Shots 1–2 (Panels 1, 2, 3), and `g2` covers Shots 3–4 (Panels 4, 5, 6)
-  continuing seamlessly from `g1`'s tail video.
-- **`camera_angle`**: mandate dynamic cinematography across shots. Never default
-  monotonously to front eye-level framing. Use one of:
-  `eye_level`, `low_angle`, `high_angle`, `bird_eye`, `worm_eye`, `side_profile`,
-  `three_quarter`, `over_the_shoulder`, `dutch_angle`, `reverse_shot`.
-  Vary angles shot-to-shot: pair a wide high-angle establishing shot with a low-angle
-  hero close-up, a dynamic side-profile tracking shot, or an over-the-shoulder reaction.
+- **Scene, Generation & Panel Grid Relationship**:
+  * A standard 30-second scene is executed through **two 15s video generations** (`g1` and `g2`),
+    anchored by a 6-panel storyboard sheet (`storyboard_sheet.txt`, grid `3x2` or `2x3`).
+  * Panels 1, 2, 3 (left column) anchor `g1`; Panels 4, 5, 6 (right column) anchor `g2`.
+  * **Inside each generation, shot count and durations are dictated solely by narrative necessity**:
+    - **1-Shot Master Oner (10.0s–15.0s)**: Claims all panels allocated to that generation (e.g. `panels: [1, 2, 3]`
+      for g1, or `[4, 5, 6]` for g2, or `[1, 2, 3, 4, 5, 6]` in a single-generation scene). The panels depict the
+      shot's progressive milestones: opening staging, mid-take action peak, and concluding settling pose.
+    - **Asymmetric 2-Shot**: Claims panels proportionally (e.g. Shot 1 gets `panels: [1, 2]`, Shot 2 gets `panels: [3]`).
+    - **Dynamic 3-Shot Arc**: Each shot claims its dedicated panel (`panels: [1]`, `panels: [2]`, `panels: [3]`).
+  * **Strictly forbid defaulting to mechanical 2 shots per generation or 4 shots per scene.**
+- **Dynamic Cinematography Rule (MANDATORY)**:
+  * Every shot must have an intentional camera angle from the taxonomy:
+    `eye_level`, `low_angle`, `high_angle`, `bird_eye`, `worm_eye`, `side_profile`,
+    `three_quarter`, `over_the_shoulder`, `dutch_angle`, `reverse_shot`.
+  * **Static eye-level framing repeated across cuts triggers an anti-monotony warning in the validator.**
+    Never default monotonously to front eye-level framing.
+  * Pair contrasting, motivated camera angles shot-to-shot: pair a wide high-angle establishing
+    shot with a low-angle hero close-up, a dynamic side-profile tracking shot, or a worm's-eye ground
+    perspective followed by a canted dutch-angle tumble.
+- **Motivated Camera Movement (MANDATORY)**:
+  * Every shot must feature motivated camera movement using the Minimax vocabulary (see
+    [`assets/minimax-h3-prompt-bible.md`](../assets/minimax-h3-prompt-bible.md)):
+    `Tracking Shot`, `Push In`, `Pull Out`, `Crane Up/Down`, `Arc Shot`, `Tilt Up/Down`, `Whip Pan`,
+    `Pedestal Up/Down`, `Zoom In/Out` — optionally with amplitude (`with small/large amplitude`)
+    and speed (`at slow/fast speed`).
+  * **Monotonous static camera shots repeated across cuts trigger an anti-monotony warning in the validator.**
 - **`panels`**: each shot claims 1–4 panels of the sheet, showing the shot's key poses
-  in order. Panels are numbered 1..N **column-major** (top-to-bottom within each column,
-  then left-to-right across columns) and each panel belongs to exactly one shot.
-  `panel_grid: RxC` must satisfy R*C = total panels (6–12). Default grid is
+  in order (or 1–6 panels for single-shot master oners). Panels are numbered 1..N **column-major**
+  (top-to-bottom within each column, then left-to-right across columns) and each panel belongs
+  to exactly one shot. `panel_grid: RxC` must satisfy R*C = total panels (6–12). Default grid is
   `3x2` (3 rows × 2 columns — left column = beginning/g1, right column = end/g2).
-- **`camera`**: describe motion with the Minimax vocabulary (see
-  [`assets/minimax-h3-prompt-bible.md`](../assets/minimax-h3-prompt-bible.md)):
-  Zoom In/Out, Push In/Pull Out, Pan Left/Right, Truck Left/Right, Tilt
-  Up/Down, Pedestal Up/Down, Arc Shot, Tracking Shot, Static Shot, Shake
-  Slightly/Strongly, POV, Roll Clockwise/Counterclockwise — optionally with
-  amplitude (`with small/large amplitude`) and speed (`at slow/fast speed`).
-  Multi-move shots are fine ("begin with a handheld tracking shot behind the
-  baby, then arc around to a front three-quarter angle").
 - **`characters_present` ⊆ scene `cast`.** Never invent a `char_NN` not in the
   scene's cast.
 - **`audio` is real.** Minimax generates native stereo audio — plan the
@@ -346,12 +367,15 @@ panel_grid: 2x3
 ### Shot 1 — 15.0-27.0s (continuous)
 panels: [1, 2, 3, 4, 5, 6]
 characters_present: [char_01, char_02]
+shot_size: medium
+composition: center, depth
+camera_angle: three_quarter
 acting_beat: cautious approach → gentle pet → mutual settle
 layout: quiet two-shot in dusty light, characters low-center
 screen_direction: held
-action: ...
-camera: Static Shot, then Zoom In with small amplitude at slow speed.
-audio: ...
+action: Unbroken continuous master take: the toddler approaches cautiously, gently pets the baby dinosaur's snout, and they settle together in the golden light.
+camera: Tracking Shot moving slowly inward, then Push In with small amplitude at slow speed.
+audio: Soft rustle of clothing, gentle dino purr, warm atmospheric ambient tone.
 dialogue:
 
 ## Scene-end handoff -> scene s2

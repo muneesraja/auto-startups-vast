@@ -722,6 +722,9 @@ The following operational addenda are maintained with this skill:
 - **MiniMax H3:** `references/minimax-h3-discovery-2026-08-03.md` — H3 model
   manifest, ComfyUI v0.30.0+ floor, core-node detection, native audio, and
   subgraph quirks.
+- **MiniMax H3 style LoRAs:** `references/minimax-h3-style-lora-discovery-2026-09-04.md`
+  — how to enumerate H3-native adapters (Flux/SDXL LoRAs do NOT load), the
+  vetted illustration-style manifest, and the LoraLoaderModelOnly chain wiring.
 - **GetNode/SetNode:** `references/comfyui-bus-node-bug-2026-07-23.md` and
   `scripts/fix_get_set_nodes.py` — detect and rewrite frontend-only bus nodes
   into direct links before provisioning.

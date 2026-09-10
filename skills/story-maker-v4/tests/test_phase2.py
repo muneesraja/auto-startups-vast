@@ -2029,3 +2029,399 @@ def test_build_character_sheet_prompt_realistic():
     assert "Negative prompt:" in prompt
     assert "airbrushed, plastic skin, cgi" in prompt
 
+
+# --- Story-First Dynamic Pacing & Dynamic Cinematography Tests -----------------
+
+def test_validate_storyboard_single_shot_master_oner_passes():
+    """A 15.0s single-shot master oner take must validate cleanly without warnings."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Cavern Descent
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01]
+        location_ref_id: loc_cavern
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-15.0s (continuous)
+        panels: [1, 2, 3, 4, 5, 6]
+        characters_present: [char_01]
+        shot_size: wide
+        composition: leading_lines, depth
+        camera_angle: dutch_angle
+        focus: deep_focus
+        acting_beat: slide entry → banking turn → safe landing
+        layout: limestone chute banking left to right, character centered in frame
+        screen_direction: left_to_right
+        action: Unbroken continuous master take: Ethan slides down the twisting limestone chute, banking high on the curves.
+        camera: Tracking Shot moving parallel to Ethan at fast speed.
+        audio: Whooshing cavern air, friction on stone, joyful echo.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: energetic
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok, res.errors
+    assert not res.warnings, res.warnings
+
+
+def test_validate_storyboard_asymmetric_shots_passes():
+    """Asymmetric cuts with contrasting angles must validate with zero warnings."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Confrontation
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01, char_02]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-11.0s (continuous)
+        panels: [1, 2, 3, 4]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: rule_of_thirds, depth
+        camera_angle: low_angle
+        focus: deep_focus
+        acting_beat: slow advance → determined halt → firm demand
+        layout: Ethan stands grounded foreground right
+        screen_direction: left_to_right
+        action: Ethan steps forward deliberately across the stone floor, coming to a firm stop with hands on his hips.
+        camera: Tracking Shot slowly moving toward Ethan.
+        audio: Heavy deliberate boots on stone, echoing hall ambience.
+        dialogue: char_01: "We go together."
+
+        ### Shot 2 — 11.0-15.0s (reaction_cut)
+        panels: [5, 6]
+        characters_present: [char_02]
+        shot_size: closeup
+        composition: center, visual_hierarchy
+        camera_angle: high_angle
+        focus: shallow_focus
+        acting_beat: breath caught → blinking shock → nod
+        layout: Lily framed center, soft light on face
+        screen_direction: right_to_left
+        action: Lily blinks in sudden surprise, her expression softening into an understanding nod.
+        camera: Push In fast on Lily's face.
+        audio: Soft gasp, quiet breathing.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01, char_02]
+        mood: determined
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok, res.errors
+    assert not res.warnings, res.warnings
+
+
+def test_validate_storyboard_consecutive_eye_level_warns():
+    """Consecutive shots repeating eye_level camera angles must trigger an anti-monotony warning."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Static Test
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-7.0s (continuous)
+        panels: [1, 2, 3]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: rule_of_thirds
+        camera_angle: eye_level
+        acting_beat: look left → turn → reach
+        layout: character center
+        screen_direction: left_to_right
+        action: Ethan looks around the room.
+        camera: Push In at slow speed.
+        audio: Room tone.
+        dialogue:
+
+        ### Shot 2 — 7.0-15.0s (reaction_cut)
+        panels: [4, 5, 6]
+        characters_present: [char_01]
+        shot_size: closeup
+        composition: center
+        camera_angle: eye_level
+        acting_beat: blink → smile → nod
+        layout: character center
+        screen_direction: left_to_right
+        action: Ethan smiles at the discovery.
+        camera: Tracking Shot moving right.
+        audio: Gentle sigh.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: calm
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok
+    assert any("eye_level" in w and "consecutive" in w for w in res.warnings)
+
+
+def test_validate_storyboard_all_identical_angles_warns():
+    """All shots in a generation using identical camera angle must trigger warning."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Low Angle Test
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-7.0s (continuous)
+        panels: [1, 2, 3]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: rule_of_thirds
+        camera_angle: low_angle
+        acting_beat: step → turn → reach
+        layout: character center
+        screen_direction: left_to_right
+        action: Ethan steps forward into the room.
+        camera: Push In at slow speed.
+        audio: Footstep.
+        dialogue:
+
+        ### Shot 2 — 7.0-15.0s (reaction_cut)
+        panels: [4, 5, 6]
+        characters_present: [char_01]
+        shot_size: closeup
+        composition: center
+        camera_angle: low_angle
+        acting_beat: blink → look up → nod
+        layout: character center
+        screen_direction: left_to_right
+        action: Ethan looks up at the ceiling.
+        camera: Tracking Shot moving upward.
+        audio: Soft gasp.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: calm
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok
+    assert any("identical camera_angle" in w for w in res.warnings)
+
+
+def test_validate_storyboard_all_static_cameras_warns():
+    """All shots using static cameras must trigger an anti-monotony warning."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Static Cam Test
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-7.0s (continuous)
+        panels: [1, 2, 3]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: rule_of_thirds
+        camera_angle: low_angle
+        acting_beat: sit → sigh → rest
+        layout: character left
+        screen_direction: held
+        action: Ethan sits quietly by the wall.
+        camera: Static Shot on Ethan.
+        audio: Room hum.
+        dialogue:
+
+        ### Shot 2 — 7.0-15.0s (reaction_cut)
+        panels: [4, 5, 6]
+        characters_present: [char_01]
+        shot_size: closeup
+        composition: center
+        camera_angle: high_angle
+        acting_beat: look up → blink → breathe
+        layout: character center
+        screen_direction: held
+        action: Ethan looks upward at the light.
+        camera: Static Shot locked on Ethan.
+        audio: Ambient breeze.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: calm
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok
+    assert any("static camera framing" in w for w in res.warnings)
+
+
+def test_validate_storyboard_uniform_slicing_warns():
+    """A generation mechanically split into equal slices must trigger anti-slicing warning."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Uniform Split Test
+        scene_id: s1
+        target_seconds: 15
+        cast: [char_01]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-5.0s (continuous)
+        panels: [1, 2]
+        characters_present: [char_01]
+        shot_size: wide
+        composition: leading_lines
+        camera_angle: low_angle
+        acting_beat: run → slide → stop
+        layout: character left
+        screen_direction: left_to_right
+        action: Ethan runs forward.
+        camera: Tracking Shot following Ethan.
+        audio: Footsteps.
+        dialogue:
+
+        ### Shot 2 — 5.0-10.0s (cut_on_action)
+        panels: [3, 4]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: center
+        camera_angle: high_angle
+        acting_beat: reach → grasp → pull
+        layout: character center
+        screen_direction: held
+        action: Ethan pulls the lever.
+        camera: Push In at fast speed.
+        audio: Lever click.
+        dialogue:
+
+        ### Shot 3 — 10.0-15.0s (reaction_cut)
+        panels: [5, 6]
+        characters_present: [char_01]
+        shot_size: closeup
+        composition: visual_hierarchy
+        camera_angle: dutch_angle
+        acting_beat: gasp → smile → laugh
+        layout: character right
+        screen_direction: right_to_left
+        action: Ethan laughs as the door opens.
+        camera: Crane Up tracking upward.
+        audio: Door grind.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: cheerful
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok
+    assert any("identical duration" in w and "mechanical slicing" in w for w in res.warnings)
+
+
+def test_validate_storyboard_scene_uniform_slicing_warns():
+    """A scene with multiple generations mechanically sliced into identical shot durations must warn."""
+    sb = textwrap.dedent("""
+        # Scene s1 — Scene Uniform Slicing Test
+        scene_id: s1
+        target_seconds: 30
+        cast: [char_01]
+        location_ref_id: loc_room
+
+        ## Generation g1 — 0.0-15.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 0.0-7.5s (continuous)
+        panels: [1, 2]
+        characters_present: [char_01]
+        shot_size: wide
+        composition: leading_lines
+        camera_angle: low_angle
+        acting_beat: step → turn → reach
+        layout: character left
+        screen_direction: left_to_right
+        action: Ethan steps into the room.
+        camera: Tracking Shot moving right.
+        audio: Footsteps.
+        dialogue:
+
+        ### Shot 2 — 7.5-15.0s (reaction_cut)
+        panels: [3]
+        characters_present: [char_01]
+        shot_size: closeup
+        composition: center
+        camera_angle: high_angle
+        acting_beat: blink → stare → gasp
+        layout: character center
+        screen_direction: left_to_right
+        action: Ethan gasps at the sight.
+        camera: Push In at fast speed.
+        audio: Soft gasp.
+        dialogue:
+
+        ## Generation g2 — 15.0-30.0s
+        duration_seconds: 15.0
+        panel_grid: 3x2
+
+        ### Shot 1 — 15.0-22.5s (continuous)
+        panels: [4, 5]
+        characters_present: [char_01]
+        shot_size: medium
+        composition: rule_of_thirds
+        camera_angle: dutch_angle
+        acting_beat: reach → pull → hold
+        layout: character center
+        screen_direction: right_to_left
+        action: Ethan reaches for the artifact.
+        camera: Crane Up tracking upward.
+        audio: Hum.
+        dialogue:
+
+        ### Shot 2 — 22.5-30.0s (reaction_cut)
+        panels: [6]
+        characters_present: [char_01]
+        shot_size: extreme_closeup
+        composition: visual_hierarchy
+        camera_angle: three_quarter
+        acting_beat: smile → nod → turn
+        layout: character right
+        screen_direction: right_to_left
+        action: Ethan smiles in victory.
+        camera: Pull Out slowly.
+        audio: Chime.
+        dialogue:
+
+        ## Scene-end handoff -> scene s2
+        on_screen: [char_01]
+        mood: victorious
+        transition: hard_cut
+    """).strip()
+    res = validators.validate_storyboard(sb)
+    assert res.ok
+    assert any("mechanical uniform shot slicing detected across all 4 shots" in w for w in res.warnings)
+
+
+
