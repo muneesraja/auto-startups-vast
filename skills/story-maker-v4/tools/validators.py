@@ -26,6 +26,8 @@ Schemas enforced:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -1624,6 +1626,375 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
 
 
 
+def parse_story_constraints(story_path_or_text: str) -> list[dict]:
+    """Parse constraints from story.json or developed_story.md ## Constraints."""
+    trimmed = story_path_or_text.strip()
+    if os.path.isfile(story_path_or_text):
+        try:
+            with open(story_path_or_text, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "constraints" in data:
+                return data["constraints"]
+        except Exception:
+            pass
+        text = open(story_path_or_text, encoding="utf-8").read()
+    else:
+        text = story_path_or_text
+
+    if trimmed.startswith("{") and trimmed.endswith("}"):
+        try:
+            data = json.loads(trimmed)
+            if isinstance(data, dict) and "constraints" in data:
+                return data["constraints"]
+        except Exception:
+            pass
+
+    constraints: list[dict] = []
+    lines = text.splitlines()
+    in_sec = False
+    cur: dict = {}
+    for line in lines:
+        if line.startswith("## Constraints"):
+            in_sec = True
+            continue
+        if in_sec and line.startswith("## "):
+            break
+        if not in_sec:
+            continue
+        if line.startswith("- id:"):
+            if cur:
+                constraints.append(cur)
+            cur = {"id": line.split(":", 1)[1].strip()}
+        elif cur and line.startswith("  "):
+            k_v = line.strip().split(":", 1)
+            if len(k_v) == 2:
+                k = k_v[0].strip()
+                v = k_v[1].strip()
+                if v.startswith("[") and v.endswith("]"):
+                    items = [x.strip() for x in v[1:-1].split(",") if x.strip()]
+                    cur[k] = items
+                else:
+                    cur[k] = v
+    if cur:
+        constraints.append(cur)
+    return constraints
+
+
+def validate_constraints(
+    story_path_or_text: str,
+    scenes_path_or_text: str,
+    run_dir: str | None = None,
+) -> ValidationResult:
+    """Validate hard negative constraints against scenes and storyboards."""
+    res = ValidationResult()
+    constraints = parse_story_constraints(story_path_or_text)
+    if not constraints:
+        return res
+
+    if os.path.isfile(scenes_path_or_text):
+        scenes_data = parse_scenes(open(scenes_path_or_text, encoding="utf-8").read())
+    else:
+        scenes_data = parse_scenes(scenes_path_or_text)
+    scenes = scenes_data.get("scenes", [])
+
+    scene_cast: dict[str, set[str]] = {}
+    for s in scenes:
+        sid = s["scene_id"]
+        scene_cast[sid] = set(s.get("cast", []))
+
+    storyboard_cast: dict[str, set[str]] = {}
+    if run_dir and os.path.isdir(run_dir):
+        for sid in scene_cast:
+            sb_path = os.path.join(run_dir, f"storyboard_{sid}.md")
+            if os.path.isfile(sb_path):
+                sb = parse_storyboard(open(sb_path, encoding="utf-8").read())
+                all_sb_chars: set[str] = set()
+                for g in sb.get("generations", []):
+                    for sh in g.get("shots", []):
+                        all_sb_chars.update(sh.get("characters_present", []))
+                storyboard_cast[sid] = all_sb_chars
+
+    def scene_idx(s_id: str) -> int:
+        m = re.search(r"\d+", s_id)
+        return int(m.group(0)) if m else 999999
+
+    for c in constraints:
+        cid = c.get("id", "constraint")
+        ctype = c.get("type", "")
+        sev = str(c.get("severity", "BLOCKER")).upper()
+        subjects = set(c.get("subjects", []))
+
+        if ctype == "co_presence_exclusion" and len(subjects) >= 2:
+            valid_until = c.get("valid_until_scene")
+            valid_from = c.get("valid_from_scene")
+            u_idx = scene_idx(valid_until) if valid_until else 999999
+            f_idx = scene_idx(valid_from) if valid_from else -1
+
+            for sid, cast in scene_cast.items():
+                s_idx = scene_idx(sid)
+                is_forbidden_scene = False
+                if valid_until and s_idx <= u_idx:
+                    is_forbidden_scene = True
+                if valid_from and s_idx >= f_idx:
+                    is_forbidden_scene = True
+
+                if is_forbidden_scene:
+                    if subjects.issubset(cast):
+                        msg = f"{cid} [{sev}]: Co-presence exclusion violated in scene {sid} cast: {subjects}"
+                        if sev == "BLOCKER":
+                            res.error(msg)
+                        else:
+                            res.warn(msg)
+                    sb_chars = storyboard_cast.get(sid, set())
+                    if subjects.issubset(sb_chars):
+                        msg = f"{cid} [{sev}]: Co-presence exclusion violated in storyboard {sid} shots: {subjects}"
+                        if sev == "BLOCKER":
+                            res.error(msg)
+                        else:
+                            res.warn(msg)
+
+        elif ctype == "visibility_exclusion":
+            excluded_scene = c.get("scene")
+            if excluded_scene:
+                cast = scene_cast.get(excluded_scene, set())
+                for sub in subjects:
+                    if sub in cast:
+                        msg = f"{cid} [{sev}]: Visibility exclusion violated: {sub} present in scene {excluded_scene} cast"
+                        if sev == "BLOCKER":
+                            res.error(msg)
+                        else:
+                            res.warn(msg)
+                    sb_chars = storyboard_cast.get(excluded_scene, set())
+                    if sub in sb_chars:
+                        msg = f"{cid} [{sev}]: Visibility exclusion violated: {sub} present in storyboard {excluded_scene} shots"
+                        if sev == "BLOCKER":
+                            res.error(msg)
+                        else:
+                            res.warn(msg)
+
+    return res
+
+
+def validate_render_manifest(manifest_path: str, run_dir: str | None = None) -> ValidationResult:
+    """Validate approved render manifest against files and checksums."""
+    res = ValidationResult()
+    if not os.path.isfile(manifest_path):
+        res.error(f"manifest file not found: {manifest_path}")
+        return res
+
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except Exception as exc:
+        res.error(f"invalid manifest JSON: {exc}")
+        return res
+
+    base_dir = run_dir or os.path.dirname(manifest_path) or "."
+    generations = manifest.get("generations", [])
+    if not generations:
+        res.error("manifest has no generations listed")
+        return res
+
+    def _file_hash(p: str) -> str:
+        h = hashlib.sha256()
+        with open(p, "rb") as fp:
+            while chunk := fp.read(65536):
+                h.update(chunk)
+        return h.hexdigest()
+
+    for gen in generations:
+        sid = gen.get("scene_id", "?")
+        gid = gen.get("gen_id", "?")
+        tag = f"{sid}/{gid}"
+
+        sheet_rel = gen.get("sheet_path")
+        prompt_rel = gen.get("video_prompt_path")
+        sheet_hash = gen.get("sheet_sha256")
+        prompt_hash = gen.get("video_prompt_sha256")
+
+        if not sheet_rel:
+            res.error(f"{tag}: manifest missing sheet_path")
+        else:
+            sheet_full = os.path.join(base_dir, sheet_rel)
+            if not (os.path.isfile(sheet_full) and os.path.getsize(sheet_full) > 0):
+                res.error(f"{tag}: sheet file missing or empty: {sheet_full}")
+            elif sheet_hash:
+                actual_hash = _file_hash(sheet_full)
+                if actual_hash != sheet_hash:
+                    res.error(f"{tag}: sheet sha256 mismatch (manifest={sheet_hash[:10]}, actual={actual_hash[:10]})")
+
+        if not prompt_rel:
+            res.error(f"{tag}: manifest missing video_prompt_path")
+        else:
+            prompt_full = os.path.join(base_dir, prompt_rel)
+            if not (os.path.isfile(prompt_full) and os.path.getsize(prompt_full) > 0):
+                res.error(f"{tag}: prompt file missing or empty: {prompt_full}")
+            elif prompt_hash:
+                actual_hash = _file_hash(prompt_full)
+                if actual_hash != prompt_hash:
+                    res.error(f"{tag}: video prompt sha256 mismatch (manifest={prompt_hash[:10]}, actual={actual_hash[:10]})")
+
+        dur = gen.get("duration_seconds", 0.0)
+        if dur < 4.9 or dur > 15.1:
+            res.warn(f"{tag}: duration {dur}s outside normal 5-15s bounds")
+
+    return res
+
+
+# ---------------------------------------------------------------------------
+# Screenplay format validation
+# ---------------------------------------------------------------------------
+
+# Regex for standard sluglines: INT./EXT. LOCATION - TIME
+_SLUGLINE_RE = re.compile(
+    r"^\s*(INT\.|EXT\.|INT\./EXT\.)\s+.+\s*-\s*(DAY|NIGHT|DAWN|DUSK|CONTINUOUS|MOMENTS LATER|SAME|MONTAGE)",
+    re.IGNORECASE,
+)
+
+# Regex for secondary sluglines (POV, BACK TO, PULL BACK TO REVEAL, etc.)
+_SECONDARY_SLUG_RE = re.compile(
+    r"^\s*([A-Z][A-Z ']+(?:'S)?\s+POV|BACK TO\s|BACK ON\s|PULL BACK TO REVEAL|CUT TO:|SMASH CUT TO:|FADE (?:IN|OUT))",
+)
+
+# Regex for character dialogue cues: CHARACTER NAME on its own line, all caps
+_DIALOGUE_CUE_RE = re.compile(
+    r"^\s*([A-Z][A-Z ]+(?:\s*\(CONT'D\))?)\s*$",
+)
+
+# Regex for ALL-CAPS sound cues in action lines (2+ consecutive caps letters)
+_CAPS_SOUND_RE = re.compile(r"\b[A-Z][A-Z!?-]{2,}\b")
+
+# Required metadata sections at the end of developed_story.md
+_REQUIRED_SECTIONS = ("## Characters", "## Locations")
+_OPTIONAL_SECTIONS = ("## Objects", "## Constraints")
+
+
+def validate_screenplay(md: str) -> ValidationResult:
+    """Validate that developed_story.md follows animation screenplay format.
+
+    Checks:
+    - At least one master slugline (INT./EXT.) exists.
+    - No prose walls (paragraphs > 5 non-blank lines).
+    - Character dialogue cues exist (ALL-CAPS character names).
+    - ALL-CAPS sound cues present in action lines.
+    - Required metadata sections (## Characters, ## Locations) present.
+    """
+    res = ValidationResult()
+    lines = md.split("\n")
+
+    # --- Extract screenplay body (inside ```text fenced block or the whole file) ---
+    # ponytail: look for fenced text block first; fall back to whole file
+    in_code_block = False
+    screenplay_lines: list[str] = []
+    found_fenced = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```text") and not in_code_block:
+            in_code_block = True
+            found_fenced = True
+            continue
+        if stripped == "```" and in_code_block:
+            in_code_block = False
+            continue
+        if in_code_block:
+            screenplay_lines.append(line)
+
+    # If no fenced block, use lines before the first ## section as screenplay body
+    if not found_fenced:
+        for line in lines:
+            if line.strip().startswith("## Characters") or line.strip().startswith("## Locations"):
+                break
+            screenplay_lines.append(line)
+
+    screenplay_text = "\n".join(screenplay_lines)
+
+    # --- Check 1: Master sluglines ---
+    slugline_count = sum(1 for l in screenplay_lines if _SLUGLINE_RE.match(l))
+    if slugline_count == 0:
+        res.error("No master sluglines found (expected INT./EXT. LOCATION - TIME).")
+    elif slugline_count < 2:
+        res.warn(f"Only {slugline_count} slugline found; most screenplays have multiple scenes.")
+
+    # --- Check 2: Prose walls (paragraphs > 5 non-blank lines) ---
+    paragraphs: list[list[str]] = []
+    current_para: list[str] = []
+    for line in screenplay_lines:
+        if line.strip() == "":
+            if current_para:
+                paragraphs.append(current_para)
+                current_para = []
+        else:
+            current_para.append(line)
+    if current_para:
+        paragraphs.append(current_para)
+
+    wall_count = 0
+    for para in paragraphs:
+        # Skip dialogue blocks (first line is a character cue)
+        if para and _DIALOGUE_CUE_RE.match(para[0]):
+            continue
+        # Skip sluglines
+        if para and (_SLUGLINE_RE.match(para[0]) or _SECONDARY_SLUG_RE.match(para[0])):
+            continue
+        if len(para) > 5:
+            wall_count += 1
+    if wall_count > 0:
+        res.warn(f"{wall_count} prose wall(s) detected (action paragraphs > 5 lines). "
+                 "Break into 1-3 line paragraphs for proper screenplay pacing.")
+
+    # --- Check 3: Dialogue cues ---
+    dialogue_cues = [l for l in screenplay_lines if _DIALOGUE_CUE_RE.match(l)]
+    # Filter out sluglines and secondary slugs that happen to be all-caps
+    dialogue_cues = [
+        l for l in dialogue_cues
+        if not _SLUGLINE_RE.match(l) and not _SECONDARY_SLUG_RE.match(l)
+    ]
+    if not dialogue_cues:
+        res.warn("No dialogue character cues found (ALL-CAPS character names). "
+                 "Dialogue-free screenplays are valid but unusual.")
+
+    # --- Check 4: ALL-CAPS sound cues ---
+    # Scan action lines (not dialogue, not sluglines) for capitalized sound events
+    in_dialogue = False
+    sound_cue_count = 0
+    for line in screenplay_lines:
+        stripped = line.strip()
+        if _DIALOGUE_CUE_RE.match(stripped):
+            in_dialogue = True
+            continue
+        if stripped == "" or _SLUGLINE_RE.match(stripped) or _SECONDARY_SLUG_RE.match(stripped):
+            in_dialogue = False
+            continue
+        if stripped.startswith("(") and stripped.endswith(")"):
+            # parenthetical
+            continue
+        if in_dialogue:
+            continue
+        # Action line — look for CAPS sound cues
+        # Exclude common non-sound caps: INT, EXT, CONT'D, POV, MONTAGE, BACK, etc.
+        exclusions = {"INT", "EXT", "POV", "BACK", "PULL", "CUT", "FADE", "SMASH", "MONTAGE",
+                      "SAME", "DAY", "NIGHT", "DAWN", "DUSK", "CONTINUOUS"}
+        caps_matches = _CAPS_SOUND_RE.findall(stripped)
+        for m in caps_matches:
+            word = m.rstrip("!?-")
+            if word not in exclusions:
+                sound_cue_count += 1
+    if sound_cue_count == 0:
+        res.warn("No ALL-CAPS sound cues found in action lines (e.g. SPLASH!, CREAK, SNAP!). "
+                 "Sound cues help downstream agents build accurate foley.")
+
+    # --- Check 5: Required metadata sections ---
+    for section in _REQUIRED_SECTIONS:
+        if section not in md:
+            res.error(f"Missing required section: '{section}'.")
+
+    for section in _OPTIONAL_SECTIONS:
+        if section not in md:
+            res.warn(f"Missing optional section: '{section}'.")
+
+    return res
+
+
 # ---------------------------------------------------------------------------
 # Dispatch (used by scripts/validate.py)
 # ---------------------------------------------------------------------------
@@ -1639,6 +2010,15 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
         if question_bank_path and os.path.isfile(question_bank_path):
             bank_md = open(question_bank_path, encoding="utf-8").read()
         return validate_critique_report(text, question_bank_md=bank_md or None)
+    if schema == "constraints":
+        s_path = scenes_path or (os.path.join(run_dir, "scenes.md") if run_dir else "")
+        if not s_path:
+            return ValidationResult(ok=False, errors=["constraints schema requires --scenes-path or --run-dir"])
+        return validate_constraints(artifact_path, s_path, run_dir=run_dir)
+    if schema == "manifest":
+        return validate_render_manifest(artifact_path, run_dir=run_dir)
+    if schema == "screenplay":
+        return validate_screenplay(text)
     if schema == "beat_board":
         return validate_beat_board(text, target_seconds=target_seconds)
     if schema == "scenes":

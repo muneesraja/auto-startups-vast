@@ -20,12 +20,16 @@ Write `spatial_qa_report.md` in the run directory with this structure:
 
 - Pass: <count>
 - Warn: <count>
+- Blocker: <count>
 
 ## sN/gK
-- Status: PASS | WARN
+- Status: PASS | WARN | BLOCKER
+- image_sha256: <sha256 of storyboard_sheet_sN_gK.webp>
+- spatial_plan_sha256: <sha256 of spatial_plan_sN.md>
+- reviewed_at: <ISO timestamp>
 - expected: <one-line summary of the spatial plan's staging for this generation>
 - observed: <one-line summary of what the sheet actually shows>
-- recommendation: <one-line fix suggestion, only for WARN>
+- recommendation: <one-line fix suggestion, for WARN or BLOCKER>
 
 ## sN/gK+1
 ...
@@ -39,33 +43,29 @@ For each normal story generation's sheet, compare the rendered image against
 1. **Landmark identity** — is the visible landmark the one declared in
    `visible_landmarks`?
 2. **Forbidden landmarks** — if `visible_landmarks: []`, does the landmark
-   appear anyway? (WARN)
+   appear anyway? (WARN or BLOCKER if hard constraint)
 3. **Character left/right placement** — does each character sit on the
    correct side of frame per their X coordinate?
 4. **Character distance from landmark** — does the apparent distance match
    the Z-derived depth (foreground / midground / background)?
 5. **Zone respect** — do characters stay in their declared zones? Do dogs or
-   other subjects enter restricted zones too early? (WARN)
+   other subjects enter restricted zones too early? (WARN or BLOCKER)
 6. **Anchor geography** — does the sheet respect the anchor frame's staging?
 7. **Start/end positions** — is the spatial arrangement consistent with the
    generation's `start_positions` / `end_positions`?
 8. **Movement direction** — if `approach(anchor)` is declared, does the
-   sheet show the character closer than the previous sheet? (WARN if not)
+   sheet show the character closer than the previous sheet?
 
-## Status policy
+## Escalation policy
 
-- **PASS** — the sheet respects the spatial contract.
-- **WARN** — a spatial inconsistency is observed but the sheet is still
-  usable. Warnings are **non-blocking**: GATE 1 is not blocked by WARN
-  entries. The user or agent may regenerate the sheet.
-- Do NOT use FAIL. If the sheet is structurally broken (e.g. wrong panel
-  count, blank image), that is a storyboard validator failure, not a spatial
-  QA failure.
+- **PASS** — Minor approximations only; the sheet respects the spatial contract.
+- **WARN** — Usable, but spatial continuity is weak (e.g. slight depth drift, slightly off-angle landmark). Non-blocking for GATE 1.
+- **BLOCKER** — Fatal continuity contradiction: wrong character count, forbidden character co-presence violation, wrong location set, major landmark inversion (e.g. landmark on wrong side), or missing required story prop. Halts GATE 1 until the sheet is regenerated.
 
 ## Summary counts
 
-- `Pass:` and `Warn:` counts at the top must match the actual number of
-  PASS / WARN entries in the report.
+- `Pass:`, `Warn:`, and `Blocker:` counts at the top must match the actual number of
+  PASS / WARN / BLOCKER entries in the report.
 - Every normal story generation must have a sheet entry. Missing coverage is
   an error (caught by the validator).
 

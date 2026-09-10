@@ -93,7 +93,7 @@
 
 | Agent | Input | Output | Validator |
 |-------|-------|--------|-----------|
-| **1** Story Developer | Raw story file + TARGET | `developed_story.md` (narrative + Characters/Locations/Objects) | None (free-form) |
+| **1** Story Developer | Raw story file + TARGET | `developed_story.md` (screenplay + Characters/Locations/Objects) | `--schema screenplay` |
 | **1b** Beat Board | `developed_story.md` + TARGET | `beat_board.md` (8-15 beats with emotion + timing) | `--schema beat_board` |
 | **2** Scene Writer | `beat_board.md` + `developed_story.md` + TARGET | `scenes.md` (N scenes, each with cast/location/objects/beats) | `--schema scenes` |
 | **3a** Spatial Planner | `scenes.md` + location lock prompt | `spatial_plan_sN.md` (2.5D landmarks/zones/per-gen/per-shot state) | `--schema spatial_plan` |

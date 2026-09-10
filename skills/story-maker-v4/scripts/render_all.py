@@ -27,6 +27,8 @@ push notification after each generation, each scene, and the final film.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -42,6 +44,14 @@ from tools import validators  # noqa: E402
 from tools.minimax_workflow import render_generation  # noqa: E402
 from tools.video_concat import concat_videos  # noqa: E402
 from tools.video_frames import extract_tail  # noqa: E402
+
+
+def _sha256(filepath: str) -> str:
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _exists(path: str) -> bool:
@@ -104,6 +114,8 @@ def _render_clip(
     run_dir: str, scene_id: str, gen: dict, clips_dir: str, *,
     seed: int, megapixels: float | None, aspect: str | None,
     extra_video_refs: list[str] | None = None,
+    manifest: dict | None = None,
+    manifest_path: str | None = None,
 ) -> str:
     """Render one generation clip. Returns the output mp4 path."""
     gid = gen["gen_id"]
@@ -113,11 +125,35 @@ def _render_clip(
         return out_path
 
     sheet_path = _find_sheet(run_dir, scene_id, gid)
-    prompt = ip.read_prompt(ip.video_prompt_path(run_dir, scene_id, gid))
+    prompt_file = ip.video_prompt_path(run_dir, scene_id, gid)
+    prompt = ip.read_prompt(prompt_file)
     if not prompt:
         raise FileNotFoundError(
-            f"video prompt missing: {ip.video_prompt_path(run_dir, scene_id, gid)}"
+            f"video prompt missing: {prompt_file}"
         )
+
+    # Manifest hash validation (staleness guard)
+    if manifest:
+        for entry in manifest.get("generations", []):
+            if entry.get("scene_id") == scene_id and entry.get("gen_id") == gid:
+                if entry.get("sheet_sha256"):
+                    current_sheet_hash = _sha256(sheet_path)
+                    if current_sheet_hash != entry["sheet_sha256"]:
+                        raise RuntimeError(
+                            f"Stale sheet for {scene_id}/{gid}: checksum mismatch with manifest! "
+                            f"(expected {entry['sheet_sha256'][:10]}, got {current_sheet_hash[:10]}). "
+                            "Re-run scripts/build_manifest.py before rendering."
+                        )
+                if entry.get("video_prompt_sha256"):
+                    current_prompt_hash = _sha256(prompt_file)
+                    if current_prompt_hash != entry["video_prompt_sha256"]:
+                        raise RuntimeError(
+                            f"Stale video prompt for {scene_id}/{gid}: checksum mismatch with manifest! "
+                            f"(expected {entry['video_prompt_sha256'][:10]}, got {current_prompt_hash[:10]}). "
+                            "Re-run scripts/build_manifest.py before rendering."
+                        )
+                break
+
     extra_audio_refs = _find_audio_ref(run_dir, scene_id, gid)
     duration = (gen["end"] or 0.0) - (gen["start"] or 0.0)
     print(f"  clip {scene_id}/{gid}: rendering ({duration:.1f}s, audio_ref={'yes' if extra_audio_refs else 'no'}) ...")
@@ -137,6 +173,20 @@ def _render_clip(
         raise RuntimeError(f"clip {scene_id}/{gid} failed: {result.get('message', result)}")
     print(f"    done in {result.get('elapsed_seconds')}s -> {out_path}")
     _ntfy(f"[story-maker-v4] {scene_id}/{gid} render complete -> {out_path}")
+
+    # Record completion in manifest
+    if manifest and manifest_path:
+        for entry in manifest.get("generations", []):
+            if entry.get("scene_id") == scene_id and entry.get("gen_id") == gid:
+                entry["status"] = "completed"
+                entry["clip_path"] = os.path.relpath(out_path, run_dir)
+                break
+        try:
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
     return out_path
 
 
@@ -159,6 +209,8 @@ def render_scene(
     megapixels: float | None, aspect: str | None,
     tail_ref_seconds: float = 3.0,
     prev_tail_ref: str | None = None,
+    manifest: dict | None = None,
+    manifest_path: str | None = None,
 ) -> tuple[str, str | None]:
     """Render all generations for one scene sequentially with tail refs.
 
@@ -191,6 +243,7 @@ def render_scene(
             run_dir, scene_id, gen, clips_dir,
             seed=seed, megapixels=megapixels, aspect=aspect,
             extra_video_refs=extra_video_refs,
+            manifest=manifest, manifest_path=manifest_path,
         )
         clip_paths.append(clip_path)
 
@@ -213,6 +266,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Render Minimax H3 generations + concat (sequential with tail refs)")
     p.add_argument("--output-dir", required=True, help="run output dir")
     p.add_argument("--only-scenes", default="", help="comma-separated scene ids to render")
+    p.add_argument("--manifest", default=None, help="path to render_manifest.json (validates sha256 before render)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--megapixels", type=float, default=None,
                    help=f"output size in MP (default {config.MINIMAX_MEGAPIXELS}; e.g. 0.6 -> 1056x608)")
@@ -223,6 +277,23 @@ def main() -> int:
 
     run_dir = os.path.abspath(args.output_dir)
     only = {s.strip() for s in args.only_scenes.split(",") if s.strip()}
+
+    manifest = None
+    manifest_path = None
+    if args.manifest:
+        manifest_path = os.path.abspath(args.manifest)
+    else:
+        candidate_manifest = os.path.join(run_dir, "render_manifest.json")
+        if os.path.isfile(candidate_manifest):
+            manifest_path = candidate_manifest
+
+    if manifest_path and os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+            print(f"Loaded approved render manifest: {manifest_path}")
+        except Exception as exc:
+            print(f"Warning: could not read manifest {manifest_path}: {exc}")
 
     # Discover scenes from storyboard_*.md files.
     scene_ids = sorted(
@@ -245,6 +316,7 @@ def main() -> int:
             megapixels=args.megapixels, aspect=args.aspect,
             tail_ref_seconds=args.tail_ref_seconds,
             prev_tail_ref=prev_tail_ref,
+            manifest=manifest, manifest_path=manifest_path,
         )
         scene_mp4s.append(scene_mp4)
 

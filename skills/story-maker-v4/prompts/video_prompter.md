@@ -17,12 +17,38 @@ and fix until it passes.
 
 ---
 
-## Job
+## Discrepancy Authority Policy (Visual vs. Narrative)
 
-Author one **Director's Brief** video prompt per generation. The Director's Brief format
-delivers optimal conditioning density to MiniMax H3: character identities and style
-are stated cleanly up front, and the `Timeline` is organized into scannable, per-shot blocks
-with explicit camera, audio, and transition directions.
+When authoring video prompts, you inspect both the rendered storyboard sheet and the markdown storyboard:
+
+1. **The Rendered Sheet is the Visual Authority** for character appearance, costume details, background set architecture, lighting quality, and physical blocking. Describe what was actually drawn and rendered, not what you wished was there.
+2. **The Storyboard is the Editorial & Narrative Authority** for shot timing, cut points, camera motion formulas, character emotions, and sound design.
+3. **Contradiction Resolution:**
+   - Minor visual variations (e.g. slight fabric shade variation, extra background foliage) → **Follow the rendered sheet**.
+   - Violations of HARD constraints (e.g. wrong character count, forbidden character co-presence, missing story-critical hero prop) → **HALT and flag as a BLOCKER**. Do not paper over fatal visual errors by making up excuses in the prompt.
+
+## Audio Prompt Hierarchy (4 Discrete Layers)
+
+Every SHOT's `Audio:` section must be structured into four distinct acoustic layers for MiniMax H3's sound synthesis:
+
+```text
+Audio:
+  - diegetic_dialogue: [Speaker ID + delivery tone + <d>[Lang] spoken line</d> or "None"]
+  - foley_and_sfx: [Immediate physical contact sounds: footsteps on dirt, clothing rustle, breath, impacts, prop handling]
+  - environmental_ambience: [360° acoustic room tone or exterior backdrop: nocturnal insects, wind through trees, distant generator hum, rain]
+  - non_diegetic_music: [Score elements: instrumentation, chord progressions, tempo shifts, emotional arc, or "Silence"]
+```
+
+**Screenplay Foley Harvesting:** `developed_story.md` is a full animation
+screenplay with ALL-CAPS sound cues (e.g. `SPLASH!`, `CREAK`, `SNAP!`,
+`WHUMP`). When building `foley_and_sfx`, scan the corresponding screenplay
+action lines for these capitalized audio events and include them verbatim as
+foley anchors (e.g. `heavy SPLASH as basket hits water, wet GLUG-GLUG-GLUG`).
+
+**Transition Semantics:**
+- When using `audio_led` cut transitions, explicitly indicate that the incoming shot's `foley_and_sfx` or `environmental_ambience` begins 0.5–1.0s before the visual cut (pre-lap / J-cut).
+
+---
 
 ### Director's Brief Format Structure
 

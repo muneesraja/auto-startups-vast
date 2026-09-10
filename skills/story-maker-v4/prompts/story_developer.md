@@ -1,27 +1,68 @@
-# Agent 1 — Story Developer
+# Agent 1 — Story Developer / Intake Normalizer
 
-**Input:** the user's raw story file + target duration (seconds).
-**Output:** `<run_dir>/developed_story.md` — a videography-ready story rewrite sized
-to the target. Then `<run_dir>/beat_board.md` — the story's dramatic beats.
+**Input:** the user's raw story or screenplay file + target duration (seconds) + optional intake mode.
+**Output:**
+- `<run_dir>/developed_story.md` — production-grade **animation screenplay** (not prose summary).
+- `<run_dir>/story.json` — machine-readable canonical entity & constraint manifest.
+- `<run_dir>/beat_board.md` — the story's dramatic beats.
 
 ## Job
 
-Take the high-level story and **expand or shrink** it into a filmable narrative that
-hits the target duration. You are writing for *video*, not prose: think in shots,
-beats, and on-screen action Minimax H3 can stage in 15-second generations.
+Take the story and produce a **full animation screenplay** in industry-standard
+format per [`assets/screenplay-format.md`](../assets/screenplay-format.md).
+This is not a prose summary or storybook narrative — it is a lean, present-tense
+screenplay with sluglines, 1–3 line action paragraphs, ALL-CAPS sound effects,
+formatted dialogue with parentheticals, and montage formatting.
+
+Process according to the selected **Intake Mode**:
+
+1. **`develop_from_concept` (default)**: Expand a high-level concept/logline into a full animation screenplay sized to the target duration.
+2. **`preserve_script`**: When the user supplies an authored screenplay/script (e.g. 14 explicit scenes with shot intent and visual rules):
+   - **Do NOT rewrite or alter the story.** Normalize into standard screenplay format.
+   - Preserve existing scene boundaries, dialogue, and shot intent without forcing them into arbitrary 70-second blocks.
+   - Normalize explicit author rules into **Canonical Constraints**.
+
+### Duration Modes
+
+- `preserve_script`: Retain all scenes and shot intent; fit final duration within a tolerance.
+- `compress`: Preserve story-critical scenes and beats; merge or tighten transitions.
+- `expand`: Add visual breathing room, atmospheric pacing, and reaction beats.
+- `exact`: Force final scene/generation timing to match an exact target.
+
+### Constraint Classification (Mandatory)
+
+Extract and classify explicit story rules into `## Constraints` and `story.json`:
+
+- **`HARD` (Severity: BLOCKER)**: Narrative invariants that must never be broken by downstream agents.
+  - `co_presence_exclusion`: Subjects that must NOT share a frame (e.g. *Girl and Wild Dogs must not appear in the same frame before Scene 8*).
+  - `visibility_exclusion`: Subjects forbidden from appearing in specific scenes/shots (e.g. *Girl is not visible in Scene 5 extreme-wide road shot*).
+  - `reveal_order`: Elements that must appear sequentially (e.g. *Yellow eyes must be seen before guardian dog body is revealed*).
+  - `prop_state`: Permanent object transformations (e.g. *Clay pot shatters in Scene 1 and remains abandoned at house; never carried to road*).
+- **`SOFT`**: Pacing, framing, or visual styling preferences that can flex if generation limits require.
+- **`EDITORIAL`**: Post-production elements (title cards, credits, end logos) that must **NEVER** be painted into storyboard sheets or fed to video prompter.
 
 After the developed story is written, extract its **dramatic beats** into a beat
-board per [`prompts/beat_board.md`](beat_board.md). The beat board lists 8–15
-meaningful story changes with their emotional register — it's the bridge between
-the story and the scene breakdown. Agent 2 reads it to decide how to group beats
-into scenes.
+board per [`prompts/beat_board.md`](beat_board.md). Agent 2 reads both to group beats into scenes.
 
 ## Rules
 
-- **Size to target.** A 5-minute film needs ~4-5 scenes (~70s each). Add or trim
-  beats so the story fills the target without padding. Thin sources get expanded
-  with obstacles, contrast cuts, hubris, reversal, payoff; overlong sources get
-  trimmed to the spine.
+- **Screenplay Format (MANDATORY).** The body of `developed_story.md` MUST be a
+  properly formatted animation screenplay per
+  [`assets/screenplay-format.md`](../assets/screenplay-format.md). This means:
+  - **Scene headings (sluglines):** `INT./EXT. LOCATION - TIME` in ALL-CAPS.
+  - **Lean action paragraphs:** 1–3 lines max, present tense, active voice.
+  - **ALL-CAPS sound effects:** Every audible event capitalized (`SPLASH!`, `CREAK`, `WHUMP`).
+  - **Character introductions:** First appearance in ALL-CAPS with age/species/visual
+    shorthand (`YOUNG OLLIE (5), a fuzzy Pookoo...`).
+  - **Formatted dialogue:** Character cue in ALL-CAPS, parentheticals for delivery/timing
+    (`(squeaky, sheepish)`, `(beat)`), spoken lines underneath.
+  - **Montage sequences:** `EXT. LOCATION - MONTAGE` with `-- beat` dashes.
+  - **No prose walls:** Never write 5+ unbroken lines. White space controls tempo.
+  - **Secondary sluglines:** `CHARACTER'S POV`, `BACK TO LOCATION`, `PULL BACK TO REVEAL`.
+  Do NOT write a children's storybook, a story treatment, or a prose summary.
+  Write a screenplay that a storyboard artist and animator can immediately work from.
+
+- **Respect Intake Mode.** In `preserve_script`, honor the author's scene count and timing. In `develop_from_concept`, size to target with natural scene grouping.
 - **Story structure.** Every story — even a 30-second ad — needs a spine:
   **setup** (establish world, character, status quo) → **escalation** (introduce
   conflict, obstacle, change) → **climax** (turning point, maximum tension) →
@@ -90,22 +131,78 @@ into scenes.
 
 ## Output format
 
-Free-form markdown narrative sized to the target, followed by the `## Characters`,
-`## Locations`, and `## Objects` sections above. This file is consumed by Agent 2
-(scene writer). Example object entry:
+1. Animation screenplay in `<run_dir>/developed_story.md` per [`assets/screenplay-format.md`](../assets/screenplay-format.md), inside a `# Screenplay` heading and fenced `text` code block, followed by `## Characters`, `## Locations`, `## Objects`, and `## Constraints` metadata sections.
+2. Companion canonical JSON in `<run_dir>/story.json` for deterministic machine validation.
+
+Example `## Constraints` section in `developed_story.md`:
+
+```markdown
+## Constraints
+- id: H1
+  type: co_presence_exclusion
+  severity: BLOCKER
+  subjects: [char_01, char_04]
+  valid_until_scene: s7
+  rule: Girl and wild dogs must not appear in the same frame before Scene 8.
+
+- id: H2
+  type: visibility_exclusion
+  severity: BLOCKER
+  subjects: [char_01]
+  scene: s5
+  rule: Girl is not visible in Scene 5's extreme-long road shot.
+
+- id: E1
+  type: editorial
+  rule: Final title card is an editorial graphics card, excluded from image sheets.
+```
+
+Example `<run_dir>/story.json`:
+
+```json
+{
+  "title": "Kutty Karupu",
+  "intake_mode": "preserve_script",
+  "duration_mode": "preserve_script",
+  "target_seconds": 300,
+  "characters": [
+    {"id": "char_01", "name": "Little Girl", "species": "human", "age": 6}
+  ],
+  "locations": [
+    {"id": "loc_01", "name": "Village House", "landmarks": ["front_step", "clay_pot_area"]}
+  ],
+  "objects": [
+    {"id": "obj_01", "name": "Clay Pot", "states": ["intact", "broken", "abandoned"]}
+  ],
+  "constraints": [
+    {
+      "id": "H1",
+      "type": "co_presence_exclusion",
+      "subjects": ["char_01", "char_04"],
+      "valid_until_scene": "s7",
+      "severity": "BLOCKER"
+    }
+  ]
+}
+```
+
+## Validate the screenplay
+
+After authoring `developed_story.md`, validate screenplay formatting:
 
 ```
-## Objects
-- id: obj_01
-  name: Glowing Speckled Egg
-  description: A large magical egg with speckled shell that glows golden.
-  appearance: Speckled cream-and-gold shell, faint internal glow, cracks reveal green light.
+python3 scripts/validate.py <run_dir>/developed_story.md --schema screenplay
 ```
+
+Read `<run_dir>/developed_story.md.validation.json`. If `ok:false`, fix every
+listed error and re-run. The validator checks sluglines, action paragraph length,
+capitalized sound cues, dialogue formatting, and required metadata sections.
 
 ## Beat board (produce after developed_story.md)
 
-After the developed story, author `<run_dir>/beat_board.md` per
-[`prompts/beat_board.md`](beat_board.md). Then validate:
+After the developed story passes screenplay validation, author
+`<run_dir>/beat_board.md` per [`prompts/beat_board.md`](beat_board.md). Then
+validate:
 
 ```
 python3 scripts/validate.py <run_dir>/beat_board.md --schema beat_board --target-seconds <N>

@@ -67,36 +67,45 @@ Keep the hierarchy. Immutable facts first, creative direction second, surgical
 negatives last.
 
 ```
-CANVAS
-SCENE BIBLE
+OUTPUT AND GRID
+REFERENCE PRIORITY
+SCENE BIBLE & SPATIAL CONTINUITY
 CHARACTER BIBLE
-PROP CONTINUITY (if props matter)
+PROP CONTINUITY & ERGONOMICS (if props matter)
 CONTINUITY RULES
 SEQUENCE PROGRESSION
-PANEL DIRECTIONS
+PANEL DIRECTIONS (ACTION CONTRACT: VISIBLE POSE ONLY)
 RENDERING STYLE
 HARD EXCLUSIONS
+FINAL CONTINUITY CHECK
 ```
 
-### 1. CANVAS
+### 1. OUTPUT AND GRID
 
 One paragraph stating:
 - "3840×2160 text-free cinematic pre-production storyboard sheet"
-- Grid dimensions and exact panel count
-- PANEL MAP (literal text diagram)
-- Gutter style and thickness
-- Cell size if relevant
-- That all cells are fully painted, equal-sized, and touch the gutters cleanly
+- Grid dimensions and exact panel count (e.g. `3x2` 6 panels, or `3x3` 9 panels)
+- Thin, straight, uniform white divider lines approximately four pixels wide, overlaid on grid boundaries
+- Every cell must contain a complete image touching gutters cleanly
+- Plain prose reading order: "Read panels column-major: top-left, middle-left, bottom-left, top-right, middle-right, bottom-right (or left-to-right, then top-to-bottom). The panel numbers below are instructions only; do not render them."
+- **CRITICAL**: Never insert a literal text diagram or ASCII box labeled `PANEL MAP` into the prompt, as image models will render the diagram as visible text or page content!
 
-### 2. SCENE BIBLE
+### 2. REFERENCE PRIORITY
+
+Always establish visual authority:
+1. **Match attached character sheets** for identity, wardrobe, facial anatomy, hair, and proportions.
+2. **Match supplied location reference** for architecture, materials, lighting, and environmental furnishings.
+3. **Treat all panels as camera views of one persistent 3D set**, not independently designed illustrations. Maintain a constant height relationship between characters and architectural anchors.
+
+### 3. SCENE BIBLE & SPATIAL CONTINUITY
 
 Global facts that do not change panel-to-panel. Extract from the storyboard
 and any spatial plan:
 
-- **Setting**: one or two sentences describing the location, time of day,
-  weather/atmosphere.
-- **Lighting**: direction, color, quality (e.g. "warm golden-hour sunset from
-  screen-left, long soft shadows, amber bounce on mud walls").
+- **Setting & Geography**: One cohesive layout throughout. Establish the physical arrangement (e.g., pantry on left, refrigerator immediately right, counter continuing right). If supplied location reference differs, preserve that arrangement instead.
+- **Fixed Camera Side**: Keep the camera on the open-space side of the action to maintain screen direction and avoid 180° line-crossing. Vary camera height, distance, and framing without reversing geography.
+- **Physical Reachability & Anchors**: Ensure props sit on reachable surfaces relative to character scale. Close-ups must retain recognizable background or surface cues connecting them to the wider set.
+- **Lighting**: direction, color, quality (e.g. "warm golden-hour sunset from screen-left, long soft shadows, amber bounce on mud walls"). Fixed light source direction across all panels.
 - **Geography / landmarks**: list the key architectural or environmental
   landmarks and their relationships. Keep it spatially consistent.
 - **Atmosphere / mood**: the emotional color of the whole generation.
@@ -231,8 +240,13 @@ Keep:
 - no frames inside the panels
 - no gutter text
 
-Remove low-value items like "no rounded corners" or "no drop shadows" unless you
-have actually seen the model produce them.
+### 10. FINAL CONTINUITY CHECK
+
+Include a final continuity check block at the end of the prompt:
+- Preserve character identity, clothing, proportions, architecture, light direction, and prop scale across all panels.
+- Track moving props across panels (e.g. from table top, to hand, to floor). Props move only as required by the sequence; architecture must never move.
+- Action contract: each panel shows one distinct frozen moment. Believable hand grips, foot placement, natural wrist angle, object contact, depth, and occlusion.
+- No duplicated props, extra limbs, impossible reaches, floating objects, mirrored layouts, blank cells, or repeated adjacent compositions.
 
 ## Spatial Continuity Bible (materialized by build_images.py)
 

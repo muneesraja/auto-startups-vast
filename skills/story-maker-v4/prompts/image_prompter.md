@@ -37,20 +37,20 @@ Minimax H3 reference image.
 
 ## Storyboard sheet prompt structure
 
-Follow `prompts/storyboard_sheet_template.md` exactly. The prompt is a single
-hierarchical document, not a list of isolated panel captions. The order of
-authority is:
+Follow [`prompts/storyboard_sheet_template.md`](storyboard_sheet_template.md) as the **single canonical source of truth** for sheet prompt hierarchy, reference priority, grid layouts, and continuity rules. The prompt is a single hierarchical document:
 
 ```
-CANVAS
-SCENE BIBLE
+OUTPUT AND GRID
+REFERENCE PRIORITY
+SCENE BIBLE & SPATIAL CONTINUITY
 CHARACTER BIBLE
-PROP CONTINUITY (if needed)
+PROP CONTINUITY & ERGONOMICS (if needed)
 CONTINUITY RULES
 SEQUENCE PROGRESSION
-PANEL DIRECTIONS
+PANEL DIRECTIONS (ACTION CONTRACT: VISIBLE POSE ONLY)
 RENDERING STYLE
 HARD EXCLUSIONS
+FINAL CONTINUITY CHECK
 ```
 
 ### Spatial continuity is materialized at the top
@@ -58,7 +58,7 @@ HARD EXCLUSIONS
 When a `spatial_plan_<scene>.md` exists, `build_images.py` deterministically
 materializes a **SPATIAL CONTINUITY BIBLE** at the **very top** of each normal
 storyboard-sheet prompt, immediately after any `ref_images:` line. Agent 4
-writes the creative sections (CANVAS through HARD EXCLUSIONS) but must **not**
+writes the creative sections (OUTPUT AND GRID through FINAL CONTINUITY CHECK) but must **not**
 manually author the generated spatial sections.
 
 Agent 4's PANEL DIRECTIONS should align with the materialized staging but add
@@ -91,49 +91,6 @@ In both `PROP CONTINUITY` and `PANEL DIRECTIONS`:
 - **Allocate Individual Vessels/Props:** When multiple characters eat, drink, or use tools, explicitly describe individual props in their respective zones (e.g., "Two separate steaming ceramic noodle bowls, one placed directly in front of Lebo frame-left and one in front of Thabo frame-right").
 - **Never Prompt Shared-Bowl Eating:** Ban prompts where multiple characters eat simultaneously from a single bowl—the image model will merge their limbs and distort anatomy.
 - Clearly describe each character holding their own utensils oriented toward their own bowl.
-
-### Default grid
-
-Default `panel_grid` is `3x2` (3 rows × 2 columns = 6 panels). The left column
-is the beginning, the right column is the end. Panels are numbered column-major:
-top-to-bottom within each column, then left-to-right across columns.
-
-For longer generations use `3x3` (9 panels, true 16:9 cells at 1280×720), or
-other grids that make sense for the panel count and aspect. Do **not** claim
-cells are 16:9 unless the grid truly divides 3840×2160 into 16:9 rectangles.
-State exact cell pixel dimensions when useful.
-
-### Rendering style
-
-Describe visual attributes, not brand names. Do **not** use "Pixar-quality",
-"Pixar-style", "Disney-style", "DreamWorks-style", or similar brand references.
-Use concrete attributes: high-end feature-animation 3D, stylized proportions,
-PBR materials, subsurface skin scattering, detailed fabric, cinematic global
-illumination, warm golden-hour volumetric atmosphere, etc.
-
-### Negatives
-
-Keep HARD EXCLUSIONS short and surgical. The default list is:
-
-- no text of any kind
-- no numbers
-- no labels
-- no captions
-- no subtitles
-- no speech bubbles
-- no watermarks
-- no logos
-- no invented characters
-- no duplicate characters
-- no duplicated panels
-- no split scenes inside a panel
-- no overlapping panels
-- no blank panels
-- no decorative storyboard graphics
-- no frames inside the panels
-
-Do not add speculative negatives like "no rounded corners" or "no drop shadows"
-unless you have actually seen the model produce them.
 
 ### Action fidelity (mandatory — no softening)
 

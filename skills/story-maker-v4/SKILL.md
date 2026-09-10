@@ -1,6 +1,6 @@
 ---
 name: story-maker-v4
-version: 4.0.0
+version: 4.2.0
 description: "Production-ready story-to-video skill where Claude Code authors and validates artifacts while Python runs deterministic media tasks. Video backend: MiniMax H3 R2V via ComfyUI — each 5–15s generation uses a storyboard sheet, structured Ref2VA prompt, native stereo audio, and bounded optional references. No panel crops or upscales."
 triggers:
   - story-maker-v4
@@ -100,40 +100,40 @@ across all episodes. A new episode reads the existing registry and only creates
 new characters/locations/objects; existing assets are skipped.
 Before each step,
 **check which artifacts already exist and continue from the first missing one.** Do
-not re-author or re-generate anything that is already on disk and passes its
-validator.
-
-```
-1. developed_story.md              (Claude)             — Agent 1
-   (includes ## Characters, ## Locations, ## Objects sections)
-1b. beat_board.md                  (Claude)             — Agent 1b → validate --schema beat_board
+not re-author or re-generate anything```
+1. developed_story.md + story.json     (Claude)             — Agent 1 / Intake Normalizer
+   (screenplay format per assets/screenplay-format.md; validate --schema screenplay)
+   (supports intake_mode: preserve_script | develop_from_concept; canonical constraints)
+1b. beat_board.md                      (Claude)             — Agent 1b → validate --schema beat_board
    (8-15 dramatic beats with emotion + estimated timing)
-2. scenes.md                       (Claude)             — Agent 2  → validate --schema scenes
+2. scenes.md                           (Claude)             — Agent 2  → validate --schema scenes
    (each scene has objects: [oid, ...] and beats: [n, ...] referencing the beat board)
-3. spatial_plan_<scene>.md         (Claude, per scene)  — Agent 3a → validate --schema spatial_plan
+   (optional: validate --schema constraints --scenes-path scenes.md)
+3. spatial_plan_<scene>.md             (Claude, per scene)  — Agent 3a → validate --schema spatial_plan
    (2.5D coordinate contract: landmarks, zones, per-generation/per-shot spatial state)
-3b. storyboard_<scene>.md          (Claude, per scene)  — Agent 3  → validate --schema storyboard
+3b. storyboard_<scene>.md              (Claude, per scene)  — Agent 3  → validate --schema storyboard
 4. image_prompts/characters/ + locations/ + objects/ + <scene>/storyboard_sheet_<gen>.txt
-                                   (Claude, per scene)  — Agent 4  → validate --schema prompts
-   (spatial continuity block is deterministically materialized by build_images.py)
-   (any prompt file may begin with ref_images: name1, name2, ... to attach up to 10 existing assets as refs)
-4b. critique_report.md             (Claude)             — Agent 6  → validate --schema critique
-   (210+ directing questions evaluated against the full plan, including spatial continuity)
-   ═══ GATE 0: critique must pass with zero FAILs before image generation ═══
-5. assets/characters/*.png         (Python T2I, once, 4K) — build_images.py --assets-only
-   assets/locations/*.png          (Python T2I, once, 4K wide-angle 360°)
-   assets/objects/*.png            (Python T2I, once, 4K)
+                                       (Claude, per scene)  — Agent 4  → validate --schema prompts
+   (reference priority, spatial continuity, action contract: visible pose, plain prose reading order)
+4b. critique_report.md                 (Claude)             — Agent 6  → validate --schema critique
+   (directing questions evaluated with severity tiers: BLOCKER, MAJOR, MINOR, NOT_APPLICABLE)
+   ═══ GATE 0: critique must pass with zero BLOCKERs and all MAJORs disposed before image generation ═══
+5. assets/characters/*.png             (Python T2I, once, 4K) — build_images.py --assets-only
+   assets/locations/*.png              (Python T2I, once, 4K wide-angle 360°)
+   assets/objects/*.png                (Python T2I, once, 4K)
 6. storyboard_sheet_<scene>_<gen>.png  (Python, per generation) — build_images.py --scene <id>
    ═══ GATE 1: user visually confirms all sheets + spatial_qa_report.md before continuing ═══
-6b. spatial_qa_report.md           (Claude, per scene)  — Agent 7  → validate --schema spatial_qa
-   (PASS/WARN per sheet; WARN is non-blocking)
-7. video_prompts/<scene>_<gen>.txt (Claude vision, per generation) — Agent 5 → validate --schema video_prompt
-   ═══ GATE 2: user confirms the video prompts before paid GPU render ═══
-8. clips/<scene>/<gen>.mp4         (Python Minimax H3, sequential render)  — render_all.py
-   (each generation conditioned on the previous generation's rendered tail via ref_videos)
-9. scene_<scene>.mp4               (Python concat, audio preserved)
-10. final_film.mp4                 (Python concat)
-```
+6b. spatial_qa_report.md               (Claude, per scene)  — Agent 7  → validate --schema spatial_qa
+   (PASS/WARN/BLOCKER escalation policy + sha256 tracking; BLOCKER halts GATE 1)
+7. video_prompts/<scene>_<gen>.txt     (Claude vision, per generation) — Agent 5 → validate --schema video_prompt
+   (discrepancy authority policy; 4-layer audio: dialogue, foley, ambience, music)
+7b. render_manifest.json               (Python)             — build_manifest.py --approve
+   (immutable content-addressed lock: sheet_sha256, prompt_sha256, duration; staleness protection)
+   ═══ GATE 2: user confirms render_manifest.json before paid GPU render ═══
+8. clips/<scene>/<gen>.mp4             (Python Minimax H3)  — render_all.py --manifest render_manifest.json
+   (each generation conditioned on previous generation's rendered tail via ref_videos; staleness checked)
+9. scene_<scene>.mp4                   (Python concat, audio preserved)
+10. final_film.mp4                     (Python concat)
 
 Each validator writes `<artifact>.validation.json` (`{ok, errors, warnings}`) and
 exits nonzero on failure. A failed validator **blocks the paid downstream step** —
@@ -142,24 +142,25 @@ fix the artifact and re-run until `ok:true`.
 ## Episode run order + human gates
 
 When a user requests an episode generation from a story, follow this order with
-**two mandatory human approval gates**. These are runbook rules — there is no code
+**three human approval gates**. These are runbook rules — there is no code
 enforcement. You (Claude) must stop and ask the user before proceeding.
 
 ```
-Stage A: Author all storyboards for all scenes (A1-A4 per scene)
-Stage A-QA: Critique agent evaluates the full plan against 210+ directing questions
+Stage A: Author all storyboards for all scenes (A1-A4 per scene) + story.json
+Stage A-QA: Critique agent evaluates the full plan against directing questions (with Severity Tiers)
   ═══ GATE 0 ═══
-  STOP. The critique report must have zero FAILs before any image generation.
-  Fix flagged artifacts and re-evaluate until all questions pass.
-Stage B: Generate shared assets + all storyboard sheets (per generation)
+  STOP. The critique report must have zero BLOCKERs and all MAJORs disposed before any image generation.
+  Fix flagged artifacts or confirm director disposition until all questions pass.
+Stage B: Generate assets + storyboard sheets (Python T2I, once per story + per scene)
+Stage B-QA: Spatial QA inspects sheets against spatial plans (Agent 7, PASS/WARN/BLOCKER)
   ═══ GATE 1 ═══
-  STOP. Ask the user to visually confirm all storyboard sheets.
-  Do NOT proceed until the user says go.
-Stage C: Author Minimax video prompts for all generations (vision: Read each sheet)
+  STOP. User visually confirms all sheets + spatial_qa_report.md before continuing.
+  BLOCKER entries halt GATE 1. WARN is non-blocking.
+Stage C: Video prompter authors video prompts from sheets (Agent 5)
+Stage C-Lock: Build approved render_manifest.json (build_manifest.py --approve)
   ═══ GATE 2 ═══
-  STOP. Present the video prompts for review before the paid GPU render.
-  Do NOT proceed to render until the user says go.
-Stage D: Render video (background, hours)
+  STOP. User confirms render_manifest.json (sheet + prompt hashes locked) before paid GPU render.
+Stage D: Render all clips sequentially with tail conditioning (Python, background)
 ```
 
 At each gate, present the user with the file paths to review and wait for explicit
@@ -175,16 +176,22 @@ All commands run from `skills/story-maker-v4/`. Let `RUN=outputs/story-maker-v4/
 
 Read the user's raw story file + `TARGET` and
 [`assets/directors-guide.md`](assets/directors-guide.md) Section 1,
-[`assets/anime-studio-playbook.md`](assets/anime-studio-playbook.md), and
-[`assets/unbound-storytelling-guide.md`](assets/unbound-storytelling-guide.md). Author
+[`assets/anime-studio-playbook.md`](assets/anime-studio-playbook.md),
+[`assets/unbound-storytelling-guide.md`](assets/unbound-storytelling-guide.md), and
+[`assets/screenplay-format.md`](assets/screenplay-format.md). Author
 `$RUN/developed_story.md` per [`prompts/story_developer.md`](prompts/story_developer.md):
-expand/shrink to target with story structure (setup→escalation→climax→resolution),
-goals/conflict/stakes per scene, show-vs-tell, anti-sameness, videography writing,
-prop allocation & ergonomics (individual bowls/props when dining, ban shared-bowl eating),
-dialogue progression & anti-stutter (authority arrival pivot, no repeating blame),
-and authentic commercial button/slogan delivery,
+produce a **full animation screenplay** (not a prose summary) with sluglines,
+1–3 line action paragraphs, ALL-CAPS sound effects, formatted dialogue with
+parenteticals, and montage sequences,
 ending with `## Characters` (id/name/species/age/appearance, stable `char_NN` ids)
-and `## Locations` (id/name/description/establishing_prompt). No validator for this file.
+and `## Locations` (id/name/description/establishing_prompt). Then validate:
+
+```bash
+python3 scripts/validate.py "$RUN/developed_story.md" --schema screenplay
+```
+
+Read `$RUN/developed_story.md.validation.json`. If `ok:false`, fix every listed
+error and re-run. **Do not proceed to Agent 1b until the screenplay passes.**
 
 ### A1b. Extract the beat board (Agent 1b)
 

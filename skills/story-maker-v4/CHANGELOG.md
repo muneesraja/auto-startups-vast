@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [4.2.0] - 2026-09-10
+
+### Highlights
+- **Animation Screenplay Format (Agent 1)**: Replaced free-form prose narrative output with industry-standard animation screenplay format. `developed_story.md` now contains proper sluglines (`INT./EXT. LOCATION - TIME`), lean 1–3 line action paragraphs, ALL-CAPS sound effects, formatted dialogue with parentheticals, and montage sequences.
+- **Screenplay Format Bible (`assets/screenplay-format.md`)**: New comprehensive reference guide for animation screenwriting conventions, based on master-class analysis of *Swapped* (Netflix/Skydance Animation, dir. Nathan Greno).
+- **Deterministic Screenplay Validator (`--schema screenplay`)**: Added `validate_screenplay()` checking sluglines, prose walls, dialogue cues, sound cues, and required metadata sections.
+- **Downstream Screenplay Authority**: Agents 2, 3, and 5 now extract scene boundaries, dialogue, acting beats, and foley cues directly from the screenplay rather than inventing them.
+
+### Added
+- `assets/screenplay-format.md` — Animation Screenwriting Bible with format rules, anti-patterns, and few-shot examples from `Research/ollie`.
+- `validate_screenplay()` in `tools/validators.py` — deterministic screenplay format validator.
+- `--schema screenplay` registered in `scripts/validate.py`.
+- `tests/test_screenplay_validator.py` — 8 unit tests for screenplay validation.
+
+### Changed
+- `prompts/story_developer.md` — Agent 1 now requires screenplay format; validation step added before beat board.
+- `prompts/scene_writer.md` — Agent 2 uses screenplay sluglines as canonical scene boundary anchors.
+- `prompts/storyboard_planner.md` — Agent 3 extracts dialogue, acting beats, and sound cues from screenplay.
+- `prompts/video_prompter.md` — Agent 5 harvests ALL-CAPS sound cues into `foley_and_sfx` stem.
+- `SKILL.md` — Version bumped to 4.2.0; Agent 1 section updated with screenplay validation.
+- `ARCHITECTURE.md` — Agent 1 validator updated from `None (free-form)` to `--schema screenplay`.
+
+---
+
+## [4.1.0] - 2026-09-10
+
+### Highlights
+- **Script Intake Normalizer (`Agent 1`)**: Added `preserve_script` intake mode allowing authored screenplays (e.g. *Kutty Karupu*) to be processed without destructive rewriting or scene flattening, alongside duration modes (`preserve_script`, `compress`, `expand`, `exact`).
+- **Canonical Machine-Readable Dual Models**: Added companion `story.json` entity and constraint manifest alongside human-readable markdown files.
+- **Critique Gate (GATE 0) Severity Tiers**: Replaced circular PASS/FAIL auditing with `BLOCKER`, `MAJOR` (with required `Disposition: RESOLVED | ACCEPTED_AS_INTENDED`), `MINOR`, and `NOT_APPLICABLE` filtering.
+- **Approved Render Manifest (`render_manifest.json`)**: Added `scripts/build_manifest.py` and sha256 checksum staleness checks in `scripts/render_all.py` to prevent accidental GPU execution on stale or modified artifacts.
+- **Storyboard Template Consolidation**: Consolidated `prompts/storyboard_sheet_template.md` and `prompts/image_prompter.md` with proven 9-panel prompt principles (plain prose reading order, Reference Priority hierarchy, Action Contract for static poses, and Final Continuity Checklist).
+- **Discrepancy Authority & 4-Layer Audio Hierarchy**: Established clear authority rules (sheet = visual authority; storyboard = editorial authority) and formalized audio sections into `diegetic_dialogue`, `foley_and_sfx`, `environmental_ambience`, and `non_diegetic_music`.
+- **Deterministic Validators**: Added `--schema constraints` and `--schema manifest` to `scripts/validate.py` and `tools/validators.py`.
+
+---
+
 ## [4.0.0] - 2026-09-09
 
 ### Highlights

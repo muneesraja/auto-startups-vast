@@ -17,6 +17,11 @@ its own storyboard sheet). Group beats so each scene is a self-contained unit of
 action in ONE location, and prefer beats that break naturally into <=15s stretches
 of continuous action.
 
+**Screenplay Authority:** `developed_story.md` is now a full animation screenplay
+with `INT./EXT.` sluglines. Use the screenplay's scene headings as the canonical
+location and timing anchors when grouping beats into scenes. Each scene's `beat:`
+summary should reflect the screenplay's action lines, not paraphrase them.
+
 ## Rules
 
 - **One location per scene.** A scene must not jump between locations — that is a

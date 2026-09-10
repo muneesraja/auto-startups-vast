@@ -810,22 +810,22 @@ def validate_spatial_plan(
 # ---------------------------------------------------------------------------
 
 _QA_SHEET_HEADER_RE = re.compile(r"^##\s+(.+?)\s*$")
-_QA_STATUS_RE = re.compile(r"^-\s*Status:\s*(PASS|WARN)\s*$", re.IGNORECASE)
+_QA_STATUS_RE = re.compile(r"^-\s*Status:\s*(PASS|WARN|BLOCKER)\s*$", re.IGNORECASE)
 
 
 def parse_spatial_qa_report(md: str) -> dict[str, Any]:
     """Parse spatial_qa_report.md -> {summary, sheets: [...]}.
 
-    Each sheet is {id, status, expected, observed, recommendation}.
+    Each sheet is {id, status, expected, observed, recommendation, image_sha256, spatial_plan_sha256, reviewed_at}.
     """
     lines = md.splitlines()
-    summary: dict[str, int] = {"Pass": 0, "Warn": 0}
+    summary: dict[str, int] = {}
     sheets: list[dict] = []
     cur_sheet: dict | None = None
 
     for line in lines:
         # Summary lines
-        sm = re.match(r"^-\s*(Pass|Warn):\s*(\d+)\s*$", line, re.IGNORECASE)
+        sm = re.match(r"^-\s*(Pass|Warn|Blocker):\s*(\d+)\s*$", line, re.IGNORECASE)
         if sm:
             key = sm.group(1).capitalize()
             summary[key] = int(sm.group(2))
@@ -842,6 +842,9 @@ def parse_spatial_qa_report(md: str) -> dict[str, Any]:
                 "expected": "",
                 "observed": "",
                 "recommendation": "",
+                "image_sha256": "",
+                "spatial_plan_sha256": "",
+                "reviewed_at": "",
             }
             continue
 
@@ -860,6 +863,12 @@ def parse_spatial_qa_report(md: str) -> dict[str, Any]:
                 cur_sheet["observed"] = field_line[len("observed:"):].strip()
             elif field_line.startswith("recommendation:"):
                 cur_sheet["recommendation"] = field_line[len("recommendation:"):].strip()
+            elif field_line.startswith("image_sha256:"):
+                cur_sheet["image_sha256"] = field_line[len("image_sha256:"):].strip()
+            elif field_line.startswith("spatial_plan_sha256:"):
+                cur_sheet["spatial_plan_sha256"] = field_line[len("spatial_plan_sha256:"):].strip()
+            elif field_line.startswith("reviewed_at:"):
+                cur_sheet["reviewed_at"] = field_line[len("reviewed_at:"):].strip()
 
     if cur_sheet is not None:
         sheets.append(cur_sheet)
@@ -890,6 +899,7 @@ def validate_spatial_qa_report(
 
     pass_count = 0
     warn_count = 0
+    blocker_count = 0
     report_ids: set[str] = set()
 
     for sheet in sheets:
@@ -902,6 +912,10 @@ def validate_spatial_qa_report(
 
         if sheet["status"] == "PASS":
             pass_count += 1
+        elif sheet["status"] == "BLOCKER":
+            blocker_count += 1
+            obs = sheet["observed"] or "fatal spatial/landmark contradiction"
+            res.error(f"{sid} [BLOCKER]: {obs[:80]}")
         elif sheet["status"] == "WARN":
             warn_count += 1
             if not sheet["observed"]:

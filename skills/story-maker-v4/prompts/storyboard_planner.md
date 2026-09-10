@@ -250,6 +250,17 @@ Animation principles to apply:
 - **`audio` is real.** Minimax generates native stereo audio — plan the
   soundscape (footsteps, ambience, music cue) per shot, and put spoken lines
   in `dialogue`.
+- **Screenplay Extraction Authority (MANDATORY).** `developed_story.md` is a
+  full animation screenplay. Extract `dialogue:`, `acting_beat:`, and sound
+  events directly from it:
+  - **`dialogue:`** must quote the screenplay's dialogue blocks verbatim
+    (character cue + parenthetical + spoken line). Never invent dialogue that
+    isn't in the screenplay.
+  - **`acting_beat:`** should mirror the screenplay's action line micro-beats
+    (e.g. screenplay says *"His hind foot SLIPS. The basket tips."* →
+    `acting_beat: foot slips → lurch forward → basket tips`).
+  - **`audio:`** should harvest ALL-CAPS sound cues from the screenplay's
+    action lines into the soundscape (e.g. `SPLASH`, `CREAK`, `SNAP`).
 - **The handoff block is mandatory** (it seeds the next scene's opening).
 
 ## Output format (load-bearing — verbatim)

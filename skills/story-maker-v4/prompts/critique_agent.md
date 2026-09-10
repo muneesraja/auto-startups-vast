@@ -35,33 +35,30 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
    are 235+ questions across 9 sections (Story, Shot Design, Camera,
    Composition, Editing, Animation, Sound & Dialogue, Spatial, and H3/anime production).
 
-3. **Evaluate each question.** For each question:
-   - Check the relevant artifacts/fields
-   - Compare against the pass/fail criteria in the question bank
-   - Pay special attention to **Prop Ergonomics (Q1.31)** (ensure characters eating have individual bowls/props), **Dialogue Progression (Q7.26)** (ban repeated blame across cuts), and **Commercial Button (Q7.27)** (ensure slogans sound natural and fit a 10s window).
-   - Mark PASS, FAIL, or ADVISORY
-   - For FAIL: name the exact artifact, shot/beat/scene, what's wrong, and how
-     to fix it
-   - For ADVISORY: note the concern but don't block
-   - Be decisive — if the artifact plausibly satisfies the question, mark PASS
+3. **Evaluate each question with Severity Tiers.** For each question:
+   - Check the relevant artifacts/fields against pass/fail criteria in the bank.
+   - Assign one of the canonical statuses:
+     * **`PASS`**: Criterion is plausibly or fully satisfied.
+     * **`NOT_APPLICABLE`** (or `N/A`): The question does not apply to this production (e.g. dialogue checks on a silent film, 2-character staging on a solo short). Never fabricate a fake pass.
+     * **`BLOCKER`**: Violates a HARD user constraint (e.g. character co-presence exclusion, missing required hero prop, impossible geometry, wrong cast count). Halts pipeline immediately until fixed.
+     * **`MAJOR`**: Significant narrative, pacing, lighting, or cinematic conflict. Requires an artifact fix OR an explicit director disposition (`ACCEPTED_AS_INTENDED` with justification).
+     * **`MINOR`** (or `ADVISORY`): Subtle framing, aesthetic, or visual suggestions. Non-blocking warning.
+   - For `MAJOR`: include `- Disposition: RESOLVED` (if fixed) or `- Disposition: ACCEPTED_AS_INTENDED` (if intentional artistic choice).
+   - For `BLOCKER` or `FAIL`: name the exact artifact, shot/beat/scene, what's wrong, and how to fix it.
 
 4. **Write the report.** Produce `critique_report.md` in the format below.
 
 5. **Validate.** Run the deterministic critique validator:
-   ```
+   ```bash
    python3 scripts/validate.py critique_report.md --schema critique \
      --question-bank assets/directing-questions.md
    ```
-   The validator checks that every question ID has a Status line and that no
-   FAIL remains. If it fails, fix the report or fix the underlying artifacts.
+   The validator checks that zero BLOCKERs remain and that every MAJOR finding has a valid Disposition (`RESOLVED` or `ACCEPTED_AS_INTENDED`).
 
-6. **Fix loop.** If any question is FAIL:
-   - The director agent (1, 2, or 3) fixes the flagged artifacts
-   - Re-run the structural validators on the fixed artifacts
-   - Re-evaluate the affected questions
-   - Update critique_report.md
-   - Re-run the critique validator
-   - Repeat until all questions pass (GATE 0)
+6. **Fix loop.** If any question is BLOCKER or undisposed MAJOR:
+   - The director agent (1, 2, or 3) fixes the flagged artifacts or sets a justified disposition.
+   - Re-run the structural validators on the fixed artifacts.
+   - Update `critique_report.md` and re-validate until it passes (GATE 0).
 
 ## Output format (load-bearing — the validator parses this exactly)
 
@@ -70,45 +67,45 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
 
 ## Summary
 - Questions evaluated: 215
-- Pass: 198
-- Fail: 17
-- Advisory: 0
+- Pass: 195
+- Blocker: 0
+- Major: 2
+- Minor: 3
+- Not_Applicable: 15
 
 ## Section 1: Story & Visual Storytelling
 
 ### Q1.1 — Does every scene have a visible goal?
 - Status: PASS
-- Notes: All 3 scenes have clear visible goals (forage, protect, escape).
+- Notes: All scenes have clear visible physical goals.
 
 ### Q1.2 — Does every scene have a conflict?
-- Status: FAIL
-- Notes: Scene s1 has no conflict — Kemi forages peacefully but nothing stands in her way until the hyena appears at the end.
+- Status: MAJOR
+- Severity: MAJOR
+- Disposition: ACCEPTED_AS_INTENDED
+- Notes: Scene s1 has contemplative peaceful pacing before the storm in s2. Director chose silence over early confrontation.
 - Artifact: scenes.md, scene s1
-- Fix: Introduce the hyena threat earlier in scene s1 or merge the peaceful foraging into s2.
 
 ### Q1.3 — Does every scene have stakes?
 - Status: PASS
-- Notes: Stakes are clear — Timi's safety in all scenes.
+- Notes: Stakes are clear throughout.
 
 ...
 
 ## Section 7: Sound & Editing
 
-### Q7.25 — Is the audio consistent with the visual action?
-- Status: PASS
-- Notes: All audio matches the visual action.
+### Q7.10 — Does dialogue match lip movement?
+- Status: NOT_APPLICABLE
+- Notes: Silent film production — no spoken dialogue present.
 ```
 
 ### Field notes
 
 - **Header names are exact.** The parser matches `### Q<section>.<num> — <text>`
-  and `- Status: PASS|FAIL|ADVISORY`.
-- **Summary counts must match** the actual statuses in the report.
-- **Every question ID** from the question bank must have a `### Q...` entry.
-- **FAIL blocks** must include `Notes:`, `Artifact:`, and `Fix:` lines.
-- **PASS and ADVISORY blocks** must include at least a `Notes:` line.
-- **Be specific.** "Scene s1, shot 3: closeup used for geography — should be
-  wide" is useful. "Some shots have wrong sizes" is not.
+  and `- Status: PASS|BLOCKER|MAJOR|MINOR|ADVISORY|NOT_APPLICABLE`.
+- **Zero BLOCKERs allowed.** Any remaining BLOCKER halts GATE 0.
+- **MAJOR requires Disposition.** If a MAJOR issue is not resolved, it must have `- Disposition: ACCEPTED_AS_INTENDED` explaining the creative rationale.
+- **NOT_APPLICABLE skips cleanly.** Use this for questions that don't fit the medium, genre, or cast configuration.
 
 ## Evaluation principles
 
@@ -117,8 +114,8 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
   clearly doesn't meet the pass/fail criteria.
 - **Be specific.** Name the exact artifact, scene, shot, or beat. Vague
   feedback ("the pacing is off") is not actionable.
-- **Be constructive.** Every FAIL must include a Fix: line telling the director
-  agent exactly what to change.
+- **Classify severity honestly.** Distinguish fatal continuity bugs (BLOCKER) from
+  taste preferences (MINOR/ADVISORY). Do not inflate subjective opinions into BLOCKERs.
 - **Evaluate the plan, not the execution.** You're evaluating the markdown plan,
   not rendered video. Don't fail a question because "the render might not
   capture this" — evaluate what's on the page.
