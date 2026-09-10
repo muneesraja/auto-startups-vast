@@ -30,7 +30,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         STORY MAKER V3                                  │
+│                         STORY MAKER V5                                  │
 │                                                                         │
 │   ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐     │
 │   │  CLAUDE CODE │    │   PYTHON     │    │   EXTERNAL BACKENDS  │     │
@@ -273,7 +273,7 @@ g1 → g2 → g3 → ... → final_film.mp4
 ## 7. Asset System (Cross-Episode)
 
 ```
-outputs/story-maker-v4/<story>/
+outputs/story-maker-v5/<story>/
 ├── assets/                          ← STORY-LEVEL SHARED (never wiped)
 │   ├── asset_registry.json          ← shared registry: characters + locations + objects + sheets
 │   ├── characters/
@@ -404,7 +404,7 @@ facts separate from Agent 4's creative direction.
 
 ### 8.1 Storyboard Grid Topology & Default Layouts
 
-Every video generation in Story Maker V4 is conditioned on **exactly one multi-panel storyboard sheet**. The grid layout determines how time, staging, and action progress across the 4K canvas (3840×2160).
+Every video generation in Story Maker V5 is conditioned on **exactly one multi-panel storyboard sheet**. The grid layout determines how time, staging, and action progress across the 4K canvas (3840×2160).
 
 #### The Default Grid: `3x2` (6 Panels)
 - **Dimensions:** 3 rows × 2 columns = 6 equal widescreen panels.
@@ -505,7 +505,7 @@ Time flows **column-major** across the grid:
 Modern diffusion video backends like **Minimax Hailuo H3 R2V** have a strict, hardware- and architectural-enforced maximum duration of **15.0 seconds** (or 375 frames at 25 fps) per inference pass. Beyond 15 seconds, attention mechanisms experience exponential drift, actor consistency degrades, and VRAM limits are exceeded.
 
 #### How We Achieve Cohesive Multi-Minute Films
-To produce complete 1-minute, 3-minute, or 5-minute animated films, Story Maker V4 decomposes time hierarchically and recombines it through sequential tail conditioning:
+To produce complete 1-minute, 3-minute, or 5-minute animated films, Story Maker V5 decomposes time hierarchically and recombines it through sequential tail conditioning:
 
 ```
 Full Film (e.g. 180s)
@@ -679,7 +679,7 @@ Application-level cap: **10 refs** (the agent may name up to 10 in `ref_images:`
 ## 13. File Map
 
 ```
-skills/story-maker-v4/
+skills/story-maker-v5/
 │
 ├── SKILL.md                          ← Main runbook (the source of truth)
 ├── config.py                         ← Environment-driven configuration
@@ -834,7 +834,7 @@ Episode 2:
 
 ## 15. Canonical End-to-End Generation Example
 
-For a complete, real-world, file-by-file demonstration of the entire Story Maker V4 pipeline from input screenplay to final video generation, see:
+For a complete, real-world, file-by-file demonstration of the entire Story Maker V5 pipeline from input screenplay to final video generation, see:
 
 👉 **[`EXAMPLE_GENERATION.md`](EXAMPLE_GENERATION.md)**
 
@@ -847,7 +847,7 @@ For a complete, real-world, file-by-file demonstration of the entire Story Maker
    - Detailed technical explanation of how a 60-second scene is budgeted into four 15.0-second generations (`g1`, `g2`, `g3`, `g4`).
    - How 3-second tail extraction (`ffmpeg -sseof -3.0`) feeds `ref_videos: [sN_g1_tail.mp4]` into `g2` for unbroken temporal and physical continuity across generation cuts.
 3. **Exhaustive Artifact Walkthrough (*Bamboo the Dino — Mama*):**
-   - **Developed Story:** Industry-standard animation screenplay (v4.2.0) with scene sluglines, lean action lines, capitalized sound cues (`SNAP`, `POP`), character cue dialogue, and full character/location/object registries.
+   - **Developed Story:** Industry-standard animation screenplay (v5.0.0) with scene sluglines, lean action lines, capitalized sound cues (`SNAP`, `POP`), character cue dialogue, and full character/location/object registries.
    - **Beat Board:** 8 emotional beats with precise durations, cast presence, and hard constraints.
    - **Scenes Specification:** Scene budget, target duration, cast, locations, and mandatory scene-end handoff.
    - **Spatial Plan:** Complete 2D coordinates, zones, landmarks, camera axes, and character blocking.

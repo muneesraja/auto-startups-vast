@@ -67,7 +67,7 @@ Never author a storyboard or video prompt from the scene beat alone.
   strengths: [`assets/style-lora-presets.md`](assets/style-lora-presets.md).
   Only H3 adapters load into H3 — Flux/SDXL/Qwen-Image LoRAs will not work.
 - `ffmpeg` for concat.
-- Python deps: `pip install -r skills/story-maker-v4/requirements.txt`
+- Python deps: `pip install -r skills/story-maker-v5/requirements.txt`
   (replicate, fal-client, httpx, Pillow, numpy, python-dotenv; **no** google-adk,
   **no** litellm).
 
@@ -92,7 +92,7 @@ new "hall" location.
 
 ## Durable artifacts + resume waterfall
 
-Output layout: `outputs/story-maker-v4/<story>/epi-N/`; per-story shared assets at
+Output layout: `outputs/story-maker-v5/<story>/epi-N/`; per-story shared assets at
 `<story>/assets/` (`characters/{cid}.png`, `locations/{lid}.png`,
 `objects/{oid}.png` — never wiped). The shared asset registry lives at
 `<story>/assets/asset_registry.json` — it tracks hosted URLs for all assets
@@ -168,7 +168,7 @@ approval. If the user requests changes, fix and re-generate before proceeding.
 
 ## Stage A — Planning (Claude authors; validate + fix each; no image spend)
 
-All commands run from `skills/story-maker-v4/`. Let `RUN=outputs/story-maker-v4/<name>`
+All commands run from `skills/story-maker-v5/`. Let `RUN=outputs/story-maker-v5/<name>`
 (absolute path preferred) and `TARGET` be the target duration in seconds
 (e.g. `300` for 5 min).
 
