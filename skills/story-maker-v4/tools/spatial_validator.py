@@ -624,11 +624,11 @@ def validate_spatial_plan(
                         f"toward_camera, away_from_camera, profile_left, "
                         f"profile_right)"
                     )
-                # If toward_/away_from_ a landmark, check it exists
+                # If toward_/away_from_ a landmark, check it exists (camera is a special direction, not a landmark)
                 for prefix in ("toward_", "away_from_"):
                     if direction.startswith(prefix):
                         ref_landmark = direction[len(prefix):]
-                        if ref_landmark and ref_landmark not in landmark_ids:
+                        if ref_landmark and ref_landmark != "camera" and ref_landmark not in landmark_ids:
                             res.error(
                                 f"{glabel} shot {shot_num}: {cid} "
                                 f"character_facing references unknown "

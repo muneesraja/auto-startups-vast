@@ -32,12 +32,13 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
 
 2. **Read the question bank.** Load
    [`assets/directing-questions.md`](../assets/directing-questions.md). There
-   are 200+ questions across 9 sections (Story, Shot Design, Camera,
-   Composition, Editing, Animation, Sound, Spatial, and H3/anime production).
+   are 235+ questions across 9 sections (Story, Shot Design, Camera,
+   Composition, Editing, Animation, Sound & Dialogue, Spatial, and H3/anime production).
 
 3. **Evaluate each question.** For each question:
    - Check the relevant artifacts/fields
    - Compare against the pass/fail criteria in the question bank
+   - Pay special attention to **Prop Ergonomics (Q1.31)** (ensure characters eating have individual bowls/props), **Dialogue Progression (Q7.26)** (ban repeated blame across cuts), and **Commercial Button (Q7.27)** (ensure slogans sound natural and fit a 10s window).
    - Mark PASS, FAIL, or ADVISORY
    - For FAIL: name the exact artifact, shot/beat/scene, what's wrong, and how
      to fix it

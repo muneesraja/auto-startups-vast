@@ -41,6 +41,11 @@ def _replicate_client():
     token = os.environ.get("REPLICATE_API_TOKEN") or config.REPLICATE_API_TOKEN
     if not token:
         return None
+    # replicate v2: api_token → bearer_token
+    import inspect
+    sig = inspect.signature(replicate.Client.__init__)
+    if "bearer_token" in sig.parameters:
+        return replicate.Client(bearer_token=token)
     return replicate.Client(api_token=token)
 
 
@@ -53,21 +58,37 @@ def upload_local_image(image_path: str) -> str:
         raise RuntimeError("REPLICATE_API_TOKEN is not set")
     _throttle()
     with open(image_path, "rb") as fh:
-        uploaded = client.files.create(fh)
-    urls = getattr(uploaded, "urls", None) or {}
-    if isinstance(urls, dict):
-        url = urls.get("get") or urls.get("url")
-        if url:
-            return url
+        # replicate v2: positional → content= kwarg
+        try:
+            uploaded = client.files.create(content=fh)
+        except TypeError:
+            uploaded = client.files.create(fh)
+    urls = getattr(uploaded, "urls", None)
+    if urls:
+        if isinstance(urls, dict):
+            url = urls.get("get") or urls.get("url")
+            if url:
+                return url
+        get_attr = getattr(urls, "get", None)
+        if isinstance(get_attr, str) and get_attr.startswith("http"):
+            return get_attr
+        elif callable(get_attr):
+            try:
+                res = get_attr()
+                if isinstance(res, str) and res.startswith("http"):
+                    return res
+            except TypeError:
+                pass
+        url_attr = getattr(urls, "url", None)
+        if isinstance(url_attr, str) and url_attr.startswith("http"):
+            return url_attr
     url = getattr(uploaded, "url", None)
-    if callable(url):
-        url = url()
     if isinstance(url, str) and url.startswith("http"):
         return url
-    # Newer SDKs expose .urls.get as a method-like object
-    get_url = urls.get("get") if urls else None
-    if callable(get_url):
-        return get_url()
+    if callable(url):
+        url = url()
+        if isinstance(url, str) and url.startswith("http"):
+            return url
     raise RuntimeError(f"Could not resolve public URL for uploaded file: {uploaded!r}")
 
 
@@ -190,7 +211,7 @@ def _gpt_image_input(
         "aspect_ratio": _to_gpt_aspect_ratio(size),
     }
     openai_key = os.getenv("OPENAI_API_KEY") or getattr(config, "OPENAI_API_KEY", None)
-    if openai_key:
+    if openai_key and openai_key.startswith("sk-") and not openai_key.startswith("{{"):
         inp["openai_api_key"] = openai_key
     if image_urls:
         limit = config.get_image_ref_limit()

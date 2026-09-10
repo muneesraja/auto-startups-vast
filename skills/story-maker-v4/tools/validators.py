@@ -589,6 +589,7 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
     prev_end = 0.0
     total = 0.0
     all_scene_panels: list[int] = []
+    all_scene_shot_durations: list[float] = []  # ponytail: tracks shot lengths to detect mechanical uniform slicing across generations
     any_partial_gen_panels = False
     last_panel_count = None
     for gen in gens:
@@ -760,6 +761,49 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         # All transitions identical → warn
         if len(gen_transitions) >= 2 and len(set(gen_transitions)) == 1:
             res.warn(f"{gid}: all {len(gen_transitions)} transitions are '{gen_transitions[0]}' — vary transitions")
+
+        # Anti-monotony: consecutive shots repeating eye_level camera angles
+        for i in range(len(shots) - 1):
+            ca1 = shots[i].get("camera_angle", "").strip()
+            ca2 = shots[i + 1].get("camera_angle", "").strip()
+            if ca1 and ca2 and ca1 == ca2 and ca1 == "eye_level":
+                res.warn(
+                    f"{gid}: consecutive shots {shots[i]['shot']} and {shots[i+1]['shot']} "
+                    "both use 'eye_level' — static eye-level framing repeated across cuts reduces "
+                    "cinematic dynamics; vary angles (e.g. low_angle, high_angle, three_quarter, dutch_angle)."
+                )
+                break
+
+        # Anti-monotony: all shots in generation use identical camera angle
+        gen_angles = [s.get("camera_angle", "").strip() for s in shots if s.get("camera_angle")]
+        if len(shots) >= 2 and len(gen_angles) == len(shots) and len(set(gen_angles)) == 1:
+            res.warn(
+                f"{gid}: all {len(shots)} shots use identical camera_angle '{gen_angles[0]}' — "
+                "vary camera angles (e.g. pair wide high-angle with low-angle or three-quarter close-up) "
+                "for dynamic cinematography."
+            )
+
+        # Anti-monotony: all shots in generation use static camera framing
+        gen_cameras = [s.get("camera", "").strip().lower() for s in shots if s.get("camera")]
+        if len(shots) >= 2 and len(gen_cameras) == len(shots) and all("static shot" in c for c in gen_cameras):
+            res.warn(
+                f"{gid}: all {len(shots)} shots use static camera framing — incorporate motivated "
+                "camera movement (e.g. Tracking Shot, Push In, Crane Up, Arc Shot) to enhance cinematic immersion."
+            )
+
+        # Anti-mechanical slicing: all shots in generation have identical duration
+        gen_durations = [
+            round(s["end"] - s["start"], 3)
+            for s in shots
+            if s.get("start") is not None and s.get("end") is not None
+        ]
+        all_scene_shot_durations.extend(gen_durations)
+        if len(gen_durations) >= 3 and (max(gen_durations) - min(gen_durations)) < eps:
+            res.warn(
+                f"{gid}: all {len(gen_durations)} shots have identical duration ({gen_durations[0]:.1f}s) — "
+                "avoid mechanical slicing; vary shot pacing according to dramatic tension and story rhythm."
+            )
+
         if len(shots) > duration_budget.H3_RECOMMENDED_MAX_SHOTS:
             res.warn(
                 f"{gid}: {len(shots)} shots exceed V4's recommended H3 pacing "
@@ -808,6 +852,14 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
 
     if sb["target_seconds"] > 0 and abs(total - sb["target_seconds"]) > eps:
         res.error(f"scene {sid}: generations cover {total:.1f}s != target_seconds ({sb['target_seconds']}s)")
+
+    # Anti-mechanical slicing across generations in a scene
+    # ponytail: O(N) duration spread scan to prevent uniform slicing across scenes
+    if len(gens) >= 2 and len(all_scene_shot_durations) >= 4 and (max(all_scene_shot_durations) - min(all_scene_shot_durations)) < eps:
+        res.warn(
+            f"scene {sid}: mechanical uniform shot slicing detected across all {len(all_scene_shot_durations)} shots "
+            f"({all_scene_shot_durations[0]:.1f}s each) — vary shot durations dynamically based on dramatic beats."
+        )
 
     # Cross-check against scenes.md if provided.
     if scenes:

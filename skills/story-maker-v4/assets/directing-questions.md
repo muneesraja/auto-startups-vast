@@ -1,6 +1,6 @@
 # Directing Questions Bank (story-maker-v4)
 
-210+ questions for the critique agent (Agent 6) to evaluate the full director plan
+235+ questions for the critique agent (Agent 6) to evaluate the full director plan
 (beat_board.md + scenes.md + all storyboard_sN.md). Organized by the 7 sections of
 [`directors-guide.md`](directors-guide.md). Each question has a stable ID, the
 question text, what to check, and pass/fail criteria.
@@ -10,7 +10,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ---
 
-## Section 1: Story & Visual Storytelling (30 questions)
+## Section 1: Story & Visual Storytelling (31 questions)
 
 ### Q1.1 — Does every scene have a visible goal?
 - **Check:** scenes.md — each scene's `beat:` field names a visible character goal.
@@ -161,6 +161,11 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 - **Check:** developed_story.md — there's an underlying idea beyond the plot.
 - **Pass:** the story explores a theme (courage, family, greed, etc.).
 - **Fail:** the story is pure action with no thematic underpinning (acceptable for ads, fail for narrative).
+
+### Q1.31 — Does the scene allocate individual props/vessels for multi-character dining or actions?
+- **Check:** developed_story.md `## Objects`, scenes.md `objects:`, and storyboard_sN.md.
+- **Pass:** individual vessels/props allocated when multiple characters eat, drink, or work simultaneously (e.g. two separate noodle bowls).
+- **Fail:** multiple characters depicted eating out of one single bowl simultaneously (causes visual crowding, tangled limbs, and model rendering artifacts).
 
 ---
 
@@ -880,7 +885,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ---
 
-## Section 7: Sound & Editing (25 questions)
+## Section 7: Sound & Editing (27 questions)
 
 ### Q7.1 — Does every shot have audio direction?
 - **Check:** storyboard_sN.md — each shot has a non-empty `audio:` field.
@@ -1006,6 +1011,16 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 - **Check:** storyboard_sN.md — what we hear matches what we see.
 - **Pass:** footsteps when walking, crash when impacting, wind when outside.
 - **Fail:** audio doesn't match the visual (footsteps when standing still).
+
+### Q7.26 — Does dialogue progress dynamically without circular repetition across cuts?
+- **Check:** storyboard_sN.md `dialogue:` across consecutive shots.
+- **Pass:** dialogue moves the dramatic situation forward; when a parent or authority enters, dialogue pivots to an appeal, plea, bargaining, or resolution.
+- **Fail:** characters repeat identical accusations, defenses, or lines across cuts (e.g. repeating "He broke it! / No, he broke it!" after someone enters).
+
+### Q7.27 — Is the commercial button or slogan delivered with authentic character voice?
+- **Check:** storyboard_sN.md / video_prompts/ for branded stories.
+- **Pass:** slogan delivered in natural colloquial vernacular with parental/character swagger within a dedicated 10s button window.
+- **Fail:** stiff corporate ad read or missing slogan in commercial narrative.
 
 ## Section 8: Spatial Continuity (10 questions)
 

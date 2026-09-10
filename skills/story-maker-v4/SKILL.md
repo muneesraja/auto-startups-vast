@@ -174,11 +174,15 @@ All commands run from `skills/story-maker-v4/`. Let `RUN=outputs/story-maker-v4/
 ### A1. Develop the story (Agent 1)
 
 Read the user's raw story file + `TARGET` and
-[`assets/directors-guide.md`](assets/directors-guide.md) Section 1 and
-[`assets/anime-studio-playbook.md`](assets/anime-studio-playbook.md). Author
+[`assets/directors-guide.md`](assets/directors-guide.md) Section 1,
+[`assets/anime-studio-playbook.md`](assets/anime-studio-playbook.md), and
+[`assets/unbound-storytelling-guide.md`](assets/unbound-storytelling-guide.md). Author
 `$RUN/developed_story.md` per [`prompts/story_developer.md`](prompts/story_developer.md):
 expand/shrink to target with story structure (setup→escalation→climax→resolution),
 goals/conflict/stakes per scene, show-vs-tell, anti-sameness, videography writing,
+prop allocation & ergonomics (individual bowls/props when dining, ban shared-bowl eating),
+dialogue progression & anti-stutter (authority arrival pivot, no repeating blame),
+and authentic commercial button/slogan delivery,
 ending with `## Characters` (id/name/species/age/appearance, stable `char_NN` ids)
 and `## Locations` (id/name/description/establishing_prompt). No validator for this file.
 
@@ -218,17 +222,17 @@ re-run. **Do not proceed until it passes.**
 Before authoring spatial geography or storyboard boundaries, analyze the scene's
 dramatic beats, physical choreography, and dialogue tempo to establish the
 **Dynamic Shot Depth & Duration Plan**:
-- **Never mechanically split generations into identical shot counts or arbitrary ~3.5s slices.**
-- **Continuous Master Take / Oner (1 Shot, 10.0–15.0s)**: Unbroken continuous action,
-  majestic entrances, sovereign character traversals, or continuous tracking shots.
-- **Asymmetric 2-Shot Dynamic (2 Shots per 15s)**: Complete dialogue statements and
-  rebuttals (e.g. 9.0s + 6.0s), or expansive continuous setups followed by punchy
-  reaction reveals (e.g. 11.5s master descent + 3.5s reaction cut; 5.0s confrontation +
-  10.0s lethal whisper and pull-back freeze).
-- **Dynamic Action Arc (3 Shots per 15s)**: High-stakes physical sequences with varying
-  tempo (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
-- **Rapid Montage (4+ Shots per 15s)**: Strictly reserved for high-tempo preparation,
-  chaotic impacts, or rapid-fire flashbacks.
+- **Story-First Pacing Rule (MANDATORY)**:
+  * **1-Shot Master Take / Oner (10.0s–15.0s)**: When the narrative beat is a continuous physical sequence (continuous slide down a cavern, sovereign entrance, unbroken falling action, high-stakes continuous tracking, or sustained emotional dialogue), **DO NOT CUT**. Author it as an unbroken single-shot Master Take (10.0–15.0s) filling the generation.
+  * **Asymmetric 2-Shot Dynamic (2 shots per 15s)**: Unequal dramatic division based on action/reaction or statement/rebuttal (e.g. 11.5s setup + 3.5s reaction; 9.0s statement + 6.0s rebuttal; 5.0s confrontation + 10.0s lethal whisper and freeze).
+  * **Dynamic Action Arc (3 shots per 15s)**: High-stakes physical sequences with varying tempo (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
+  * **Rapid Montage (4+ shots per 15s)**: Strictly reserved for high-tempo preparation, chaotic impacts, or rapid flashbacks.
+  * **STRICT PROHIBITION**: Never mechanically split generations into identical shot counts (e.g. defaulting to 2 shots per generation or 4 shots per scene) or arbitrary uniform slices (e.g. 2 × 7.5s or 4 × 3.75s). Mechanical slicing will trigger validator warnings.
+- **Dynamic Cinematography Rule (MANDATORY)**:
+  * Every shot must have an intentional camera angle (`low_angle`, `high_angle`, `worm_eye`, `bird_eye`, `side_profile`, `three_quarter`, `over_the_shoulder`, `dutch_angle`, `pov`, `reverse_shot`).
+  * **Static eye-level framing repeated across cuts triggers an anti-monotony warning in the validator.**
+  * Pair contrasting, motivated camera angles shot-to-shot (e.g. pair a wide high-angle establishing shot with a low-angle hero close-up, a dynamic side-profile tracking shot, or a worm's-eye ground perspective followed by a canted dutch-angle tumble).
+  * Every shot must feature motivated camera movement (`Tracking Shot`, `Push In`, `Pull Out`, `Crane Up/Down`, `Arc Shot`, `Tilt Up/Down`, `Whip Pan`). Monotonous static camera shots across cuts trigger a validator warning.
 
 ### A3a. Plan scene spatial geography (Agent 3a)
 
@@ -261,6 +265,7 @@ current generation moves whole to the next one.**
 Shot durations must reflect the **Dynamic Shot Depth Plan** established in A3-Pre:
 shots range dynamically from 1.5s shock cuts to full 15.0s master takes, varying
 rhythm naturally (fast-slow-fast, building tension, or sustained emotional hold).
+Every shot must enforce **multi-character prop ergonomics** (individual bowls/props in separate screen zones; never shared-bowl eating), **dialogue progression** (anti-repetition; authority arrival pivot), and **10-second commercial button structuring** where applicable.
 Then:
 
 ```bash
@@ -395,8 +400,10 @@ do not block GATE 1 but should be reviewed.
 For each scene `sN` and generation `gK`: **Read** the sheet
 (`$RUN/storyboard_sheet_sN_gK.webp`) to see what was actually drawn, plus
 `storyboard_sN.md`, the episode context,
-[`assets/minimax-h3-prompt-bible.md`](assets/minimax-h3-prompt-bible.md), and
-[`assets/minimax-h3-modes-guide.md`](assets/minimax-h3-modes-guide.md).
+[`assets/minimax-h3-prompt-bible.md`](assets/minimax-h3-prompt-bible.md),
+[`assets/minimax-h3-modes-guide.md`](assets/minimax-h3-modes-guide.md),
+[`assets/cinematography-bible.md`](assets/cinematography-bible.md), and
+[`assets/unbound-storytelling-guide.md`](assets/unbound-storytelling-guide.md).
 Author `$RUN/video_prompts/sN_gK.txt` per [`prompts/video_prompter.md`](prompts/video_prompter.md):
 a 6-section Ref2VA prompt (`subject_definitions` / `summary` /
 `retention_analysis` / `detailed_description` / `overall_soundscape` /

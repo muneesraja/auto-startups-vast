@@ -85,6 +85,13 @@ panel describing its narrative function (e.g. "Panel 1 establishes the village
 at sunset; Panel 2 moves closer to Kayal on the thinnai; ..."). This gives the
 model the temporal arc.
 
+### Multi-Character Prop Ergonomics & Dining (MANDATORY)
+
+In both `PROP CONTINUITY` and `PANEL DIRECTIONS`:
+- **Allocate Individual Vessels/Props:** When multiple characters eat, drink, or use tools, explicitly describe individual props in their respective zones (e.g., "Two separate steaming ceramic noodle bowls, one placed directly in front of Lebo frame-left and one in front of Thabo frame-right").
+- **Never Prompt Shared-Bowl Eating:** Ban prompts where multiple characters eat simultaneously from a single bowl—the image model will merge their limbs and distort anatomy.
+- Clearly describe each character holding their own utensils oriented toward their own bowl.
+
 ### Default grid
 
 Default `panel_grid` is `3x2` (3 rows × 2 columns = 6 panels). The left column
