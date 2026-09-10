@@ -38,8 +38,14 @@ DECORATIVE = {"MarkdownNote", "Note", "Comment"}
 _SKIP_WIDGET = {"fixed", "randomize", "increment", "decrement"}
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MINIMAX_UI = (
+_MINIMAX_SUBDIR_UI = (
+    _REPO_ROOT / "workflows" / "comfyui" / "minimax" / "Minimax H3 R2V - Final - v2.json"
+)
+_MINIMAX_LEGACY_UI = (
     _REPO_ROOT / "workflows" / "comfyui" / "Minimax H3 R2V - Final - v2.json"
+)
+DEFAULT_MINIMAX_UI = (
+    _MINIMAX_SUBDIR_UI if _MINIMAX_SUBDIR_UI.exists() else _MINIMAX_LEGACY_UI
 )
 _UPLOAD_SUBFOLDER = "story-maker-v3"
 

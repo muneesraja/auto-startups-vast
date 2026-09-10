@@ -58,7 +58,7 @@ Never author a storyboard or video prompt from the scene beat alone.
   `COMFYUI_URL` (and `COMFYUI_AUTH` if your ComfyUI is gated).
 - A running ComfyUI with the Minimax H3 models installed (Comfy-Org/MiniMax-H3:
   ref2va UNet, video + audio VAEs, qwen3vl CLIP). The workflow JSON lives at
-  repo root `workflows/comfyui/Minimax H3 R2V - Final.json` — it is referenced,
+  repo root `workflows/comfyui/minimax/Minimax H3 R2V - Final.json` — it is referenced,
   not copied (override with `MINIMAX_H3_WORKFLOW`).
 - `ffmpeg` for concat.
 - Python deps: `pip install -r skills/story-maker-v4p/requirements.txt`

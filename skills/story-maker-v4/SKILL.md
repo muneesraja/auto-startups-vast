@@ -56,14 +56,14 @@ Never author a storyboard or video prompt from the scene beat alone.
   `COMFYUI_URL` (and `COMFYUI_AUTH` if your ComfyUI is gated).
 - A running ComfyUI with the Minimax H3 models installed (Comfy-Org/MiniMax-H3:
   ref2va UNet, video + audio VAEs, qwen3vl CLIP). The workflow JSON lives at
-  repo root `workflows/comfyui/Minimax H3 R2V - Final.json` — it is referenced,
+  repo root `workflows/comfyui/minimax/Minimax H3 R2V - Final.json` — it is referenced,
   not copied (override with `MINIMAX_H3_WORKFLOW`).
 - **Illustration styles (optional):** for 2D storybook, folk / flat-geometric,
   vintage editorial, or semi-realistic painterly concept-art looks, install the
   H3-native style LoRAs with
   `bash workflows/setup/minimax-h3-r2v-style-lora.sh` and point
   `MINIMAX_H3_WORKFLOW` at
-  `workflows/comfyui/minimax-h3-r2v-style-lora.json`. Presets, trigger words and
+  `workflows/comfyui/minimax/minimax-h3-r2v-style-lora.json`. Presets, trigger words and
   strengths: [`assets/style-lora-presets.md`](assets/style-lora-presets.md).
   Only H3 adapters load into H3 — Flux/SDXL/Qwen-Image LoRAs will not work.
 - `ffmpeg` for concat.

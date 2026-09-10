@@ -15,7 +15,7 @@ STYLE_LORA_COMMUNITY=1 bash workflows/setup/minimax-h3-r2v-style-lora.sh
 Render with the LoRA-enabled graph:
 
 ```bash
-export MINIMAX_H3_WORKFLOW="$PWD/workflows/comfyui/minimax-h3-r2v-style-lora.json"
+export MINIMAX_H3_WORKFLOW="$PWD/workflows/comfyui/minimax/minimax-h3-r2v-style-lora.json"
 python3 skills/story-maker-v4/scripts/render_all.py --story <story> --episode 1
 ```
 
@@ -48,7 +48,7 @@ review before any commercial use:
 ## Presets
 
 Slot 1 / 2 / 3 map to the three `LoraLoaderModelOnly` nodes in
-`workflows/comfyui/minimax-h3-r2v-style-lora.json`, top to bottom. Strength
+`workflows/comfyui/minimax/minimax-h3-r2v-style-lora.json`, top to bottom. Strength
 `0.0` disables a slot.
 
 ### P1 — 2D storybook illustration

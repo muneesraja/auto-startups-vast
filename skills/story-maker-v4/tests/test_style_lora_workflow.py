@@ -13,7 +13,7 @@ _REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 WORKFLOW_PATH = os.path.join(
-    _REPO_ROOT, "workflows", "comfyui", "minimax-h3-r2v-style-lora.json"
+    _REPO_ROOT, "workflows", "comfyui", "minimax", "minimax-h3-r2v-style-lora.json"
 )
 
 
