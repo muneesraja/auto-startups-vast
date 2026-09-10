@@ -1,6 +1,6 @@
-# Story Maker V4 — Deep Architecture
+# Story Maker V5 — Deep Architecture
 
-> **One-line summary:** Claude Code is the brain (authors all markdown/text artifacts, runs deterministic validators, does the vision step); Python is the hands (deterministic image generation, Minimax H3 video render, concat). No ADK, no LiteLLM, no LLM calls from Python.
+> **One-line summary:** Claude Code is the brain (authors all markdown/text artifacts, runs deterministic validators, does the vision step); Python is the hands (deterministic image generation, Minimax H3 video render, concat). No ADK, no LiteLLM, no LLM calls from Python. Restores v3's canonical Ref2VA token-binding continuity with dynamic 2-to-8 shot pacing and bounded 3x2-to-3x3 storyboard grids.
 
 ---
 
@@ -412,22 +412,31 @@ Every video generation in Story Maker V4 is conditioned on **exactly one multi-p
 - **Temporal Narrative Flow:**
   - **Column 1 (Panels 1, 2, 3):** Early progression & setup (top-to-bottom).
   - **Column 2 (Panels 4, 5, 6):** Complication & resolution (top-to-bottom).
-- **Why `3x2` is Default:** It maps cleanly to standard 8–12 second generations, providing 3 to 5 cinematic keyframe beats without overcrowding the image model. The wide 8:3 framing gives subjects breathing room in horizontal compositions.
+- **Why `3x2` is Default:** It maps cleanly to standard 8–12 second generations, providing 2 to 4 cinematic keyframe beats without overcrowding the image model. The wide 8:3 framing gives subjects breathing room in horizontal compositions.
 
-#### Alternative Grid Topologies
+#### Grid Topologies (Strictly Bounded: 6 to 9 Panels)
 
 | Grid | Rows | Cols | Total Panels | Cell Size (px) | Cell Aspect | Recommended Generation Use Case |
 |---|---|---|---|---|---|---|
-| **`3x2`** *(Default)* | 3 | 2 | 6 | 1920×720 | 8:3 | Standard 8–12s generations (3–5 shots). Balanced setup/resolution. |
-| **`3x3`** | 3 | 3 | 9 | 1280×720 | **16:9** (True) | Dense, fast-paced 12–15s action generations (5–8 rapid shots). True 16:9 framing. |
-| **`2x3`** | 2 | 3 | 6 | 1280×1080 | ~4:3 | 6-panel horizontal-flow sequence; good for portrait/character-heavy framing. |
-| **`2x2`** | 2 | 2 | 4 | 1920×1080 | **16:9** (True) | Brief 5–7s simple transitions or establishing sequences (2–3 shots). |
-| **`4x3`** | 4 | 3 | 12 | 1280×540 | 64:27 | High-density montage (note: splitting into 2 generations is preferred). |
+| **`3x2`** *(Default / Min)* | 3 | 2 | 6 | 1920×720 | 8:3 | Standard 8–12s generations (2–4 shots). Balanced setup / resolution. |
+| **`3x3`** *(Max)* | 3 | 3 | 9 | 1280×720 | **16:9** (True) | Dense, fast-paced 12–15s action generations (5–8 rapid shots). True 16:9 framing. |
+| **`2x3`** | 2 | 3 | 6 | 1280×1080 | ~4:3 | 6-panel horizontal-flow sequence; good for portrait / character-heavy framing. |
+
+*Note:* Grids smaller than 6 panels or larger than 9 panels are rejected by the validator to ensure visual consistency and optimal attention allocation in diffusion models.
+
+#### Dynamic Shot Pacing (2 Minimum to 8 Maximum)
+- **Slow-Paced / Emotional / Intimate (2 Shots Minimum):**
+  - E.g. 7.5s + 7.5s, or 6.0s + 9.0s.
+  - **Super High Detail Mandate:** Descriptions must detail continuous multi-phase micro-beat acting, evolving camera motion with subtle parallax, living environmental atmosphere (dust, flame flicker, wind, fabric movement), and layered soundscapes so 15 seconds never feels static or boring.
+- **Moderate Dramatic Pace (3 to 4 Shots):**
+  - Balanced cuts averaging 3.5s to 5.0s per shot.
+- **Fast-Paced / Action / Comedy / Chase (5 to 8 Shots Maximum):**
+  - Rapid cuts averaging 1.5s to 3.0s per shot.
 
 #### Panel Numbering: Column-Major Convention
 Time flows **column-major** across the grid:
 ```
-3x2 Grid (Default):               3x3 Grid (Dense):
+3x2 Grid (Default/Min):            3x3 Grid (Max):
 ┌──────────────┬──────────────┐   ┌──────────┬──────────┬──────────┐
 │   Panel 1    │   Panel 4    │   │ Panel 1  │ Panel 4  │ Panel 7  │
 ├──────────────┼──────────────┤   ├──────────┼──────────┼──────────┤
@@ -438,10 +447,11 @@ Time flows **column-major** across the grid:
 ```
 
 #### Load-Bearing Grid Rules:
-1. **Mathematical Integrity:** In `storyboard_sN.md`, `panel_grid: RxC` must satisfy `R * C == total_panels` (e.g. `3x2` requires exactly 6 panels).
-2. **Shot Ownership:** Every panel belongs to exactly one shot. A shot claims 1–4 sequential panels representing its key poses (or 1–6 panels for single-shot master oners).
+1. **Mathematical Integrity:** In `storyboard_sN.md`, `panel_grid: RxC` must satisfy `R * C == total_panels` (strictly 6 or 9 panels).
+2. **Shot Ownership:** Every panel belongs to exactly one shot. A shot claims 1–4 sequential panels representing its key poses.
 3. **No Straddling:** A shot never crosses a generation boundary.
 4. **Visual Hygiene:** Panels are separated by thin, straight, uniform **4px gutters** (white or black). The sheet must be **100% text-free** (no numbers, labels, timecodes, captions, or watermarks).
+5. **Cross-Generation Seam Alignment:** The closing shot of `gK` and the opening shot of `gK+1` must match in physical posture, camera framing, and actor positioning.
 
 ---
 
