@@ -924,6 +924,12 @@
           "type": "VAE"
         },
         {
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        },
+        {
           "label": "max_resolution",
           "name": "max_resolution",
           "type": "INT",
@@ -1979,50 +1985,6 @@
       }
     },
     {
-      "id": 65,
-      "type": "SenseNovaH3DistilledBridge",
-      "pos": [
-        2379.2866706192362,
-        4610.203552989836
-      ],
-      "size": [
-        291.401953125,
-        106
-      ],
-      "flags": {},
-      "order": 26,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "conditioning",
-          "type": "CONDITIONING",
-          "link": 172
-        }
-      ],
-      "outputs": [
-        {
-          "name": "conditioning",
-          "type": "CONDITIONING",
-          "links": [
-            173
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "SenseNovaH3DistilledBridge"
-      },
-      "widgets_values": [
-        "MiniMaxH3_SemanticBridge_v1.safetensors",
-        0.1,
-        "per_token"
-      ],
-      "widgets_values_named": {
-        "distilled_adapter": "MiniMaxH3_SemanticBridge_v1.safetensors",
-        "alpha": 0.1,
-        "magnitude_match": "per_token"
-      }
-    },
-    {
       "id": 2,
       "type": "VAEDecodeAudio",
       "pos": [
@@ -2482,145 +2444,6 @@
       "bgcolor": "#653"
     },
     {
-      "id": 22,
-      "type": "ResolutionSelector",
-      "pos": [
-        1038.831705428531,
-        5821.922133276156
-      ],
-      "size": [
-        270.9833679199219,
-        150
-      ],
-      "flags": {},
-      "order": 14,
-      "mode": 0,
-      "showAdvanced": false,
-      "inputs": [
-        {
-          "label": "aspect_ratio",
-          "name": "aspect_ratio",
-          "type": "COMBO",
-          "widget": {
-            "name": "aspect_ratio"
-          }
-        },
-        {
-          "label": "megapixels",
-          "name": "megapixels",
-          "type": "FLOAT",
-          "widget": {
-            "name": "megapixels"
-          }
-        },
-        {
-          "label": "multiple",
-          "name": "multiple",
-          "type": "INT",
-          "widget": {
-            "name": "multiple"
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "label": "width",
-          "name": "width",
-          "type": "INT",
-          "links": [
-            136
-          ]
-        },
-        {
-          "label": "height",
-          "name": "height",
-          "type": "INT",
-          "links": [
-            137
-          ]
-        }
-      ],
-      "title": "Resolution Selector (Size)",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.33.2",
-        "Node name for S&R": "ResolutionSelector",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        },
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "16:9 (Widescreen)",
-        0.2,
-        128
-      ],
-      "widgets_values_named": {
-        "aspect_ratio": "16:9 (Widescreen)",
-        "megapixels": 0.2,
-        "multiple": 128
-      },
-      "color": "#322",
-      "bgcolor": "#533"
-    },
-    {
-      "id": 27,
-      "type": "PrimitiveFloat",
-      "pos": [
-        1022.4144071765181,
-        6255.846029771278
-      ],
-      "size": [
-        275.07977294921875,
-        58
-      ],
-      "flags": {},
-      "order": 15,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "value",
-          "name": "value",
-          "type": "FLOAT",
-          "widget": {
-            "name": "value"
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "label": "FLOAT",
-          "name": "FLOAT",
-          "type": "FLOAT",
-          "links": [
-            14
-          ]
-        }
-      ],
-      "title": "int",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.33.2",
-        "Node name for S&R": "PrimitiveFloat",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        },
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        0.9
-      ],
-      "widgets_values_named": {
-        "value": 0.9
-      },
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
       "id": 47,
       "type": "LoraLoaderModelOnly",
       "pos": [
@@ -2700,7 +2523,7 @@
         58
       ],
       "flags": {},
-      "order": 16,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -2760,7 +2583,7 @@
         58
       ],
       "flags": {},
-      "order": 17,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -2811,74 +2634,6 @@
       }
     },
     {
-      "id": 41,
-      "type": "LoraLoaderModelOnly",
-      "pos": [
-        1656.9176966783482,
-        4918.871334874713
-      ],
-      "size": [
-        597.5978487974194,
-        82
-      ],
-      "flags": {},
-      "order": 21,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "model",
-          "name": "model",
-          "type": "MODEL",
-          "link": 57
-        },
-        {
-          "label": "lora_name",
-          "name": "lora_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "lora_name"
-          }
-        },
-        {
-          "label": "strength_model",
-          "name": "strength_model",
-          "type": "FLOAT",
-          "widget": {
-            "name": "strength_model"
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            101
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.33.2",
-        "Node name for S&R": "LoraLoaderModelOnly",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        },
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
-        1
-      ],
-      "widgets_values_named": {
-        "lora_name": "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
-        "strength_model": 1
-      }
-    },
-    {
       "id": 14,
       "type": "PrimitiveStringMultiline",
       "pos": [
@@ -2892,7 +2647,7 @@
       "flags": {
         "collapsed": false
       },
-      "order": 18,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -2945,7 +2700,7 @@
       ],
       "size": [
         550.3770233689311,
-        652.9667884371354
+        334
       ],
       "flags": {
         "collapsed": false
@@ -3109,7 +2864,7 @@
         327.73391766182976
       ],
       "flags": {},
-      "order": 19,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -3163,6 +2918,257 @@
       "widgets_values_named": {
         "image": "storyboard_sheet_s1_g1.webp",
         "upload": "image"
+      }
+    },
+    {
+      "id": 22,
+      "type": "ResolutionSelector",
+      "pos": [
+        1038.831705428531,
+        5821.922133276156
+      ],
+      "size": [
+        270.9833679199219,
+        150
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "showAdvanced": false,
+      "inputs": [
+        {
+          "label": "aspect_ratio",
+          "name": "aspect_ratio",
+          "type": "COMBO",
+          "widget": {
+            "name": "aspect_ratio"
+          }
+        },
+        {
+          "label": "megapixels",
+          "name": "megapixels",
+          "type": "FLOAT",
+          "widget": {
+            "name": "megapixels"
+          }
+        },
+        {
+          "label": "multiple",
+          "name": "multiple",
+          "type": "INT",
+          "widget": {
+            "name": "multiple"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "width",
+          "name": "width",
+          "type": "INT",
+          "links": [
+            136
+          ]
+        },
+        {
+          "label": "height",
+          "name": "height",
+          "type": "INT",
+          "links": [
+            137
+          ]
+        }
+      ],
+      "title": "Resolution Selector (Size)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.2",
+        "Node name for S&R": "ResolutionSelector",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "16:9 (Widescreen)",
+        0.3,
+        128
+      ],
+      "widgets_values_named": {
+        "aspect_ratio": "16:9 (Widescreen)",
+        "megapixels": 0.3,
+        "multiple": 128
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 27,
+      "type": "PrimitiveFloat",
+      "pos": [
+        1022.4144071765181,
+        6255.846029771278
+      ],
+      "size": [
+        275.07977294921875,
+        58
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "value",
+          "name": "value",
+          "type": "FLOAT",
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "FLOAT",
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "title": "int",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.2",
+        "Node name for S&R": "PrimitiveFloat",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1
+      ],
+      "widgets_values_named": {
+        "value": 1
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 65,
+      "type": "SenseNovaH3DistilledBridge",
+      "pos": [
+        2372.0462882243182,
+        4590.895866603383
+      ],
+      "size": [
+        291.401953125,
+        106
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 172
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            173
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SenseNovaH3DistilledBridge"
+      },
+      "widgets_values": [
+        "MiniMaxH3_SemanticBridge_v1.safetensors",
+        0.1,
+        "per_token"
+      ],
+      "widgets_values_named": {
+        "distilled_adapter": "MiniMaxH3_SemanticBridge_v1.safetensors",
+        "alpha": 0.1,
+        "magnitude_match": "per_token"
+      }
+    },
+    {
+      "id": 41,
+      "type": "LoraLoaderModelOnly",
+      "pos": [
+        1656.9176966783482,
+        4918.871334874713
+      ],
+      "size": [
+        597.5978487974194,
+        82
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 57
+        },
+        {
+          "label": "lora_name",
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          }
+        },
+        {
+          "label": "strength_model",
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            101
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.2",
+        "Node name for S&R": "LoraLoaderModelOnly",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
+        1
+      ],
+      "widgets_values_named": {
+        "lora_name": "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
+        "strength_model": 1
       }
     }
   ],
@@ -3228,7 +3234,7 @@
       23,
       1,
       17,
-      5,
+      6,
       "INT"
     ],
     [
@@ -3744,10 +3750,10 @@
     "frontendVersion": "1.51.10",
     "VHS_latentpreview": false,
     "ds": {
-      "scale": 0.5826695014010036,
+      "scale": 0.7755331063647374,
       "offset": [
-        218.55074977146813,
-        -4319.147470731122
+        -299.8354320649856,
+        -4605.935198261956
       ]
     }
   },
