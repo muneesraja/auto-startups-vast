@@ -1,4 +1,4 @@
-# MiniMax H3 Prompt Bible (story-maker-v4)
+# MiniMax H3 Prompt Bible (story-maker-v5)
 
 Distilled from `Research/minimax-h3/`, MiniMax's official
 `VIDEO_PROMPT_WRITING_GUIDE_base_en.md`, `VIDEO_PROMPT_WRITING_GUIDE_ref_en.md`,
@@ -53,20 +53,24 @@ non_diegetic_music:
 
 ---
 
-## Dynamic Shot Pacing (2 Minimum to 8 Maximum)
+## Dynamic Shot Pacing (1 to 8 Shots)
 
-Never enforce static 2-shot or 4-shot limits. The shot count is chosen dynamically based on scene pacing:
+Canonical taxonomy: [`production-rules.md`](production-rules.md) §1. Never
+enforce static 2-shot or 4-shot limits — the shot count is chosen from the
+dramatic pacing:
 
-1. **Slow-Paced / Emotional / Intimate / Tension (2 Shots Minimum)**:
-   - Typical durations: 6.0s to 9.0s per shot.
-   - **MANDATORY SUPER HIGH DETAIL**: To prevent a 15-second generation from feeling static, frozen, or boring, the `detailed_description:` MUST be richly detailed (250–450 words total):
+1. **Master Take / Oner (1 Shot)** — unbroken continuous beat; panels become
+   temporal milestones. Mandatory extreme detail.
+2. **Slow-Paced / Emotional / Intimate / Tension (1–2 Shots)**:
+   - Typical durations: 6.0s to 15.0s per shot.
+   - **MANDATORY SUPER HIGH DETAIL**: To prevent a 15-second generation from feeling static, frozen, or boring, the `detailed_description:` MUST be richly detailed (≥120 words for a oner, ≥250 for 2 shots):
      - **Multi-phase micro-beat progression**: describe internal evolution across the shot (e.g. `initial stillness → breathing catches and chest heaves → eyes widen in dawning horror → subtle lower lip tremor → tear breaks and spills down cheek → head slowly sinks in defeat`).
      - **Continuous evolving camera movement**: motivated 3D camera formula (`Slow Push In with subtle parallax drift`, `Gentle Arc Shot orbiting the subject`, `Controlled Crane Down`).
      - **Living atmospheric environment**: continuous background motion (drifting dust motes through light shafts, dancing oil lamp flame reflections, wind fluttering garment hems and hair, shifting tree shadow patterns).
      - **Layered acoustic evolution**: footsteps halting, labored breath hitched in throat, creaking wood, rustling fabric, rising wind tone.
-2. **Moderate Dramatic Pace / Dialogue / Discovery (3 to 4 Shots)**:
+3. **Moderate Dramatic Pace / Dialogue / Discovery (3 to 4 Shots)**:
    - Typical durations: 3.5s to 5.0s per shot. Balanced cuts and character reactions.
-3. **Fast-Paced / Action / Comedy / Chase / Climax (5 to 8 Shots Maximum)**:
+4. **Fast-Paced / Action / Comedy / Chase / Climax (5 to 8 Shots Maximum)**:
    - Typical durations: 1.5s to 3.0s per shot. Rapid, punchy kinetic cutting matching the 3x3 storyboard grid.
 
 ---
@@ -155,7 +159,7 @@ For generations after g1:
 
 ## 8. Dialogue Format
 
-Stable speaker IDs `(S1)`, `(S2)` assigned in order of first vocal event. Delivery and identity anchors go OUTSIDE the `<d>` tag; exact spoken words go INSIDE with a language tag:
+Stable speaker IDs `(S1)`, `(S2)` assigned in order of first vocal event. Delivery and identity anchors go OUTSIDE the `<d>` tag; exact spoken words go INSIDE with a language/delivery bracket:
 
 ```
 Emily (S1) turns and says, <d>[English] Look at that!</d>
@@ -165,6 +169,65 @@ Emily (S1) turns and says, <d>[English] Look at that!</d>
 - Dialogue crossing cuts: `<scenetrans>` at connecting points.
 - Speech truncated by end of shot: `<cutoff>`.
 - Off-screen voice: `says in an off-screen voiceover: <d>[English] ...</d> while lips remain closed.`
+
+### Delivery-class bracket
+
+The bracket inside `<d>` carries a language plus optional comma-separated
+delivery modifiers — the validator accepts the full form:
+
+```
+<d>[English, singing] too maaake meee siiiing?</d>
+<d>[English, crying] <pants> Maybe all you wanted was to break me!</d>
+<d>[Hum] daaaa-daa-da-da-da-daaaa.</d>
+```
+
+### Vocal performance tags (inside `<d>`)
+
+Community-tested tags H3 understands in spoken lines
+(`Research/micro-expressions-minimax/guide.md`). Open-ended set — the
+validator warns on unknown tags but does not error:
+
+| Tag | Effect | Example |
+|---|---|---|
+| `<pause>` / `<long pause>` | Beat of silence | `Okay, so. <pause> This is just me talking.` |
+| `<breath>` `<inhale>` `<exhale>` `<deep breath>` | Audible breathing | `<deep breath> Okay. I can do this.` |
+| `<catches breath>` | Out of breath | `Wait... <catches breath> hold on.` |
+| `<i>word</i>` | Emphasize 1–4 words | `I was <i>not</i> expecting that.` |
+| `<whisper>…</whisper>` | Whisper delivery | `<whisper> Don't tell anyone.</whisper>` |
+| `<humming>…</humming>` | Humming a tune | `<humming> da-da-da.</humming>` |
+| `<laughs>` / `<chuckle>` | Laughing | `<laughs> that's actually funny.` |
+| `<sighs>` `<sniff>` `<gasp>` | Sigh / sniff / sharp intake | `<sighs> I really tried.` |
+| `<uh>` `<stutter>` | Hesitation / stutter | `<stutter> I ca can't believe that.` |
+| `<coughs>` `<clears throat>` `<smacks lips>` | Throat/mouth sounds | `<clears throat> So anyway...` |
+| `<pant>` / `<pants>` | Panting | `Run... <pants> run now!` |
+| `<softer>` | Quieter delivery | `<softer> I don't think I can say it.` |
+| `<mhm>` `<phew>` | Agreement / relief | `<phew> That was close.` |
+
+Performance direction stays OUTSIDE the tag — put the emotional/physical
+arc in prose before the `<d>`, then let the tags shape the delivery:
+`<Subject 1> starts to cry, desperately sobbing as he delivers the line.
+<Subject 1> (S1) says, <d>[English, crying] <pants> Maybe all you wanted
+was to break me!</d>`
+
+### Humming / singing to a melody reference
+
+When a `<Audio N>` music/melody reference is attached, bind it to the
+vocalization explicitly:
+
+```
+<Subject 1> (S1) hums the melody of <Audio 1> in his own voice from
+beginning to end, <d>[Hum] daaaa-daa-da-da-da-daaaa.</d>
+```
+
+The audio ref carries the tune; the `<d>[Hum]` line carries the shaped
+vocalization. Singing uses `[Language, singing]` and does not require a
+melody ref.
+
+### High-resolution skin caveat
+
+At high resolution H3 can exaggerate skin saturation and features
+(wrinkles, pores). Counter it in `subject_definitions:` appearance prose:
+`skin soft, even, natural color; pores visible without harsh contrast`.
 
 ---
 

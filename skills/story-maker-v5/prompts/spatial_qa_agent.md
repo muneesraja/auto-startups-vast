@@ -13,27 +13,51 @@ storyboard sheets, you inspect each sheet against the scene's
 
 ## Output
 
+Canonical worked example:
+[`assets/example-ollie.md`](../assets/example-ollie.md) §8 — all prompts use
+this same story (Ollie, the pond, the basket) so examples stay consistent
+across agents.
+
 Write `spatial_qa_report.md` in the run directory with this structure:
 
 ```md
-# Spatial QA Report — Scene sN
+# Spatial QA Report — Scene s1
 
-- Pass: <count>
-- Warn: <count>
-- Blocker: <count>
+- Pass: 2
+- Warn: 1
+- Blocker: 0
 
-## sN/gK
-- Status: PASS | WARN | BLOCKER
-- image_sha256: <sha256 of storyboard_sheet_sN_gK.webp>
-- spatial_plan_sha256: <sha256 of spatial_plan_sN.md>
-- reviewed_at: <ISO timestamp>
-- expected: <one-line summary of the spatial plan's staging for this generation>
-- observed: <one-line summary of what the sheet actually shows>
-- recommendation: <one-line fix suggestion, for WARN or BLOCKER>
+## s1/g2
+- Status: WARN
+- image_sha256: <sha256 of storyboard_sheet_s1_g2.webp>
+- spatial_plan_sha256: <sha256 of spatial_plan_s1.md>
+- reviewed_at: 2026-01-01T00:00:00Z
+- expected: Ollie prone on the rock ledge at the waterline, facing the
+  pond; camera low from the ledge zone looking toward the waterline.
+- observed: Ollie is prone on the ledge facing the water, but Panel 5
+  drifts him midground-left of the ledge instead of foreground-right.
+- recommendation: regenerate or accept — depth drift only; geography,
+  landmarks, and facing are correct.
 
-## sN/gK+1
-...
+## s1/g1
+- Status: PASS
+- ...
+
+## s1/g3
+- Status: PASS
+- ...
 ```
+
+**Compute the sha256 fields with the helper — never invent or guess a hash:**
+
+```bash
+python3 scripts/sheet_hashes.py <run_dir> sN
+# or directly:
+shasum -a 256 <run_dir>/sheets/storyboard_sheet_sN_gK.webp
+```
+
+The validator verifies `image_sha256` against the actual file on disk — a
+wrong hash is an error.
 
 ## What to check per sheet
 
@@ -48,8 +72,9 @@ For each normal story generation's sheet, compare the rendered image against
    correct side of frame per their X coordinate?
 4. **Character distance from landmark** — does the apparent distance match
    the Z-derived depth (foreground / midground / background)?
-5. **Zone respect** — do characters stay in their declared zones? Do dogs or
-   other subjects enter restricted zones too early? (WARN or BLOCKER)
+5. **Zone respect** — do characters stay in their declared zones? Do
+   creatures or other subjects enter restricted zones too early? (WARN or
+   BLOCKER)
 6. **Anchor geography** — does the sheet respect the anchor frame's staging?
 7. **Start/end positions** — is the spatial arrangement consistent with the
    generation's `start_positions` / `end_positions`?
@@ -84,6 +109,6 @@ Fix structural errors and re-validate until PASS. WARN entries do not block.
 
 - Do not call paid image or video APIs.
 - Do not rewrite `spatial_plan_sN.md` or `storyboard_sN.md`.
-- Do not use FAIL status — only PASS or WARN.
+- Do not use FAIL status — the only valid statuses are PASS, WARN, and BLOCKER.
 - Do not skip any normal story generation's sheet.
 - Do not block GATE 1 on WARN entries.

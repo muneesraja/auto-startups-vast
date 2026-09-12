@@ -1,4 +1,4 @@
-"""Duration budget math for story-maker-v4 (Minimax H3 backend).
+"""Duration budget math for story-maker-v5 (Minimax H3 backend).
 
 Pure, deterministic, no I/O. The Agent 3 validator calls these to enforce that
 generation/scene durations sum correctly against the target.
@@ -29,8 +29,12 @@ PANELS_MIN = 6   # minimum / default grid: 3x2 or 2x3 (6 panels)
 PANELS_MAX = 9   # maximum grid: 3x3 (9 panels)
 
 # Dynamic shot count limits per generation (seconds 5-15s).
-SHOTS_PER_GEN_MIN = 2  # slow-paced / emotional / tension takes (must be super high detail)
+SHOTS_PER_GEN_MIN = 1  # single-shot master takes (oners) are legal; super high detail required
 SHOTS_PER_GEN_MAX = 8  # fast-paced / action / montage takes
+
+# Generations with this many shots or fewer must carry super high detail
+# (multi-phase acting micro-beats, continuous evolving camera, layered audio).
+HIGH_DETAIL_SHOT_THRESHOLD = 2
 
 # H3 is most reliable when a 15s generation has between 2 and 8 deliberate editorial beats.
 H3_RECOMMENDED_MAX_SHOTS = 8

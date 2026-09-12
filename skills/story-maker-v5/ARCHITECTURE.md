@@ -1,6 +1,6 @@
 # Story Maker V5 — Deep Architecture
 
-> **One-line summary:** Claude Code is the brain (authors all markdown/text artifacts, runs deterministic validators, does the vision step); Python is the hands (deterministic image generation, Minimax H3 video render, concat). No ADK, no LiteLLM, no LLM calls from Python. Restores v3's canonical Ref2VA token-binding continuity with dynamic 2-to-8 shot pacing and bounded 3x2-to-3x3 storyboard grids.
+> **One-line summary:** Claude Code is the brain (authors all markdown/text artifacts, runs deterministic validators, does the vision step); Python is the hands (deterministic image generation, Minimax H3 video render, concat). No ADK, no LiteLLM, no LLM calls from Python. Restores v3's canonical Ref2VA token-binding continuity with dynamic 1-to-8 shot pacing (oners included), bounded 3x2-to-3x3 storyboard grids, explicit EpisodeSpec intake, an approval-locked global asset registry, and fingerprint-aware resumable rendering.
 
 ---
 
@@ -111,6 +111,19 @@
 ## 4. Pipeline Stages + Gates
 
 ```
+STAGE 0: Intake (explicit, deterministic)
+│
+├── 0.    stories/<series>/ input folder (init_story.py scaffold or
+│         story-intake CLI — files are the source of truth):
+│         config.json (series defaults) · series.md (story bible) ·
+│         episodes/episode-N/{episode-N.md, meta.json, audio/,
+│         references/} · audio/ (series-wide) ·
+│         characters|locations|objects/ (user refs → registry, approved) ·
+│         style/ · references/
+│         └── prepare_episode.py → episode_spec.json + story_source.md +
+│             series_bible.md + audio/ + imported user assets +
+│             status.json (planned) + <story>/episodes.json
+│
 STAGE A: Planning (Claude authors; validate + fix each; no image spend)
 │
 ├── A1.   developed_story.md         (Agent 1)
@@ -132,14 +145,12 @@ STAGE B: Image media (Python via Bash; gated)
 ├── B1.   assets/locations/*.webp    (Python T2I, 4K wide-angle 360°, once)
 ├── B1.   assets/objects/*.webp      (Python T2I, 4K, once)
 ├── B2.   storyboard_sheet_sN_gK.webp (Python, per generation, 4K)
-├── B2.   storyboard_sheet_sN_gK.webp (Python, per generation, 4K)
 ├── B2a.  spatial_qa_report.md       (Agent 7)  → validate --schema spatial_qa  (per scene)
 │         ═══ GATE 1 ═══  (user visually confirms all sheets + spatial QA report)
 │
 STAGE C: Vision + video prompts (Claude authors; validate + fix each)
 │
-├── C1.   video_prompts/sN_gK.txt    (Agent 5, vision: reads sheet images)
-├── C1.   video_prompts/sN_gK.txt    (Agent 5, per generation)
+├── C1.   video_prompts/sN_gK.txt    (Agent 5, vision: reads sheet images, per generation)
 │         ═══ GATE 2 ═══  (user confirms video prompts before paid render)
 │
 STAGE D: Render (background Python, hours; fire-and-forget)
@@ -184,8 +195,7 @@ image_prompts/
   ├── characters/char_01.txt    (character sheet prompt, 4K)
   ├── locations/loc_01.txt      (location lock prompt, 4K 360°)
   ├── objects/obj_01.txt        (object sheet prompt, 4K)
-  └── s1/storyboard_sheet_g1.txt (storyboard sheet prompt, 4K)
-      s1/storyboard_sheet_g1.txt (sheet prompt)
+  └── s1/storyboard_sheet_g1.txt (one sheet prompt per generation, 4K)
   │  (any prompt may begin with ref_images: name1, name2, ... for dynamic refs)
   │
   ▼
@@ -197,20 +207,22 @@ critique_report.md
 assets/characters/char_01.webp   (4K, shared across episodes)
 assets/locations/loc_01.webp     (4K wide-angle 360°, shared)
 assets/objects/obj_01.webp       (4K, shared)
-storyboard_sheet_s1_g1.webp      (4K, per generation)
-storyboard_sheet_s1_g1.webp      (4K, per generation)
-  │  ═══ GATE 1 ═══
+storyboard_sheet_s1_g1.webp      (4K, one per generation)
+  │  ═══ GATE 1 ═══  (assetctl approve-all → assets_approved)
   │
   ▼
 video_prompts/s1_g1.txt          (Ref2VA 6-section prompt)
-video_prompts/s1_g1.txt          (Ref2VA prompt)
-  │  ═══ GATE 2 ═══
+  │  ═══ GATE 2 ═══  (build_manifest --approve → render_approved)
   │
   ▼
+render_manifest.json             (immutable approved render contract)
+render_state.json                (mutable execution state: prompt_ids, fingerprints)
 clips/s1/g1.mp4                  (Minimax H3 render, ≤15s, native stereo audio)
-clips/s1/g1.mp4                  (render, conditioned on previous tail)
-scene_s1.mp4                     (ffmpeg concat: g1, b1, g2, b2, g3, ...)
+clips/s1/refs/tail_s1_g1.mp4     (tail ref for g2 — regenerated if g1 changes)
+scene_s1.mp4                     (ffmpeg concat: g1, g2, g3, ...)
+qc.md                            (per-clip state + seam metrics)
 final_film.mp4                   (ffmpeg concat of all scenes)
+  │  review_run.py --accept      (production → complete)
 ```
 
 ---
@@ -264,8 +276,12 @@ g1 → g2 → g3 → ... → final_film.mp4
 - Generations render **sequentially** — each generation after g1 is
   conditioned on the previous generation's rendered tail (3s) via `ref_videos`.
 - `g1` has no tail ref (first generation of the run).
+- **Boundary policy** (`tools/boundary.py`): a generation whose first shot
+  declares `transition_out: hard_cut`/`transition: hard_cut` — or a scene
+  following a `handoff: hard_cut` — opens fresh with **no tail ref**.
+  Everything else continues from the previous tail.
 - Cross-scene: the tail of the last generation in scene N is passed to
-  `g1` of scene N+1.
+  `g1` of scene N+1 unless the boundary is a declared hard_cut.
 - `TARGET_story = TARGET_delivery` (no additive bridge seconds).
 
 ---
@@ -302,25 +318,31 @@ outputs/story-maker-v5/<story>/
 └── ...
 ```
 
-### AssetRegistry (`tools/image_pipeline.py`)
+### RegistryV2 (`tools/asset_registry_v2.py`)
 
 ```python
-class AssetRegistry:
-    # Lives at <story>/assets/asset_registry.json (story-level, shared)
-    # Auto-migrates from legacy per-episode registries
+class RegistryV2:
+    # Adapter over h3-chain-director's GlobalAssetRegistry (imported by path
+    # from .devin/skills/h3-chain-director/scripts). Lives at
+    # <story>/assets/asset_registry.json — versioned, content-addressed
+    # entries with draft/approved status and lock_hash identity.
+    # A V1 flat registry at that path is migrated on first open
+    # (backup: asset_registry.v1.bak.json); migrated assets land as draft.
 
-    # Sections:
-    #   characters: {char_01: {output_path, fal_image_url}}
-    #   locations:  {loc_01:  {output_path, fal_image_url}}
-    #   objects:    {obj_01:  {output_path, fal_image_url}}
-    #   sheets:     {s1_g1:   {output_path, fal_image_url}}  (episode-local)
+    # Kinds: character_plate | location_lock | prop | storyboard_sheet | audio
+    # Sheets are namespaced per episode: entity_id "<run>.<scene>_<gen>".
 
-    def character(cid) -> dict
-    def location(lid) -> dict
-    def object(oid) -> dict
-    def sheet(sid) -> dict
-    def save() / load()
+    def character(cid) / location(lid) / object(oid) / sheet(sid)
+    def resolve_ref_name(name, allow_draft=None)  # approved-only by default
+    def approve_all_drafts()   # GATE 1 promotion
+    def doctor()               # hash check + legacy-key report
+    def save()                 # atomic, under the h3 file lock
 ```
+
+`scripts/assetctl.py` is the CLI: `list`, `show`, `approve`, `approve-all`
+(GATE 1), `supersede`, `doctor`. The legacy `AssetRegistry` in
+`tools/image_pipeline.py` remains as a fallback when the h3 module is not
+importable.
 
 ### Dynamic reference images (`ref_images:`)
 
@@ -390,8 +412,6 @@ When a `spatial_plan_sN.md` exists, `tools/spatial_prompt_builder.py` prepends a
 CONTINUITY RULES, and PANEL STAGING sections. This keeps immutable spatial
 facts separate from Agent 4's creative direction.
 
-**Bridge sheet refs:** `location lock → from sheet → to sheet → character sheets → agent-named refs`
-
 ### Image sizes
 
 | Asset | Size | Quality |
@@ -418,15 +438,16 @@ Every video generation in Story Maker V5 is conditioned on **exactly one multi-p
 
 | Grid | Rows | Cols | Total Panels | Cell Size (px) | Cell Aspect | Recommended Generation Use Case |
 |---|---|---|---|---|---|---|
-| **`3x2`** *(Default / Min)* | 3 | 2 | 6 | 1920×720 | 8:3 | Standard 8–12s generations (2–4 shots). Balanced setup / resolution. |
+| **`3x2`** *(Default / Min)* | 3 | 2 | 6 | 1920×720 | 8:3 | Standard 8–12s generations (1–4 shots; oners claim all panels as temporal milestones). Balanced setup / resolution. |
 | **`3x3`** *(Max)* | 3 | 3 | 9 | 1280×720 | **16:9** (True) | Dense, fast-paced 12–15s action generations (5–8 rapid shots). True 16:9 framing. |
 | **`2x3`** | 2 | 3 | 6 | 1280×1080 | ~4:3 | 6-panel horizontal-flow sequence; good for portrait / character-heavy framing. |
 
 *Note:* Grids smaller than 6 panels or larger than 9 panels are rejected by the validator to ensure visual consistency and optimal attention allocation in diffusion models.
 
-#### Dynamic Shot Pacing (2 Minimum to 8 Maximum)
-- **Slow-Paced / Emotional / Intimate (2 Shots Minimum):**
-  - E.g. 7.5s + 7.5s, or 6.0s + 9.0s.
+#### Dynamic Shot Pacing (1 to 8 Shots — canonical: `assets/production-rules.md` §1)
+- **Master Take / Oner (1 Shot):** unbroken continuous beats; panels are
+  temporal milestones. Super-high-detail mandate applies.
+- **Slow-Paced / Emotional / Intimate (1–2 Shots):**
   - **Super High Detail Mandate:** Descriptions must detail continuous multi-phase micro-beat acting, evolving camera motion with subtle parallax, living environmental atmosphere (dust, flame flicker, wind, fabric movement), and layered soundscapes so 15 seconds never feels static or boring.
 - **Moderate Dramatic Pace (3 to 4 Shots):**
   - Balanced cuts averaging 3.5s to 5.0s per shot.
@@ -451,7 +472,7 @@ Time flows **column-major** across the grid:
 2. **Shot Ownership:** Every panel belongs to exactly one shot. A shot claims 1–4 sequential panels representing its key poses.
 3. **No Straddling:** A shot never crosses a generation boundary.
 4. **Visual Hygiene:** Panels are separated by thin, straight, uniform **4px gutters** (white or black). The sheet must be **100% text-free** (no numbers, labels, timecodes, captions, or watermarks).
-5. **Cross-Generation Seam Alignment:** The closing shot of `gK` and the opening shot of `gK+1` must match in physical posture, camera framing, and actor positioning.
+5. **Cross-Generation Seam Alignment (continuation boundaries only):** when `gK+1` continues (`tools/boundary.py` — shot-1 transition is not `hard_cut`, and for scene openings the prior handoff is not `hard_cut`), the closing shot of `gK` and the opening shot of `gK+1` must match in physical posture, camera framing, and actor positioning. Fresh-cut boundaries attach no tail and may open on any setup.
 
 ---
 
@@ -479,7 +500,7 @@ Time flows **column-major** across the grid:
 │    │                                                           │
 │    └── Concat                                                  │
 │        ├── tools/video_concat.py  (ffmpeg)                    │
-│        ├── scene_sN.mp4  (g1, b1, g2, b2, g3, ...)            │
+│        ├── scene_sN.mp4  (g1, g2, g3, ...)                    │
 │        └── final_film.mp4  (all scenes)                       │
 │                                                                 │
 │  Backend: ComfyUI + Minimax H3 R2V                             │
@@ -706,10 +727,18 @@ skills/story-maker-v5/
 ├── tools/                            ← Python modules (the "hands")
 │   ├── validators.py                 ← Deterministic artifact validators
 │   ├── critique_validator.py         ← Critique report parser + validator
-│   ├── image_pipeline.py             ← Asset registry + sheet generation
+│   ├── image_pipeline.py             ← Sheet generation + legacy AssetRegistry
+│   ├── asset_registry_v2.py          ← RegistryV2 adapter (h3 GlobalAssetRegistry)
+│   ├── episode_spec.py               ← Episode intake + status tracking
+│   ├── story_input.py                ← stories/<series>/ input contract + scaffold
+│   ├── boundary.py                   ← Tail-attachment boundary policy
+│   ├── audio_refs.py                 ← Optional audio reference discovery
+│   ├── render_state.py               ← Mutable render_state.json + fingerprints
+│   ├── video_verify.py               ← ffprobe download/output verification
 │   ├── char_sheet_builder.py         ← Character sheet prompt builder
 │   ├── location_sheet_builder.py     ← Location lock prompt builder
 │   ├── object_sheet_builder.py       ← Object sheet prompt builder
+│   ├── spatial_prompt_builder.py     ← Spatial continuity block materializer
 │   ├── grok_tools.py                 ← Image generation dispatcher
 │   ├── grok_replicate.py             ← Replicate image backend
 │   ├── grok_fal.py                   ← fal image backend
@@ -719,15 +748,24 @@ skills/story-maker-v5/
 │   ├── video_concat.py               ← ffmpeg concat
 │   ├── video_frames.py               ← ffmpeg frame extraction
 │   ├── duration_budget.py            ← Timing math (scene/gen/shot budgets)
+│   ├── spatial_validator.py          ← Spatial plan/report validator
 │   └── seam_report.py                ← Seam jump quantification
 │
 ├── scripts/                          ← CLI entry points
+│   ├── init_story.py                 ← Scaffold a stories/<series>/ input folder
+│   ├── prepare_episode.py            ← Episode intake → episode_spec.json
+│   ├── episode_status.py             ← Status board + stage transitions
+│   ├── assetctl.py                   ← Asset registry CLI (approve/doctor/list)
+│   ├── build_manifest.py             ← Approved render manifest builder
+│   ├── export_assets_manifest.py     ← CHARACTERS/LOCATIONS/OBJECTS.md export
+│   ├── materialize_spatial_prompts.py← Spatial block materialization CLI
+│   ├── sheet_hashes.py               ← Sheet hash report helper
+│   ├── review_run.py                 ← Post-render review + acceptance
 │   ├── validate.py                   ← Artifact validator CLI
 │   ├── build_images.py               ← Image generation CLI
 │   └── render_all.py                 ← Video render CLI (sequential + concat)
 │
-└── tests/
-    └── test_phase2.py                ← 84 unit tests
+└── tests/                            ← Unit tests (no paid API calls)
 ```
 
 ---
@@ -846,12 +884,12 @@ For a complete, real-world, file-by-file demonstration of the entire Story Maker
 2. **The 15-Second Generation Constraint:**
    - Detailed technical explanation of how a 60-second scene is budgeted into four 15.0-second generations (`g1`, `g2`, `g3`, `g4`).
    - How 3-second tail extraction (`ffmpeg -sseof -3.0`) feeds `ref_videos: [sN_g1_tail.mp4]` into `g2` for unbroken temporal and physical continuity across generation cuts.
-3. **Exhaustive Artifact Walkthrough (*Bamboo the Dino — Mama*):**
-   - **Developed Story:** Industry-standard animation screenplay (v5.0.0) with scene sluglines, lean action lines, capitalized sound cues (`SNAP`, `POP`), character cue dialogue, and full character/location/object registries.
-   - **Beat Board:** 8 emotional beats with precise durations, cast presence, and hard constraints.
+3. **Exhaustive Artifact Walkthrough (*Ollie's Dive — The Idea*):**
+   - **Developed Story:** Industry-standard animation screenplay (v5.0.0) with scene sluglines, lean action lines, capitalized sound cues (`SPLASH`, `SLIPS`), character cue dialogue, and full character/location/object registries.
+   - **Beat Board:** 9 emotional beats with precise durations, cast presence, and hard constraints.
    - **Scenes Specification:** Scene budget, target duration, cast, locations, and mandatory scene-end handoff.
    - **Spatial Plan:** Complete 2D coordinates, zones, landmarks, camera axes, and character blocking.
-   - **Prompts:** Full verbatim text for character turnaround sheets (`char_01.txt`, `char_02.txt`), location lock (`loc_basement.txt`), hero prop (`obj_egg.txt`), and 9-panel storyboard sheet (`storyboard_sheet_g1.txt`).
-   - **Video Prompts:** Verbatim Ref2VA 6-section prompt for `s1_g1.txt` and tail-conditioned `s1_g2.txt`.
+   - **Prompts:** Full verbatim text for character turnaround sheets (`char_01.txt`, `char_02.txt`), location lock (`loc_01.txt`), hero prop (`obj_02.txt`), and 6-panel storyboard sheet (`storyboard_sheet_g2.txt`).
+   - **Video Prompts:** Verbatim Ref2VA 6-section prompt for `s1_g2.txt` and tail-conditioned `s1_g3.txt`.
    - **Render Manifest:** Tamper-proof sha256 checksums and verification status (`render_manifest.json`).
 

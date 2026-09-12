@@ -80,6 +80,52 @@ character_facing: char_01=toward_<landmark_id>; char_05=away_from_<landmark_id>
 visible_landmarks: [landmark_id, ...]   # [] means the landmark must NOT appear
 ```
 
+## Worked example (canonical — Ollie, scene s1)
+
+All prompts use the same worked story so examples stay consistent across
+agents. The full threading is in
+[`assets/example-ollie.md`](../assets/example-ollie.md) §4; abridged:
+
+```md
+# Spatial Plan — Scene s1
+scene_id: s1
+location_ref_id: loc_01
+panorama_resolution: 3840x2160
+world_axis: pond on screen-left, meadow bank rising to screen-right
+primary_anchor: rock_ledge
+landmarks: [mossy_boulder, rock_ledge, waterline, gerbera_clump]
+zones: [bank, ledge, shallows]
+
+## Landmark rock_ledge
+zone: ledge
+description: flat stone ledge at the water's edge where the basket sat
+panorama_xy: [1600, 1500]
+
+## Zone ledge
+relative_to: rock_ledge
+x_range: [1100, 2100]
+y_range: [1200, 2160]
+z_range: [0, 3]
+distance_from_anchor_m: 0
+lighting: warm golden sun from screen-left
+
+## Generation g2
+location_reference: omit
+generation_geography: Ollie prone on the rock ledge at the waterline,
+  peering through the hollow cylinder toward the pond
+start_positions: char_01=ledge@x=1500,y=1600,z=1m
+end_positions: char_01=ledge@x=1550,y=1600,z=1m
+movement_constraints: char_01=fixed_at(rock_ledge)
+
+### Shot 1
+on_screen_positions: char_01=ledge@x=1520,y=1600,z=1m:foreground
+camera_zone: ledge
+camera_facing: toward_waterline
+camera_zoom: closeup
+character_facing: char_01=toward_waterline
+visible_landmarks: [rock_ledge, waterline]
+```
+
 ## Rules
 
 ### Landmarks

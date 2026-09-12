@@ -1,6 +1,6 @@
-"""Trimmed config for story-maker-v4.
+"""Trimmed config for story-maker-v5.
 
-story-maker-v4 has NO agent framework and NO LiteLLM: Claude Code is the brain
+story-maker-v5 has NO agent framework and NO LiteLLM: Claude Code is the brain
 (authors all markdown/JSON, runs validators, does the vision step), Python is the
 hands (deterministic media execution). This module therefore carries ONLY the
 image-generation + ComfyUI render configuration the Python "hands" need. There

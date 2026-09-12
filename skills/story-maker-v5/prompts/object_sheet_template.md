@@ -9,6 +9,12 @@ and typography.
 - **Object:** {object_name}
 - **Style:** High-end stylized animation, warm domestic lighting, tactile textures.
 
+Canonical fill (all prompts use the same worked story —
+[`assets/example-ollie.md`](../assets/example-ollie.md)):
+`Object: Makeshift Diving Helmet (obj_02)`
+`Description: hollowed weathered wooden cylinder sized for a small creature's head — the hero prop Ollie builds across the prototype montage`
+`Appearance: bark texture with carved tool marks, polished round pebble faceplate, glossy amber sap seals, woven leaf chin strap, lashed reed snorkel with buoyant bark-disc float`
+
 ## Object Description
 {object_description}
 

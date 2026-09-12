@@ -7,6 +7,11 @@ Create a single ultra-cinematic, studio-quality animation **empty-stage establis
 - **Name:** {location_name}
 - **Description:** {location_description}
 
+Canonical fill (all prompts use the same worked story —
+[`assets/example-ollie.md`](../assets/example-ollie.md)):
+`Id: loc_01 | Name: Sunlit Pond Edge`
+`Description: lush meadow shoreline — flat mossy stone ledge at the waterline, clover patches, giant orange gerberas, mossy boulder on the rising bank, glassy pond, warm golden-hour sun from screen-left`
+
 ## Establishing brief
 {establishing_prompt}
 

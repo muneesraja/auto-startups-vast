@@ -171,7 +171,8 @@ def validate_critique_report(
         # Check blocking conditions
         if st in ("FAIL", "BLOCKER") or sev == "BLOCKER":
             note = q["notes"] or q["fix"] or "hard blocker violated"
-            res.error(f"{qid} [BLOCKER]: {note[:100]}")
+            tag = "FAIL" if st == "FAIL" else "BLOCKER"
+            res.error(f"{qid} [{tag}]: {note[:100]}")
         elif st == "MAJOR" or sev == "MAJOR":
             if disp in ("RESOLVED", "ACCEPTED_AS_INTENDED", "OVERRIDDEN"):
                 res.warn(f"{qid} [MAJOR - {disp}]: {q['notes'][:80]}")
@@ -199,7 +200,7 @@ def validate_critique_report(
         for k, v in summary.items():
             norm_k = k.capitalize()
             if norm_k in counts and counts[norm_k] != v:
-                res.warn(
+                res.error(
                     f"summary {k} ({v}) != parsed count ({counts[norm_k]})"
                 )
 

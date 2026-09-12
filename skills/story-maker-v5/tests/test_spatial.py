@@ -1218,8 +1218,9 @@ def test_scene_level_storyboard_sheet_materialization():
     assert errors_all == []
 
 
-def test_sheet_prompt_path_prefers_scene_level(tmp_path):
-    """sheet_prompt_path returns storyboard_sheet.txt if it exists."""
+def test_sheet_prompt_path_is_per_generation(tmp_path):
+    """sheet_prompt_path always returns the canonical per-generation path —
+    a stray scene-level storyboard_sheet.txt is never silently preferred."""
     import tools.image_pipeline as ip
     scene_dir = tmp_path / "image_prompts" / "s1"
     scene_dir.mkdir(parents=True)
@@ -1227,9 +1228,9 @@ def test_sheet_prompt_path_prefers_scene_level(tmp_path):
     scene_sheet.write_text("scene prompt")
 
     resolved = ip.sheet_prompt_path(str(tmp_path), "s1", "g1")
-    assert resolved == str(scene_sheet)
+    assert resolved == str(scene_dir / "storyboard_sheet_g1.txt")
 
-    # If scene_sheet does not exist, returns per-gen sheet
+    # Same answer without the scene-level file
     scene_sheet.unlink()
     resolved_gen = ip.sheet_prompt_path(str(tmp_path), "s1", "g1")
     assert resolved_gen == str(scene_dir / "storyboard_sheet_g1.txt")

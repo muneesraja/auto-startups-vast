@@ -1,4 +1,4 @@
-"""Deterministic validators for story-maker-v4 (Minimax H3 backend).
+"""Deterministic validators for story-maker-v5 (Minimax H3 backend).
 
 Run after each authoring agent to catch hallucination BEFORE any paid image /
 render step. Each validator parses a markdown/text artifact, asserts the locked
@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import duration_budget
+from . import boundary, duration_budget
 
 # Minimax H3 camera motion vocabulary (Motion type dimension). Used as a
 # warn-only check that shot `camera:` fields speak the model's language.
@@ -305,6 +305,11 @@ def validate_beat_board(md: str, target_seconds: int | None = None) -> Validatio
 
     if len(beats) < 3:
         res.error(f"beat board has {len(beats)} beats; minimum is 3")
+    if len(beats) > 15:
+        res.warn(
+            f"beat board has {len(beats)} beats (advisory max 15) — "
+            "consider merging beats that share an emotional register"
+        )
 
     if declared_count > 0 and declared_count != len(beats):
         res.error(
@@ -574,7 +579,11 @@ def validate_scenes(
     return res
 
 
-def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> ValidationResult:
+def validate_storyboard(
+    md: str,
+    scenes: dict[str, Any] | None = None,
+    next_storyboard: dict[str, Any] | None = None,
+) -> ValidationResult:
     res = ValidationResult()
     sb = parse_storyboard(md)
     sid = sb["scene_id"] or "<unknown>"
@@ -632,25 +641,23 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
         shots = gen["shots"]
         if not shots:
             res.error(f"{gid}: no '### Shot N — a-b s (transition)' blocks")
-        elif len(shots) < duration_budget.SHOTS_PER_GEN_MIN:
-            res.error(
-                f"{gid}: generation has {len(shots)} shots; minimum is "
-                f"{duration_budget.SHOTS_PER_GEN_MIN} shots"
-            )
         elif len(shots) > duration_budget.SHOTS_PER_GEN_MAX:
             res.error(
                 f"{gid}: generation has {len(shots)} shots; maximum is "
                 f"{duration_budget.SHOTS_PER_GEN_MAX} shots"
             )
-        elif len(shots) == 2:
+        elif len(shots) <= duration_budget.HIGH_DETAIL_SHOT_THRESHOLD:
+            # Single-shot master takes (oners) and other slow-paced generations
+            # need extra detail to avoid feeling static.
             for shot in shots:
                 act = shot.get("action", "") or ""
                 beat = shot.get("acting_beat", "") or ""
                 if len(act.split()) + len(beat.split()) < 12:
                     res.warn(
-                        f"{gid} shot {shot['shot']}: 2-shot slow-paced scenes must be super high in detail "
-                        "(rich multi-phase acting micro-beats, camera movement, and atmospheric dynamics) "
-                        "so the 15-second generation does not feel static or boring"
+                        f"{gid} shot {shot['shot']}: {len(shots)}-shot slow-paced/master-take generations "
+                        "must be super high in detail (rich multi-phase acting micro-beats, continuous "
+                        "camera movement, layered atmospheric audio) so the generation does not feel "
+                        "static or boring"
                     )
 
         shot_prev_end = gen["start"]
@@ -767,6 +774,12 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
                 res.error(f"{slabel}: missing/malformed 'panels:' list")
             else:
                 used_panels.extend(shot["panels"])
+                if len(shots) > 1 and len(shot["panels"]) > 4:
+                    res.warn(
+                        f"{slabel}: claims {len(shot['panels'])} panels (>4) — "
+                        "a shot should claim at most ~4 panels; split it or "
+                        "widen the grid"
+                    )
             for c in shot["characters_present"]:
                 if c not in cast:
                     res.error(f"{slabel}: characters_present has '{c}' not in scene cast")
@@ -829,7 +842,7 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
 
         if len(shots) > duration_budget.H3_RECOMMENDED_MAX_SHOTS:
             res.warn(
-                f"{gid}: {len(shots)} shots exceed V4's recommended H3 pacing "
+                f"{gid}: {len(shots)} shots exceed the recommended H3 pacing "
                 f"limit of {duration_budget.H3_RECOMMENDED_MAX_SHOTS}; use dense "
                 "cuts only for intentional montage."
             )
@@ -839,7 +852,7 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
                 if shot_duration > duration_budget.H3_RECOMMENDED_MAX_SHOT_SECONDS:
                     res.warn(
                         f"{gid} shot {shot['shot']}: {shot_duration:.1f}s exceeds "
-                        f"V4's recommended {duration_budget.H3_RECOMMENDED_MAX_SHOT_SECONDS:.1f}s "
+                        f"the recommended {duration_budget.H3_RECOMMENDED_MAX_SHOT_SECONDS:.1f}s "
                         "H3 shot length; use sustained action or camera progression."
                     )
         if shots and shots[-1]["end"] is not None and abs(shots[-1]["end"] - gen["end"]) > eps:
@@ -900,6 +913,15 @@ def validate_storyboard(md: str, scenes: dict[str, Any] | None = None) -> Valida
                     f"scene {sid}: location_ref_id {sb['location_ref_id']!r} != scenes.md "
                     f"location_id {scene_meta['location_id']!r}"
                 )
+
+    # Boundary consistency: this scene's handoff vs the next scene's g1
+    # shot-1 transition (two declarations of the same scene boundary).
+    if next_storyboard:
+        b_errs, b_warns = boundary.boundary_consistency_errors(sb, next_storyboard)
+        for e in b_errs:
+            res.error(e)
+        for w in b_warns:
+            res.warn(w)
     return res
 
 
@@ -1076,6 +1098,18 @@ def validate_prompts(
         if not os.path.isfile(p) or not image_pipeline.read_prompt(p):
             res.error(f"missing object prompt for {oid}: {p}")
 
+    # The retired scene-level sheet prompt must not shadow the canonical
+    # per-generation prompts.
+    scene_sheet = os.path.join(
+        image_pipeline.image_prompts_dir(run_dir), scene_id, "storyboard_sheet.txt"
+    )
+    if os.path.isfile(scene_sheet):
+        res.error(
+            f"scene-level sheet prompt found: {scene_sheet} — the canonical "
+            "convention is one prompt per generation "
+            "(storyboard_sheet_<gen>.txt); delete it or split it per generation"
+        )
+
     # Check for spatial plan and materialized blocks
     spatial_plan_path = os.path.join(run_dir, f"spatial_plan_{scene_id}.md")
     plan = None
@@ -1152,8 +1186,22 @@ _REF2VA_SHOT_RE = re.compile(r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2})\.(\d{3
 # <Subject N> / <Picture N> / <Video N> / <Audio N> label references.
 _LABEL_RE = re.compile(r"<(Subject|Picture|Video|Audio)\s+(\d+)>")
 
-# <d>[Language] ... </d> dialogue tags.
-_DIALOGUE_RE = re.compile(r"<d>\s*\[(\w+)\]\s*(.*?)\s*</d>", re.S)
+# <d>[Language, delivery...] ... </d> dialogue tags. The bracket carries a
+# language or delivery class plus optional comma-separated delivery
+# modifiers: [English], [English, singing], [English, crying], [Hum].
+_DIALOGUE_RE = re.compile(r"<d>\s*\[([^\]]+)\]\s*(.*?)\s*</d>", re.S)
+
+# Vocal performance tags MiniMax H3 understands inside <d>...</d>
+# (community-tested, Research/micro-expressions-minimax/guide.md). The set
+# is open-ended — unrecognized tags warn rather than error.
+_KNOWN_VOCAL_TAGS = {
+    "pause", "long pause", "breath", "inhale", "exhale", "catches breath",
+    "deep breath", "i", "whisper", "humming", "laughs", "chuckle", "sighs",
+    "uh", "stutter", "gasp", "coughs", "clears throat", "sniff",
+    "smacks lips", "pant", "pants", "softer", "mhm", "phew",
+    # dialogue continuity control tokens
+    "scenetrans", "cutoff",
+}
 
 # House style prohibits studio/brand imitation; describe craft attributes instead.
 _PROHIBITED_STYLE_BRANDS = ("pixar", "disney", "dreamworks", "ghibli")
@@ -1382,7 +1430,7 @@ def validate_video_prompt_brief(text: str, sb: dict[str, Any], gen_id: str) -> V
     # Dialogue tags check
     for m in _DIALOGUE_RE.finditer(text):
         lang = m.group(1)
-        if not lang:
+        if not lang.strip():
             res.error(f"<d> tag missing language code: {m.group(0)[:50]}")
         pre = text[max(0, m.start() - 220):m.start()]
         if not re.search(r"\((?:S\d+,?)+\)", pre) and not re.search(r"\b(?:S\d+)\b", pre):
@@ -1413,8 +1461,23 @@ def validate_video_prompt_brief(text: str, sb: dict[str, Any], gen_id: str) -> V
     return res
 
 
-def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> ValidationResult:
-    """Validate a video prompt (Ref2VA or Director's Brief) against the storyboard."""
+def validate_video_prompt(
+    text: str,
+    sb: dict[str, Any],
+    gen_id: str,
+    has_tail_ref: bool | None = None,
+    audio_refs: list[dict] | None = None,
+) -> ValidationResult:
+    """Validate a video prompt (Ref2VA or Director's Brief) against the storyboard.
+
+    Args:
+        has_tail_ref: Whether the renderer will attach a tail video
+            reference to this generation (boundary policy — see
+            tools/boundary.py). When None, falls back to the legacy
+            per-scene heuristic (any generation after the first).
+        audio_refs: Audio reference files attached to this generation
+            (tools/audio_refs.py). When None, audio checks are skipped.
+    """
     if is_directors_brief(text):
         return validate_video_prompt_brief(text, sb, gen_id)
 
@@ -1484,20 +1547,55 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
             if label not in defined_labels:
                 res.error(f"{section_name} references {m.group(0)} not defined in subject_definitions")
 
-    gen_index = next(
-        (i for i, g in enumerate(sb.get("generations", [])) if g.get("gen_id") == gen_id),
-        0,
-    )
-    if gen_index > 0 and "Video 1" not in defined_labels:
+    if has_tail_ref is None:
+        # Legacy fallback: without episode-global position, assume any
+        # generation after the scene's first receives a tail reference.
+        gen_index = next(
+            (i for i, g in enumerate(sb.get("generations", [])) if g.get("gen_id") == gen_id),
+            0,
+        )
+        has_tail_ref = gen_index > 0
+    if has_tail_ref and "Video 1" not in defined_labels:
         res.error(
             f"generation {gen_id} receives the previous rendered tail; define "
             "<Video 1> as that video-continuation reference"
         )
-    if gen_index > 0 and "video continuation" not in summary.lower():
+    if has_tail_ref and "video continuation" not in summary.lower():
         res.error(
             f"generation {gen_id} summary must include the task type "
             "'video continuation' for its rendered tail reference"
         )
+    if has_tail_ref is False and "Video 1" in defined_labels:
+        res.error(
+            f"generation {gen_id} opens on a fresh cut — no tail video is "
+            "attached by the renderer; remove the <Video 1> definition or "
+            "change the boundary transition (see tools/boundary.py)"
+        )
+
+    # --- audio reference contract ---
+    if audio_refs is not None:
+        has_audio_label = any(k == "Audio" for k in defined_labels.values())
+        if audio_refs and not has_audio_label:
+            roles = ", ".join(r.get("role", "reference") for r in audio_refs)
+            res.error(
+                f"audio reference file(s) are attached to this generation "
+                f"({roles}) but no <Audio N> label is defined in "
+                "subject_definitions — declare each attached audio file and "
+                "its role (vocal timbre for (Sx), music bed, ambience ref)"
+            )
+        if not audio_refs and has_audio_label:
+            res.warn(
+                "<Audio N> declared but no audio reference file exists for "
+                "this generation under audio/"
+            )
+        for i, ref in enumerate(audio_refs):
+            label = f"Audio {i + 1}"
+            if label not in defined_labels:
+                res.error(
+                    f"audio reference {ref.get('path', '?')} (role "
+                    f"{ref.get('role', 'reference')}) is attached but "
+                    f"<{label}> is not defined in subject_definitions"
+                )
 
     for brand in _PROHIBITED_STYLE_BRANDS:
         if re.search(rf"\b{re.escape(brand)}\b", text, re.IGNORECASE):
@@ -1582,10 +1680,19 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
         if label not in defined_labels:
             res.error(f"detailed_description references {m.group(0)} not defined in subject_definitions")
 
-    # --- dialogue tags: <d>[Lang] ...</d> with stable speaker IDs ---
+    # --- dialogue tags: <d>[Lang, delivery...] ...</d> with stable speaker IDs ---
+    # Malformed <d> occurrences that don't match the canonical pattern at all
+    # (empty bracket, missing bracket) would otherwise be silently skipped.
+    n_wellformed = len(_DIALOGUE_RE.findall(dd_text))
+    n_raw = len(re.findall(r"<d>", dd_text))
+    if n_raw > n_wellformed:
+        res.error(
+            f"{n_raw - n_wellformed} malformed <d> tag(s) — expected "
+            "<d>[Language, delivery...] ...</d>"
+        )
     for m in _DIALOGUE_RE.finditer(dd_text):
         lang = m.group(1)
-        if not lang:
+        if not lang.strip():
             res.error(f"<d> tag missing language code: {m.group(0)[:50]}")
         pre = dd_text[max(0, m.start() - 220):m.start()]
         if not re.search(r"\((?:S\d+,?)+\)", pre):
@@ -1596,6 +1703,26 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
             post = dd_text[m.end():m.end() + 160].lower()
             if "lips remain" not in post or "closed" not in post:
                 res.error("voiceover must state that the on-screen character's lips remain closed")
+        # Vocal performance tags inside <d>: advisory warn on typos/unknown
+        # tags (the vocabulary is open-ended, so warn not error).
+        for tag in re.findall(r"<([^>]+)>", m.group(2)):
+            name = tag.strip().lstrip("/").lower()
+            if name and name not in _KNOWN_VOCAL_TAGS:
+                res.warn(
+                    f"unrecognized vocal tag <{tag}> inside <d>...</d> — "
+                    "known: " + ", ".join(sorted(_KNOWN_VOCAL_TAGS))
+                )
+
+    # --- speaker IDs must bind to a subject in subject_definitions ---
+    speaker_ids = sorted(set(re.findall(r"\(S(\d+)", dd_text)))
+    for sid_num in speaker_ids:
+        if f"(S{sid_num})" not in sd_text:
+            res.error(
+                f"speaker ID (S{sid_num}) is used for dialogue but never "
+                "bound to a subject — add a binding line in "
+                "subject_definitions (e.g. '(S1) is <Subject 1>'s voice, "
+                "timbre from <Audio 1>')"
+            )
 
     # --- audio layer separation (official guide) ---
     os_text = sections["overall_soundscape"]
@@ -1625,11 +1752,12 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
 
     # --- detailed_description depth / word count check (warning) ---
     dd_words = len(dd_text.split())
-    if len(sb_shots) == 2 and dd_words < 220:
+    if len(sb_shots) <= duration_budget.HIGH_DETAIL_SHOT_THRESHOLD and dd_words < 220:
         res.warn(
-            f"detailed_description has only {dd_words} words for a 2-shot slow-paced generation; "
+            f"detailed_description has only {dd_words} words for a {len(sb_shots)}-shot "
+            "slow-paced/master-take generation; "
             "recommend at least 220-450 words detailing continuous camera motion, evolving micro-beats, "
-            "and atmospheric environment dynamics so the 15 seconds does not feel static or boring"
+            "and atmospheric environment dynamics so the generation does not feel static or boring"
         )
     elif dd_words < 120:
         res.warn(
@@ -1642,8 +1770,8 @@ def validate_video_prompt(text: str, sb: dict[str, Any], gen_id: str) -> Validat
             "temporal conditioning focus"
         )
 
-    # --- g2+ continuation reference in detailed_description (warning) ---
-    if gen_index > 0 and "<Video 1>" not in dd_text:
+    # --- continuation reference in detailed_description (warning) ---
+    if has_tail_ref and "<Video 1>" not in dd_text:
         res.warn(
             f"generation {gen_id} detailed_description does not reference <Video 1>; "
             "opening shot should explicitly describe seamless continuation from <Video 1>"
@@ -1816,6 +1944,12 @@ def validate_render_manifest(manifest_path: str, run_dir: str | None = None) -> 
         res.error(f"invalid manifest JSON: {exc}")
         return res
 
+    if manifest.get("status") != "approved":
+        res.error(
+            f"manifest status is {manifest.get('status')!r}, not 'approved' — "
+            "rebuild with --approve after review (GATE 2)"
+        )
+
     base_dir = run_dir or os.path.dirname(manifest_path) or "."
     generations = manifest.get("generations", [])
     if not generations:
@@ -1828,6 +1962,38 @@ def validate_render_manifest(manifest_path: str, run_dir: str | None = None) -> 
             while chunk := fp.read(65536):
                 h.update(chunk)
         return h.hexdigest()
+
+    # Staleness guard: the source documents the manifest was approved against
+    # must not have changed since.
+    scenes_hash = manifest.get("scenes_sha256")
+    if scenes_hash:
+        scenes_file = os.path.join(base_dir, "scenes.md")
+        if not os.path.isfile(scenes_file):
+            res.error(f"scenes.md missing: {scenes_file}")
+        elif _file_hash(scenes_file) != scenes_hash:
+            res.error(
+                "scenes.md changed after manifest approval — "
+                "re-run scripts/build_manifest.py --approve"
+            )
+    for sid, sb_hash in (manifest.get("storyboard_sha256") or {}).items():
+        sb_file = os.path.join(base_dir, f"storyboard_{sid}.md")
+        if not os.path.isfile(sb_file):
+            res.error(f"storyboard missing: {sb_file}")
+        elif _file_hash(sb_file) != sb_hash:
+            res.error(
+                f"storyboard_{sid}.md changed after manifest approval — "
+                "re-run scripts/build_manifest.py --approve"
+            )
+    workflow = manifest.get("workflow") or {}
+    if workflow.get("sha256"):
+        wf_path = workflow.get("path") or ""
+        if not os.path.isfile(wf_path):
+            res.error(f"workflow file missing: {wf_path}")
+        elif _file_hash(wf_path) != workflow["sha256"]:
+            res.error(
+                "ComfyUI workflow file changed after manifest approval — "
+                "re-run scripts/build_manifest.py --approve"
+            )
 
     for gen in generations:
         sid = gen.get("scene_id", "?")
@@ -1860,6 +2026,27 @@ def validate_render_manifest(manifest_path: str, run_dir: str | None = None) -> 
                 actual_hash = _file_hash(prompt_full)
                 if actual_hash != prompt_hash:
                     res.error(f"{tag}: video prompt sha256 mismatch (manifest={prompt_hash[:10]}, actual={actual_hash[:10]})")
+
+        # Audio references: every listed ref must exist and hash-match.
+        audio_entries = gen.get("audio_refs")
+        if audio_entries is None:
+            # Legacy single-ref manifest fields.
+            legacy_path = gen.get("audio_ref_path")
+            legacy_hash = gen.get("audio_ref_sha256")
+            audio_entries = (
+                [{"path": legacy_path, "sha256": legacy_hash}]
+                if legacy_path else []
+            )
+        for aref in audio_entries:
+            arel = aref.get("path")
+            ahash = aref.get("sha256")
+            if not arel:
+                continue
+            afull = os.path.join(base_dir, arel)
+            if not (os.path.isfile(afull) and os.path.getsize(afull) > 0):
+                res.error(f"{tag}: audio ref missing or empty: {afull}")
+            elif ahash and _file_hash(afull) != ahash:
+                res.error(f"{tag}: audio ref sha256 mismatch for {arel}")
 
         dur = gen.get("duration_seconds", 0.0)
         if dur < 4.9 or dur > 15.1:
@@ -2057,9 +2244,21 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
         return validate_scenes(text, target_seconds=target_seconds, beat_board_path=beat_board_path)
     if schema == "storyboard":
         scenes = None
-        if scenes_path and os.path.isfile(scenes_path):
-            scenes = parse_scenes(open(scenes_path, encoding="utf-8").read())
-        return validate_storyboard(text, scenes=scenes)
+        sp = scenes_path or (os.path.join(run_dir, "scenes.md") if run_dir else None)
+        if sp and os.path.isfile(sp):
+            scenes = parse_scenes(open(sp, encoding="utf-8").read())
+        # Load the next scene's storyboard for boundary-consistency checks.
+        next_sb = None
+        if scenes and run_dir:
+            cur = parse_storyboard(text)
+            order = [s["scene_id"] for s in scenes.get("scenes", [])]
+            if cur.get("scene_id") in order:
+                i = order.index(cur["scene_id"])
+                if i + 1 < len(order):
+                    npath = os.path.join(run_dir, f"storyboard_{order[i + 1]}.md")
+                    if os.path.isfile(npath):
+                        next_sb = parse_storyboard(open(npath, encoding="utf-8").read())
+        return validate_storyboard(text, scenes=scenes, next_storyboard=next_sb)
     if schema == "prompts":
         if not run_dir or not scene_id:
             return ValidationResult(ok=False, errors=["prompts validation needs --run-dir and --scene"])
@@ -2082,7 +2281,33 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
         sb = parse_storyboard(open(sb_md_path, encoding="utf-8").read())
         if legacy:
             return validate_video_prompt_legacy(text, sb, gid)
-        return validate_video_prompt(text, sb, gid)
+        # Episode-global context: does the renderer attach a tail video
+        # (boundary policy) and which audio refs exist for this generation?
+        has_tail = None
+        audio_refs = None
+        scenes_md_path = os.path.join(run_dir, "scenes.md")
+        if os.path.isfile(scenes_md_path):
+            scenes_data = parse_scenes(open(scenes_md_path, encoding="utf-8").read())
+            scene_ids = [s["scene_id"] for s in scenes_data.get("scenes", [])]
+            if scene_ids and scene_id in scene_ids:
+                prev_sb = None
+                idx = scene_ids.index(scene_id)
+                if idx > 0:
+                    prev_path = os.path.join(
+                        run_dir, f"storyboard_{scene_ids[idx - 1]}.md"
+                    )
+                    if os.path.isfile(prev_path):
+                        prev_sb = parse_storyboard(
+                            open(prev_path, encoding="utf-8").read()
+                        )
+                has_tail = boundary.needs_tail_ref(
+                    scene_ids, scene_id, sb, gid, prev_storyboard=prev_sb
+                )
+        from .audio_refs import find_audio_refs
+        audio_refs = find_audio_refs(run_dir, scene_id, gid)
+        return validate_video_prompt(
+            text, sb, gid, has_tail_ref=has_tail, audio_refs=audio_refs
+        )
     if schema == "spatial_plan":
         from .spatial_validator import validate_spatial_plan
         sb = None
@@ -2109,5 +2334,10 @@ def validate(artifact_path: str, schema: str, *, target_seconds: int | None = No
                     for g in sb.get("generations", [])
                     if not g.get("is_bridge")
                 ]
-        return validate_spatial_qa_report(text, expected_sheets=expected_sheets)
+        return validate_spatial_qa_report(
+            text,
+            expected_sheets=expected_sheets,
+            run_dir=run_dir,
+            scene_id=scene_id,
+        )
     return ValidationResult(ok=False, errors=[f"unknown schema: {schema!r}"])

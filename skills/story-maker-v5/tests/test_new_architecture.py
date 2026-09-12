@@ -1,4 +1,4 @@
-"""Tests for new architectural features in story-maker-v4:
+"""Tests for new architectural features in story-maker-v5:
 - Critique severity tiers (BLOCKER, MAJOR with disposition, NOT_APPLICABLE)
 - Hard constraint validation (co_presence_exclusion, visibility_exclusion)
 - Render manifest generation and sha256 checksum verification

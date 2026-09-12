@@ -1,6 +1,8 @@
 # Story Maker V5 — Canonical End-to-End Generation Example
 
-> **Purpose:** This document provides a complete, production-grade, end-to-end reference walkthrough of how a story moves through the Story Maker V5 architecture. It details every artifact generated at each stage, explicitly identifies the AI models employed, explains how our **15-second generation limitation** is engineered into cohesive multi-minute stories, and documents exact prompt structures for characters, locations, objects, storyboard sheets, and video generations with canonical Ref2VA token bindings and dynamic 2-to-8 shot pacing.
+> **Purpose:** This document provides a complete, production-grade, end-to-end reference walkthrough of how a story moves through the Story Maker V5 architecture. It details every artifact generated at each stage, explicitly identifies the AI models employed, explains how our **15-second generation limitation** is engineered into cohesive multi-minute stories, and documents exact prompt structures for characters, locations, objects, storyboard sheets, and video generations with canonical Ref2VA token bindings and dynamic 1-to-8 shot pacing.
+>
+> **Canonical story:** every artifact below is drawn from the same worked example — **"Ollie's Dive"** (adapted from the *Swapped* opening sequence analyzed in `Research/ollie/`). The compact cross-artifact reference lives in [`assets/example-ollie.md`](assets/example-ollie.md); this document is the long-form version. All agent prompts cite these same IDs (`char_01`, `loc_01`, `obj_01`, scene `s1`, generation `s1/g2`) so examples stay consistent across agents.
 
 ---
 
@@ -34,7 +36,7 @@ Story Maker V5 achieves continuous 1-minute, 3-minute, or 5-minute films through
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                               15-SECOND CONTINUITY PIPELINE                                      │
 │                                                                                                  │
-│   Scene s1 (60s Target)                                                                          │
+│   Scene s1 (45s Target)                                                                          │
 │   ├── Generation g1 (0.0s – 15.0s)                                                               │
 │   │   ├── Conditioned on: storyboard_sheet_s1_g1.webp (GPT-Image-2)                              │
 │   │   ├── Rendered via: Minimax H3 R2V → clips/s1/g1.mp4                                         │
@@ -45,22 +47,22 @@ Story Maker V5 achieves continuous 1-minute, 3-minute, or 5-minute films through
 │   │   ├── Rendered via: Minimax H3 R2V (seamless physics & lighting continuation)                │
 │   │   └── Tail Extraction: ffmpeg extracts last 3.0s (27.0s–30.0s) → clips/s1/g2_tail.mp4        │
 │   │                                                                                              │
-│   ├── Generation g3 (30.0s – 45.0s) [conditioned on g2_tail.mp4]                                │
-│   └── Generation g4 (45.0s – 60.0s) [conditioned on g3_tail.mp4]                                │
+│   └── Generation g3 (30.0s – 45.0s) [conditioned on g2_tail.mp4]                                │
 │                                                                                                  │
-│   Final Concat: ffmpeg concats g1 + g2 + g3 + g4 → scene_s1.mp4                                  │
+│   Final Concat: ffmpeg concats g1 + g2 + g3 → scene_s1.mp4                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 1. **Scene-to-Generation Budgeting**:
    - Every scene in `scenes.md` is partitioned into discrete generations of **5.0 to 15.0 seconds** (`g1`, `g2`, `g3`, etc.).
-   - Shorter transitional scenes (e.g. 8–12s) occupy a single generation. Longer dramatic sequences (e.g. 60s) split into 4 balanced 15s generations.
+   - Shorter transitional scenes (e.g. 8–12s) occupy a single generation. Longer dramatic sequences (e.g. 45s) split into 3 balanced 15s generations.
    - **Hard Rule**: A cinematic shot never crosses a generation boundary. Cuts snap cleanly to generation edges.
 
-2. **Dynamic Pacing & Visual Economy (2–8 Shots per Generation)**:
-   - Within each 15-second generation, the narrative dynamically selects between **2 and 8 distinct shots** depending on scene tempo.
+2. **Dynamic Pacing & Visual Economy (1–8 Shots per Generation)**:
+   - Within each 15-second generation, the narrative dynamically selects between **1 and 8 distinct shots** depending on scene tempo.
    - For rapid comedic action or montage, use 6–8 snappy shots (1.5–2.5s each).
-   - For contemplative, emotional, or slow-paced scenes with only 2 shots (~7.5s each), prompt detail is dramatically amplified (multi-phase micro-beats, living atmosphere, evolving camera) to prevent the 15 seconds from feeling static or boring.
+   - For unbroken beats, use a **1-shot master take (oner)** — the sheet's panels become temporal milestones of the take.
+   - For contemplative, emotional, or slow-paced scenes with only 1–2 shots, prompt detail is dramatically amplified (multi-phase micro-beats, living atmosphere, evolving camera) to prevent the 15 seconds from feeling static or boring.
 
 3. **Keyframe-to-Panel Staging (3x2 Default to 3x3 Max)**:
    - Each 15s generation is anchored by **one storyboard sheet** featuring a **6-panel (`3x2` default/min)** to **9-panel (`3x3` max)** regular grid.
@@ -70,12 +72,13 @@ Story Maker V5 achieves continuous 1-minute, 3-minute, or 5-minute films through
    - Immediately after `g1.mp4` finishes rendering, Python invokes `ffmpeg` to extract the final 3.0 seconds (`clips/s1/g1_tail.mp4`).
    - For `g2.mp4`, the ComfyUI workflow dynamically patches `g1_tail.mp4` into Minimax's `ref_videos` input.
    - The model uses the tail's ending frame, lighting, character momentum, and motion vectors as the initial condition for `g2`, eliminating jarring jump-cuts and maintaining unbroken emotional immersion.
+   - A `hard_cut` boundary opens fresh — no tail is attached and `<Video 1>` is not declared (see `tools/boundary.py`).
 
 ---
 
-## 3. End-to-End Artifact Showcase: "Bamboo the Dino — Mama"
+## 3. End-to-End Artifact Showcase: "Ollie's Dive — The Idea"
 
-Below is the complete, concrete realization of **Scene 1 (60 seconds total, Generation 1: 0.0s–15.0s)** from *Bamboo the Dino*.
+Below is the complete, concrete realization of **Scene s1 (45 seconds total)** from *Ollie's Dive*, with Generation `g2` (15.0s–30.0s, the canonical 1-shot oner) shown in full.
 
 ---
 
@@ -83,100 +86,79 @@ Below is the complete, concrete realization of **Scene 1 (60 seconds total, Gene
 *Authored by Agent 1 (Story Developer) following the v5.0.0 Animation Screenplay Standard.*
 
 ```markdown
-# BAMBOO THE DINO
+# OLLIE'S DIVE
 
 Episode: epi-1
-Working Title: Mama
-Target Delivery: 60 seconds
+Working Title: The Idea
+Target Delivery: 45 seconds (Scene s1)
 
 ---
 
-EXT. SUNLIT LAWN - DAY
+EXT. SUNLIT POND - DAY
 
-A bumblebee BUZZES past green dandelion stems.
+Sunlight filters through wild clover and giant orange gerberas.
 
-INT. BASEMENT - CONTINUOUS
+YOUNG OLLIE (5), a fuzzy Pookoo with wild spiky fur and massive green
+eyes, sits on a mossy boulder, cradling a homemade bark basket adorned
+with a spiral seashell and pink blossoms. He beams.
 
-Shafts of honey-colored sunlight pierce the grime of a high ground-level window, illuminating swirls of golden dust motes.
+A glowing GREEN DRAGONFLY darts past his ears. Ollie turns abruptly.
+His hind foot SLIPS.
 
-Stacks of yellowing cardboard boxes and draped white sheets form a subterranean maze.
+The basket tips. SPLASH! It hits the water, dumping the shell and
+flowers into the shallows.
 
-In the shadows, an ancient wooden steamer trunk sits ajar. Deep within the trunk, nestled in dry straw:
+Ollie gasps, dropping to his stomach at the water's edge. The empty
+wooden cylinder bobs in the crystal-clear shallows.
 
-A speckled, luminescent egg — the size of a honeydew melon. It pulses with a warm, rhythmic amber GLOW.
+OLLIE'S POV - THROUGH THE CYLINDER
 
-Patter-patter. TINY BARE FEET in mismatched socks step into the shaft of light.
+Underwater light dances across river stones and swaying water-weeds —
+an entirely different universe.
 
-LEO (2), chubby-cheeked with a shock of untamed brown curls and wearing a star-patterned onesie, toddles into the clearing.
+BACK TO SHORE
 
-His wide brown eyes fixate on the pulsing glow.
-
-LEO
-(whispering, awed)
-Ooh...
-
-Leo drops to his knees. Pushes aside a hanging canvas sheet with a dry RUSTLE.
-
-The egg SHUDDERS.
-
-A hairline FRACTURE races across the speckled shell.
-
-SNAP! A chunk of shell pops free with a moist POP.
-
-Leo falls backward onto his padded diaper, mouth forming an 'O' of astonishment.
-
-Two tiny three-toed lime-green claws grip the cracked opening.
-
-A rounded snout pushes through, followed by oversized, liquid-yellow eyes.
-
-BABY BAMBOO (newborn dino) blinks against the dust-mote light. Scales glisten lime-green over a soft cream-colored belly.
-
-Bamboo spots Leo. Bamboo's stubby tail WAGS vigorously against the straw.
-
-BAMBOO
-(soft high-pitched squeak)
-Ma-ma!
-
-Leo's eyes bulge. He scrambles backward on all fours, heels kicking up puffs of basement DUST.
-
-LEO
-(panicked babble)
-No mama! No mama!
-
-Leo scrambles behind a towering stack of encyclopedias.
-
-Bamboo tilts his head, lets out a cheerful TRILL, and waddles forward in hot pursuit.
+Ollie's eyes widen. A lightbulb goes off.
 
 ---
 
 ## Characters
 
-### char_01 — Leo (Toddler)
+### char_01 — Young Ollie
 - **Role**: Protagonist
-- **Species**: Human toddler, 2 years old
-- **Appearance**: Chubby cheeks, button nose, wide expressive brown eyes, messy tuft of soft brown hair.
-- **Wardrobe**: Cream-white long-sleeved onesie with small faded navy star pattern. Mismatched knitted socks: left sock bright sky blue, right sock pastel yellow. No shoes.
-- **Dramaturgical Function**: Vulnerable, curious, startled easily, highly expressive physical comedy.
+- **Species**: Pookoo (otter-like woodland creature), 5 years old
+- **Appearance**: Fluffy chocolate-brown fur, spiky russet hair tuft, oversized black button nose, cream muzzle, huge emerald-green eyes.
+- **Wardrobe**: None — bare fur.
+- **Dramaturgical Function**: Vulnerable, curious, inventive, highly expressive physical comedy.
 
-### char_02 — Bamboo (Baby Dino)
-- **Role**: Deuteragonist
-- **Species**: Baby miniature dinosaur (fictional domestic herbivore)
-- **Appearance**: Size of a plump house cat. Bright lime-green fine pebbled scales, cream underbelly and throat. Giant round golden-yellow eyes with circular pupils. Small rounded snout with no visible teeth. Tiny forearms, stubby tail that wags like a puppy's. Soft scalloped darker-green ridges along spine.
-- **Dramaturgical Function**: Completely harmless, joyful, innocent, imprints instantly on Leo.
+### char_02 — Caloo
+- **Role**: Ollie's father
+- **Species**: Adult Pookoo
+- **Appearance**: Large shaggy auburn fur, broad paws, weathered whiskers, tired overprotective eyes.
+- **Dramaturgical Function**: Off-screen presence in s1; rescuer and comic foil in s3.
 
 ---
 
 ## Locations
 
-### loc_basement — Dusty Sunlit Basement
-- **Description**: Residential suburban basement. Rough fieldstone foundation walls, smooth concrete floor with fine dust layer. A single rectangular ground-level window high on the north wall lets in direct late-afternoon golden shafts. Left wall lined with dark mahogany wardrobes. Right side filled with stacked moving boxes, draped furniture, forgotten bicycles, and an open steamer trunk with straw. Center floor is an open dusty clearing. Warm, cozy, safe ambiance.
+### loc_01 — Sunlit Pond Edge
+- **Description**: Lush meadow shoreline. Flat mossy stone ledge at the waterline, clover patches, giant orange gerberas, glassy pond surface reflecting golden light. Warm, safe, inviting.
+
+### loc_02 — Underwater Valley
+- **Description**: Crystalline aquamarine water, mossy stone terraces, bioluminescent flora, cathedral light beams. Alien, vast, wondrous — and hiding the Giant Valley Fish.
 
 ---
 
 ## Objects
 
-### obj_egg — Glowing Dinosaur Egg
-- **Description**: Ovoid egg, 25cm tall. Mottled sage-green and cream shell covered in faint iridescent speckles. Emits internal pulsating amber-gold bioluminescence. In cracked state, fractures emit bright white-gold light beams.
+### obj_01 — Handmade Basket
+- **Description**: Woven bark basket holding a spiral seashell and pink blossoms. Rough bark weave, glossy shell, bright petals. Sinks into the pond in s1 and is never carried underwater.
+
+### obj_02 — Makeshift Diving Helmet
+- **Description**: Hollowed wooden cylinder with a polished pebble faceplate, amber sap seals, and a woven leaf strap. Hero prop built across s1's prototype montage.
+
+### obj_03 — Reed Snorkel
+- **Description**: Long hollow plant stem lashed to the helmet, tipped with a buoyant bark-disc float that keeps it upright at the surface.
 ```
 
 ---
@@ -185,60 +167,32 @@ Bamboo tilts his head, lets out a cheerful TRILL, and waddles forward in hot pur
 *Authored by Agent 1b (Beat Board Architect).*
 
 ```markdown
-# Beat Board — Episode 1: Mama
-target_seconds: 60
+# Beat Board — Ollie's Dive
+target_seconds: 224
 scene_budget: 70
 
-## Beat 1 — The Discovery
-beat_id: b1
-source_scene_id: s1
-description: Leo pads into the dusty basement and discovers a pulsating golden egg inside the open steamer trunk.
-emotion: curious wonder
-estimated_seconds: 8.0
-characters_present: [char_01]
-forbidden_characters: [char_02]
-required_props: [obj_egg]
-hard_constraints:
-  - char_02 must not appear before shell fractures.
-  - Golden sunlight shaft must highlight egg.
+## Beat 1 — Pride
+description: Ollie admires his handmade basket on the mossy boulder, beaming.
+emotion: joy
+estimated_seconds: 15
 
-## Beat 2 — The Hatching
-beat_id: b2
-source_scene_id: s1
-description: The egg shell snaps and Baby Bamboo emerges, shaking off albumen and blinking at the world.
-emotion: suspense to delightful surprise
-estimated_seconds: 7.0
-characters_present: [char_01, char_02]
-forbidden_characters: []
-required_props: [obj_egg]
-hard_constraints:
-  - First co-presence of Leo and Bamboo occurs at 8.5s.
-  - Dino must look completely harmless and cute.
+## Beat 2 — Spill
+description: A dragonfly startles Ollie; the basket tumbles into the pond.
+emotion: shock
+estimated_seconds: 15
 
-## Beat 3 — The Imprint ("Mama!")
-beat_id: b3
-source_scene_id: s1
-description: Bamboo locks eyes with Leo, wags his stubby tail, and squeaks his first word: "Ma-ma!"
-emotion: heart-melting affection
-estimated_seconds: 10.0
-characters_present: [char_01, char_02]
-forbidden_characters: []
-required_props: []
-hard_constraints:
-  - Spoken dialogue "Ma-ma!" must be synchronized to dino beak opening.
+## Beat 3 — Discovery
+description: Peering through the hollow cylinder, Ollie glimpses the glowing underwater world — an idea ignites.
+emotion: wonder
+estimated_seconds: 15
 
-## Beat 4 — The Panic Retreat
-beat_id: b4
-source_scene_id: s1
-description: Leo freaks out, protests "No mama!", and scrambles backward behind cardboard box fortress.
-emotion: comedic terror
-estimated_seconds: 12.0
-characters_present: [char_01, char_02]
-forbidden_characters: []
-required_props: []
-hard_constraints:
-  - Mismatched sock colors (blue left, yellow right) must remain visible during crawl.
+## Beat 4 — Trial and Error
+description: Three helmet prototypes fail — no seal, no air, a flooding snorkel.
+emotion: tension
+estimated_seconds: 45
 ```
+
+*(Beats 5–9 — Breakthrough, Wonder, Peril, Rescue, Button — continue in [`assets/example-ollie.md`](assets/example-ollie.md) §2.)*
 
 ---
 
@@ -247,27 +201,28 @@ hard_constraints:
 
 ```markdown
 # Scenes
-target_seconds: 60
+target_seconds: 224
 scene_budget: 70
 
-## Scene s1 — Mama
+## Scene s1 — The Idea
 scene_id: s1
-target_seconds: 60
-cast: [char_01, char_02]
-characters_present: [char_01, char_02]
-location_id: loc_basement
-objects: [obj_egg]
-beats: [b1, b2, b3, b4]
-beat: A curious toddler explores a sunlit dusty basement, witnesses a glowing egg hatch into a tiny lime-green baby dinosaur, and panics when the baby dinosaur happily calls him "Mama."
+target_seconds: 45
+cast: [char_01]
+characters_present: [char_01]
+location_id: loc_01
+objects: [obj_01, obj_02]
+beats: [1, 2, 3]
+style_target: high-fidelity stylized 3D CGI animation with tactile physical shaders and subsurface scattering
+acting_beat: proud stillness → startled lurch → wide-eyed wonder
+layout_strategy: boulder and basket foreground-right, pond opening midground-left, eye path follows the basket's fall into the water
+visual_motif: round openings — basket mouth, cylinder rim, pond surface — each a portal that grows in meaning
+sound_world: meadow birds, gentle water lap, whimsical acoustic strings
+beat: A spilled basket reveals an underwater world to a young inventor.
 
-### Scene-End Handoff -> Episode 2
-on_screen: [char_01, char_02]
-mood: playful standoff transitioning to friendship
-position: Leo peeking around cardboard box at x=1200; Bamboo sitting happily in center floor light pool at x=1920.
-facing: Leo facing camera right; Bamboo facing camera left.
-lighting: warm golden afternoon sunset shaft fading to amber twilight.
-audio: Bamboo soft purr, Leo nervous giggle.
-transition: fade_to_black
+### Scene-End Handoff -> Scene s2
+on_screen: [char_01]
+mood: wonder
+transition: hard_cut
 ```
 
 ---
@@ -276,34 +231,88 @@ transition: fade_to_black
 *Authored by Agent 3a (Spatial Architect).*
 
 ```markdown
-# Spatial Plan — Scene s1: Mama
+# Spatial Plan — Scene s1
 scene_id: s1
-location_ref_id: loc_basement
-primary_anchor: window_light_shaft
-world_axis: High window on North wall (Z=100); Camera looks North from South open floor (Z=0). Left=West (wardrobes), Right=East (boxes).
+location_ref_id: loc_01
+panorama_resolution: 3840x2160
+world_axis: pond on screen-left, meadow bank rising to screen-right
+primary_anchor: rock_ledge
+landmarks: [mossy_boulder, rock_ledge, waterline, gerbera_clump]
+zones: [bank, ledge, shallows]
 
-## Landmarks & Coordinates (Canvas 3840×2160 Normalized)
-- `window_light_shaft`: X=[1600, 2400], Y=[0, 2160], Z=[10, 80] — Main spotlight.
-- `steamer_trunk`: X=[1900, 2300], Y=[1200, 1700], Z=[35] — Open wooden trunk with straw.
-- `wardrobe_wall`: X=[0, 800], Y=[200, 2160], Z=[10, 90] — Deep shadow boundary screen-left.
-- `box_fortress`: X=[2800, 3840], Y=[600, 2160], Z=[15, 70] — Stacked brown moving boxes screen-right.
-- `open_dust_clearing`: X=[1000, 2800], Y=[1100, 2000], Z=[5, 30] — Center staging arena.
+## Landmark rock_ledge
+zone: ledge
+description: flat stone ledge at the water's edge where the basket sat
+panorama_xy: [1600, 1500]
 
-## Character Blocking & Movement Vector
-- **char_01 (Leo)**:
-  - Enters from screen-left foreground (X=900, Z=5) at 0.0s.
-  - Kneels at center-left clearing (X=1500, Z=20) facing trunk at 5.0s.
-  - Falls back to (X=1300, Z=15) when egg cracks at 8.0s.
-  - Scrambles backward toward box fortress (X=2600, Z=25) at 12.0s.
-- **char_02 (Bamboo)**:
-  - Absent 0.0s – 7.5s.
-  - Emerges inside trunk at (X=2100, Z=35) at 8.5s.
-  - Steps out of trunk onto dust floor at (X=2000, Z=30) at 10.5s.
-  - Faces Leo (screen-left) continuously.
+## Landmark mossy_boulder
+zone: bank
+description: large moss-covered boulder where Ollie first sits with the basket
+panorama_xy: [2900, 1400]
 
-## Visibility & Exclusion Constraints
-- `char_02` must have 0% visibility in panels 1–5 (Shots 1–4).
-- `char_01` left sock must be Blue (#2A75D3), right sock Yellow (#E8C832) in all full/medium shots.
+## Landmark waterline
+zone: shallows
+description: glassy pond surface meeting the ledge
+panorama_xy: [900, 1600]
+
+## Landmark gerbera_clump
+zone: bank
+description: cluster of giant orange gerberas framing the bank
+panorama_xy: [3400, 900]
+
+## Zone bank
+relative_to: rock_ledge
+x_range: [2100, 3840]
+y_range: [600, 2160]
+z_range: [3, 25]
+distance_from_anchor_m: 8
+lighting: warm golden sun from screen-left
+
+## Zone ledge
+relative_to: rock_ledge
+x_range: [1100, 2100]
+y_range: [1200, 2160]
+z_range: [0, 3]
+distance_from_anchor_m: 0
+lighting: warm golden sun from screen-left
+
+## Zone shallows
+relative_to: waterline
+x_range: [0, 1100]
+y_range: [1200, 2160]
+z_range: [0, 4]
+distance_from_anchor_m: 2
+lighting: bright water sparkle, refracted golden light
+
+## Generation g1
+location_reference: attach
+generation_geography: wide view from the meadow bank showing Ollie on the mossy boulder, the ledge, and the glassy pond beyond
+start_positions: char_01=bank@x=2900,y=1500,z=8m
+end_positions: char_01=ledge@x=1500,y=1600,z=1m
+movement_constraints: char_01=approach(rock_ledge)
+
+### Shot 1
+on_screen_positions: char_01=bank@x=2900,y=1500,z=8m:midground
+camera_zone: bank
+camera_facing: toward_waterline
+camera_zoom: medium_closeup
+character_facing: char_01=toward_camera
+visible_landmarks: [mossy_boulder, gerbera_clump]
+
+## Generation g2
+location_reference: omit
+generation_geography: Ollie prone on the rock ledge at the waterline, peering through the hollow cylinder toward the pond
+start_positions: char_01=ledge@x=1500,y=1600,z=1m
+end_positions: char_01=ledge@x=1550,y=1600,z=1m
+movement_constraints: char_01=fixed_at(rock_ledge)
+
+### Shot 1
+on_screen_positions: char_01=ledge@x=1520,y=1600,z=1m:foreground
+camera_zone: ledge
+camera_facing: toward_waterline
+camera_zoom: closeup
+character_facing: char_01=toward_waterline
+visible_landmarks: [rock_ledge, waterline]
 ```
 
 ---
@@ -313,12 +322,12 @@ world_axis: High window on North wall (Z=100); Camera looks North from South ope
 
 #### `image_prompts/characters/char_01.txt`
 ```text
-A clean character identity turnaround sheet of a chubby human toddler boy, 2 years old, named Leo. Round button face, rosy pink cheeks, large curious hazel-brown eyes, messy tuft of soft brown hair with baby cowlick. He wears a plain cream-white cotton onesie with small faded navy stars printed across the fabric. Mismatched hand-knitted socks: left foot has a bright sky-blue sock, right foot has a soft pastel-yellow sock. Barefoot in socks only, no shoes. Full body turnaround displayed in front, three-quarter, and profile poses on a neutral light-gray background. Bottom half features a head-and-shoulders expression grid: curious wonder, surprised gasp, joyful laugh, and wide-eyed mild panic. Pixar-quality cinematic 3D animation style. Subsurface scattering on skin, clean anatomical proportions, consistent wardrobe across all poses. No text, no labels, no captions, no numbers, no watermarks.
+A clean character identity turnaround sheet of a small young Pookoo, an otter-like woodland creature, 5 years old, named Ollie. Fluffy chocolate-brown fur with soft visible strands, a spiky russet hair tuft on his crown, an oversized black button nose, a cream-colored muzzle and belly, and huge expressive emerald-green eyes with rounded pupils. Stubby rounded paws, short limbs, oversized head, childlike proportions. Full body turnaround displayed in front, three-quarter, and profile poses on a neutral light-gray background. Bottom half features a head-and-shoulders expression grid: proud beam, startled gasp, curious squint, wide-eyed wonder, and a sheepish toothy grin. High-fidelity stylized 3D CGI feature animation style. Subsurface scattering on fur, clean anatomical proportions, consistent design across all poses. No text, no labels, no captions, no numbers, no watermarks.
 ```
 
 #### `image_prompts/characters/char_02.txt`
 ```text
-A clean character identity turnaround sheet of a tiny, adorable baby dinosaur named Bamboo, the size of a plump house cat. Bright lime-green scales with fine pebbled texture, contrasting soft cream-colored belly and throat. Oversized, circular liquid-golden eyes with rounded friendly pupils. Short rounded snout with friendly nostrils and no visible sharp teeth — completely harmless and endearing. Two stubby arms with three rounded baby claws, short sturdy hind legs, and a plump tapering tail that wags happily. A crest of soft, rounded darker-green scalloped spines runs down his back from crown to tail tip. Full body turnaround in front, three-quarter, and side views against a neutral light-gray studio backdrop. Lower strip features facial expressions: sleepy hatching blink, joyful smiling chirp, curious head tilt, and wide-mouthed squeak. Feature-film 3D animation aesthetic, soft tactile specular reflections. No text, no labels, no captions, no numbers, no watermarks.
+A clean character identity turnaround sheet of a large adult Pookoo, an otter-like woodland creature, named Caloo. Shaggy auburn-brown fur with a heavier, weathered coat, broad shoulders, large paws, long whiskers, a cream-colored chest patch, and tired, warm, overprotective eyes under heavy brows. Stocky adult proportions — roughly three times Ollie's height. Full body turnaround displayed in front, three-quarter, and side views against a neutral light-gray studio backdrop. Lower strip features facial expressions: stern glare, exasperated sigh, softening smile, and alarmed wide-eyed lunge. Feature-film 3D animation aesthetic, soft tactile fur specular reflections. No text, no labels, no captions, no numbers, no watermarks.
 ```
 
 ---
@@ -326,170 +335,118 @@ A clean character identity turnaround sheet of a tiny, adorable baby dinosaur na
 ### Step 6: Location & Object Prompts (`image_prompts/locations/` and `objects/`)
 *Target Model: **OpenAI GPT-Image-2** (3840×2160, WebP, quality=medium)*
 
-#### `image_prompts/locations/loc_basement.txt`
+#### `image_prompts/locations/loc_01.txt`
 ```text
-An empty, atmospheric residential basement interior bathed in late-afternoon golden sunlight streaming through a single high ground-level window on the far concrete wall. Rough rustic fieldstone walls, smooth dusty concrete floor with swirling patterns in the fine gray dust. On the left: tall antique mahogany wardrobes creating a solid architectural boundary. On the right: an organized maze of stacked brown cardboard boxes with packing tape and old furniture draped in dusty white cotton drop cloths. In the center: an open floor clearing with a vintage wooden steamer trunk sitting open with clean dry straw inside. A brilliant diagonal sunbeam cuts through the air, highlighting swirling golden dust motes in suspended motion. Warm amber, honeyed brown, and deep slate tones. Pixar-style feature animation cinematic set plate. Completely empty stage — no human characters, no animals. No text, no labels, no watermarks, no frame borders.
+An empty, sun-drenched pond-edge establishing plate at golden hour. A flat mossy stone ledge juts into a glassy, crystal-clear pond on the left side of frame, surrounded by clover patches and giant orange gerberas. A large moss-covered boulder sits on the rising meadow bank to the right. Wild grasses and overhanging leaves frame the top of the composition. Warm volumetric sunlight streams from screen-left, sparkling on the water surface and casting long soft shadows. Warm amber, moss green, and soft gold tones. High-fidelity stylized 3D CGI feature animation cinematic set plate. Completely empty stage — no characters, no animals. No text, no labels, no watermarks, no frame borders.
 ```
 
-#### `image_prompts/objects/obj_egg.txt`
+#### `image_prompts/objects/obj_02.txt`
 ```text
-A clean hero object reference sheet for an ancient glowing dinosaur egg. The egg is approximately 25 centimeters tall, ovoid with slightly flattened bottom. Mottled sage-green and cream ceramic-like shell texture with delicate turquoise speckles. The egg radiates a soft internal golden-amber bioluminescence that shines through translucent micro-fractures in the shell. Shown in three sequential states against a neutral backdrop: Left: pristine glowing intact egg resting on golden straw. Center: hairline glowing fractures spiderwebbing across the shell surface. Right: top section cleanly cracked open like a geode, revealing warm golden radiant interior void and small shell shards resting on the ground. Pixar-quality 3D render, crisp studio lighting, volumetric light glow. No text, no labels, no captions, no watermarks.
+A clean hero object reference sheet for a makeshift diving helmet built by a small woodland creature. The helmet is a hollowed weathered wooden cylinder sized to fit a small creature's head, with a polished round pebble set as a faceplate, seams sealed with glossy amber tree sap, and a woven leaf strap for securing it under the chin. Warm bark texture with visible carved tool marks. Shown in multiple states against a neutral backdrop: Left: the bare hollow cylinder, freshly found. Center: the cylinder with pebble faceplate and sap seals applied. Right: the completed helmet with leaf strap and lashed reed snorkel topped by a buoyant bark-disc float. High-fidelity stylized 3D CGI render, crisp studio lighting, tactile material detail. No text, no labels, no captions, no watermarks.
 ```
 
 ---
 
-### Step 7: Storyboard Sheet Prompt (`image_prompts/s1/storyboard_sheet_g1.txt`)
+### Step 7: Storyboard Sheet Prompt (`image_prompts/s1/storyboard_sheet_g2.txt`)
 *Target Model: **OpenAI GPT-Image-2** (3840×2160, WebP, quality=medium)*
-*Grid: **9-panel 3x3 regular grid** (1280×720 equal cells, thin 4px white gutters).*
+*Grid: **6-panel 2x3 regular grid** — one continuous master take (oner) distributed as temporal milestones.*
 
 ```text
-ref_images: loc_basement, char_01, char_02, obj_egg
+ref_images: loc_01, char_01, obj_02
 
-Create one text-free cinematic pre-production storyboard sheet containing exactly nine panels arranged in three rows and three columns (3x3 grid). Time flows column-major: read down Column 1 (Panels 1, 2, 3), down Column 2 (Panels 4, 5, 6), then down Column 3 (Panels 7, 8, 9).
+Create one text-free cinematic pre-production storyboard sheet containing exactly six panels arranged in two rows and three columns (2x3 grid). Time flows column-major: read down Column 1 (Panels 1, 2), down Column 2 (Panels 3, 4), then down Column 3 (Panels 5, 6).
 
 CANVAS AND GRID
 Canvas: 3840 pixels wide by 2160 pixels tall.
-Use a regular grid of nine equal widescreen panels, each exactly 1280x720 pixels (true 16:9 ratio).
-Separate all panels with crisp, uniform white divider lines exactly four pixels wide.
+Use a regular grid of six equal panels separated by crisp, uniform black divider lines exactly four pixels wide.
 No outer borders, no rounded corners, no decorative elements, no overlapping cells.
 ABSOLUTELY TEXT-FREE: No numbers, no panel labels, no timecodes, no dialogue text, no captions, no watermarks.
 
 REFERENCE PRIORITY
-1. Match the attached character sheet for char_01 (Leo): chubby toddler, onesie with navy stars, mismatched socks (blue left, yellow right).
-2. Match the attached character sheet for char_02 (Bamboo): lime-green baby dino, giant yellow eyes, cream belly.
-3. Match the attached location reference loc_basement: fieldstone walls, stacked boxes right, wardrobe left, golden sun shaft.
-4. Match obj_egg: mottled sage-green glowing egg in steamer trunk.
-Maintain persistent 3D set geography across all nine views.
+1. Match the attached character sheet for char_01 (Ollie): fluffy chocolate-brown fur, russet tuft, oversized black button nose, huge emerald-green eyes.
+2. Match the attached location reference loc_01: flat mossy ledge, clover, orange gerberas, glassy pond.
+3. Match obj_02: the hollow weathered wooden cylinder (helmet base).
+Maintain persistent 3D set geography across all six views.
 
 SPATIAL CONTINUITY BIBLE
-The high sunlit window is North. Sunbeam strikes center floor at the open steamer trunk.
-Cardboard boxes remain on screen-right; dark wardrobe remains on screen-left.
-Leo enters from screen-left; egg is positioned center-right.
+The pond sits screen-left; the meadow bank rises screen-right.
+The flat rock ledge meets the waterline in a clean horizontal band.
+Ollie is prone on the ledge throughout — this is ONE unbroken take, not six separate setups.
 
-PANEL DIRECTIONS (9 PANELS)
+PANEL DIRECTIONS (6 PANELS — temporal milestones of one continuous take)
 
-Column 1 — The Approach (0.0s – 5.0s)
-Panel 1 (Top-Left): Extreme Close-Up of Leo's wide brown eyes peering curiously into the dusty basement gloom, golden light reflecting in his irises.
-Panel 2 (Mid-Left): Low-angle tracking shot at floor level. Leo's tiny feet padding through gray dust. Blue sock clearly on left foot, yellow sock on right foot. Cardboard box corner visible.
-Panel 3 (Bottom-Left): Medium shot from behind Leo. Leo parts a hanging canvas drop-cloth; a glowing golden beam reveals the open steamer trunk with the pulsing amber egg nestled in straw.
+Column 1 — The Approach (15.0s – 20.0s)
+Panel 1 (Top-Left): Low camera at the waterline. Ollie lies prone on the flat stone ledge, chocolate-brown fur sunlit, the hollow wooden cylinder resting beside his paws. The glassy pond fills the left half of frame.
+Panel 2 (Bottom-Left): Same camera position: Ollie's paws lift the cylinder toward his face, its dark circular opening tilting toward camera.
 
-Column 2 — The Hatching (5.0s – 10.5s)
-Panel 4 (Top-Center): Close-Up of Leo's illuminated face, mouth open in a soft gasp of awe, rosy cheeks glowing in amber light.
-Panel 5 (Mid-Center): Close-Up on the egg inside the trunk. A bright jagged fissure snaps across the shell with glowing white light escaping from within.
-Panel 6 (Bottom-Center): Three-quarter view of the egg cracking open. Tiny lime-green clawed hands push shell fragments outward into the straw.
+Column 2 — The Peek (20.0s – 25.0s)
+Panel 3 (Top-Center): Three-quarter view at Ollie's chest height. Ollie holds the cylinder to his eye, rim catching warm light — frame-within-frame through its dark opening.
+Panel 4 (Bottom-Center): Tight close-up. Ollie peers through the tube; his emerald eyes widen, catching the refracted aquamarine shimmer.
 
-Column 3 — The Encounter (10.5s – 15.0s)
-Panel 7 (Top-Right): Medium shot. Baby Bamboo the dino stumbles out of the cracked shell, blinks huge round yellow eyes, and smiles with sheer innocent delight.
-Panel 8 (Mid-Right): Close-Up on Bamboo's face as he opens his mouth in a cheerful high-pitched trill, stubby tail wagging in motion blur.
-Panel 9 (Bottom-Right): Wide two-shot. Bamboo steps eagerly toward Leo. Leo sits abruptly on his diaper on the dusty floor, hands thrown back in shock, mouth agape in panic.
+Column 3 — The Idea (25.0s – 30.0s)
+Panel 5 (Top-Right): Chest-height three-quarter angle. Ollie holds the cylinder up proudly; the lightbulb moment ignites on his face.
+Panel 6 (Bottom-Right): Slightly wider medium composition. Ollie sits on the sunlit ledge grinning, cylinder in paw, ledge and waterline leading the eye to him. Warm, complete, resolved.
 
 HARD EXCLUSIONS
-No other humans, no adult dinosaurs, no exterior shots, no text overlays, no dialogue bubbles, no split-screen cells within a panel.
+No other characters, no underwater interiors, no text overlays, no dialogue bubbles, no split-screen cells within a panel.
 ```
 
 ---
 
-### Step 8: Video Generation Prompt (`video_prompts/s1_g1.txt`)
+### Step 8: Video Generation Prompt (`video_prompts/s1_g2.txt`)
 *Target Model: **Minimax Hailuo H3 R2V** (ComfyUI Ref2VA workflow)*
 *Duration: **15.0 seconds** | Resolution: **1056×608 (0.6MP)** | Audio: **Native Stereo***
 
 ```text
 subject_definitions:
-- <Subject 1> is Leo, a 2-year-old toddler with chubby rosy cheeks, messy brown curls, wearing a white cotton star-patterned onesie and mismatched socks (blue on left foot, yellow on right foot) as depicted in <Picture 1>.
-- <Subject 2> is Bamboo, a tiny newly hatched baby dinosaur with lime-green pebbled scales, cream underbelly, oversized liquid-yellow eyes, and rounded snout as depicted in <Picture 1>.
-- <Picture 1> is the 9-panel 3x3 storyboard contact sheet providing keyframe references for camera angles, spatial positions, and lighting.
+<Subject 1> is Young Ollie in <Picture 1>, a small otter-like Pookoo with fluffy chocolate-brown fur, a spiky russet hair tuft, an oversized black button nose, a cream muzzle, and huge emerald-green eyes.
+<Picture 1> is the storyboard reference for [Shot 1], defining viewpoint, subject placement, and the take's progression.
+<Video 1> is the previous generation's rendered tail and continuation starting point.
+(S1) is <Subject 1>'s voice.
 
 summary:
-A 15.0-second dynamic sequence in a sunlit basement where toddler <Subject 1> discovers a glowing egg in an antique trunk, witnesses it hatching into baby dino <Subject 2>, and scrambles away in panicked surprise when the creature calls him mama.
+[video continuation + reference generation] The video seamlessly continues from <Video 1> as Ollie peers through the hollow cylinder and discovers the underwater world.
 
 retention_analysis:
-- The persistent basement environment with high dusty window light beams and stacked cardboard boxes is fully preserved from <Picture 1>.
-- The character designs, clothing, and proportions of <Subject 1> and <Subject 2> are fully preserved from <Picture 1>.
+<Subject 1> (appears in [Shot 1]): fully_preserved - fur, tuft, nose, muzzle, and eyes retained.
+<Picture 1> (storyboard reference): fully_preserved - composition, lighting, and panel sequence.
+<Video 1> (continuation starting point): fully_preserved - ending pose, staging, lighting, and motion state.
 
 detailed_description:
-SHOT 1 — 0.0-1.5s:
-Extreme close-up on <Subject 1>'s wide brown eyes blinking in the darkness. The irises catch a pulsing amber reflection.
-Camera: Slow Push In toward pupils.
-Dialogue: none.
-Foley: Soft childlike breathing, quiet ambient basement room tone.
-
-SHOT 2 — 1.5-3.2s:
-Low-angle tracking shot following <Subject 1>'s tiny feet across dusty concrete. The blue left sock and yellow right sock kick up tiny puffs of dust.
-Camera: Tracking shot moving backwards at toddler walking pace.
-Dialogue: none.
-Foley: Soft rhythmic patter-patter of socked feet on concrete floor.
-
-SHOT 3 — 3.2-5.0s:
-Medium shot. <Subject 1>'s small hands pull back a heavy draped white sheet, revealing the glowing amber egg sitting in straw inside the steamer trunk.
-Camera: Pan right with <Subject 1>'s arm movement.
-Dialogue: none.
-Foley: Dry fabric rustling, rising resonant magical amber hum.
-
-SHOT 4 — 5.0-6.8s:
-Close-up on <Subject 1>'s face bathed in golden light. His eyes widen in pure wonder, mouth parting as he whispers softly.
-Camera: Static lock-off with subtle organic handheld float.
-Dialogue: <Subject 1>: <d>[en] (whispering) Ooh... </d>
-Foley: Soft intake of breath, resonant hum continues.
-
-SHOT 5 — 6.8-8.5s:
-Tight shot on the egg. A bright fracture violently zips across the shell surface. Pieces burst outward with an energetic pop.
-Camera: Quick snap zoom into the fissure.
-Dialogue: none.
-Foley: Sharp ceramic SNAP, wet suction pop, sudden chime release.
-
-SHOT 6 — 8.5-11.0s:
-Tilt up from the cracked shell as tiny lime-green <Subject 2> emerges, shaking sticky shell pieces off his head. His enormous yellow eyes blink twice and lock onto <Subject 1>.
-Camera: Tilt up smoothly from straw to <Subject 2>'s smiling face.
-Dialogue: none.
-Foley: Cute reptilian chirp, rustling dry straw, upbeat pizzicato string swell.
-
-SHOT 7 — 11.0-13.0s:
-Close-up of <Subject 2> happily opening his rounded snout, stubby tail wagging like a puppy's against the trunk wood.
-Camera: Static close-up on <Subject 2>.
-Dialogue: <Subject 2>: <d>[en] (squeaky baby chirp) Ma-ma! </d>
-Foley: High-pitched cheerful vocal squeak, rapid tail thumps on wood (thump-thump-thump).
-
-SHOT 8 — 13.0-15.0s:
-Wide two-shot. <Subject 2> hops out of the trunk toward <Subject 1>. <Subject 1>'s expression turns from shock to pure comedic panic; he falls backward onto his diaper and rapidly kicks his feet to scramble away.
-Camera: High-angle wide shot holding both characters in frame.
-Dialogue: <Subject 1>: <d>[en] (panicked scramble) No mama! </d>
-Foley: Thud of diaper landing on floor, chaotic dust scuffling, comedic brass slide whistle accent.
+High-fidelity stylized 3D CGI animation, warm sunlit meadow light, tactile fur shaders.
+[Shot 1] Continuing seamlessly from <Video 1>, <Subject 1> lies prone on the flat stone ledge at the water's edge, matching the previous clip's ending pose and low camera height. He lifts the hollow wooden cylinder to his eye and peers through: shimmering aquamarine light, swaying water-weeds, drifting motes. His emerald eyes widen slowly, then spark — a grinning lightbulb moment, ears perking. The camera pushes in with small amplitude at slow speed toward the cylinder's dark opening. <Subject 1> (S1) gives a soft contented sniff, then a tiny gasp inside the tube, <d>[English] <gasp> Ooh... </d> Never generate duplicate characters or extra limbs.
 
 overall_soundscape:
-Intimate character foley (sock footsteps, cloth rustle, egg fracture, tail thumps) layered over a warm, dusty basement ambience with a gentle orchestral animation score that pivots from mysterious wonder to playful comedic panic.
+Muffled underwater hum resonating through the wooden tube, gentle water lapping against the ledge, distant meadow birds.
 
 non_diegetic_music:
-A whimsical animated orchestral score opening with soft harp arpeggios and Celeste, building with mysterious string tremolo, bursting into playful pizzicato on the hatch, and accenting with a comedic brass slide whistle on the final scramble.
+A single inquisitive celesta phrase over soft sustained strings.
 ```
 
 ---
 
-### Step 9: Tail Continuation for Generation 2 (`video_prompts/s1_g2.txt`)
+### Step 9: Tail Continuation for Generation 3 (`video_prompts/s1_g3.txt`)
 *Demonstrating how the 15-second boundary is crossed seamlessly with canonical Ref2VA tail conditioning.*
 
 ```text
-ref_videos: clips/s1/g1_tail.mp4
-
 subject_definitions:
-- <Subject 1> is Leo, toddler in white star onesie and mismatched socks as seen in <Picture 1> and continuing from <Video 1>.
-- <Subject 2> is Bamboo, tiny lime-green baby dinosaur as seen in <Picture 1> and continuing from <Video 1>.
-- <Picture 1> is the 6-panel 3x2 storyboard sheet for generation 2 (storyboard_sheet_s1_g2.webp).
-- <Video 1> is the 3.0-second tail clip clips/s1/g1_tail.mp4 from the end of generation 1.
+<Subject 1> is Young Ollie in <Picture 1>, a small otter-like Pookoo with fluffy chocolate-brown fur and huge emerald-green eyes, continuing from <Video 1>.
+<Subject 2> is the makeshift diving helmet in <Picture 1>, a hollow wooden cylinder with a polished pebble faceplate and woven leaf strap.
+<Picture 1> is the 6-panel 3x2 storyboard sheet for generation 3 (storyboard_sheet_s1_g3.webp).
+<Video 1> is the 3.0-second tail clip clips/s1/g2_tail.mp4 from the end of generation 2.
 
 summary:
-A 15.0-second comedic continuation sequence (15.0s – 30.0s of Scene 1) continuing seamlessly from <Video 1>, where <Subject 1> scrambles backward through cardboard box corridors as curious baby dino <Subject 2> waddles after him.
+[video continuation + reference generation] The video seamlessly continues from <Video 1> as Ollie presses the cylinder over his head and dunks underwater — then sputters back up, soaked.
 
 retention_analysis:
-- At 0.0s of this generation, character positions, velocities, and lighting are fully preserved from the final frame of <Video 1>: <Subject 1> is on the floor scrambling backwards, <Subject 2> is mid-hop on the floor.
-- Environmental architecture and lighting angles are fully preserved from <Video 1> and <Picture 1>.
+<Subject 1> (appears in [Shot 1]–[Shot 4]): fully_preserved - fur, tuft, nose, muzzle, and eyes retained.
+<Subject 2> (appears in [Shot 1]–[Shot 4]): fully_preserved - cylinder form, pebble faceplate, leaf strap retained.
+<Picture 1> (storyboard reference): fully_preserved - composition, lighting, and panel sequence.
+<Video 1> (continuation starting point): fully_preserved - ending pose, staging, lighting, and motion state.
 
 detailed_description:
-SHOT 1 — 0.0-3.5s:
-Wide shot continuing directly from <Video 1>'s final frame. <Subject 1> scrambles backward around a tower of stacked cardboard boxes, kicking up dust motes.
-Camera: Low tracking shot moving backward alongside <Subject 1>.
-Dialogue: none.
-Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
-...
+High-fidelity stylized 3D CGI animation, warm sunlit meadow light, tactile fur shaders.
+[Shot 1] Continuing seamlessly from <Video 1>, <Subject 1> lifts <Subject 2> over his head and pulls it down snug, pebble faceplate over his eyes...
 ```
 
 ---
@@ -500,9 +457,9 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
 ```json
 {
   "manifest_version": "1.0",
-  "story": "bamboo-the-dino",
+  "story": "ollies-dive",
   "episode": "epi-1",
-  "target_duration_seconds": 60.0,
+  "target_duration_seconds": 45.0,
   "created_at": "2026-09-10T18:00:00Z",
   "models": {
     "image_backend": "openai/gpt-image-2",
@@ -512,8 +469,8 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
   "asset_hashes": {
     "assets/characters/char_01.webp": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "assets/characters/char_02.webp": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "assets/locations/loc_basement.webp": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    "sheets/s1/storyboard_sheet_g1.webp": "sha256:77963b7a931377ad4ab5ad6a9cd718aa5b2046e3ac563399da94e4bc66b48a20"
+    "assets/locations/loc_01.webp": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "sheets/storyboard_sheet_s1_g2.webp": "sha256:77963b7a931377ad4ab5ad6a9cd718aa5b2046e3ac563399da94e4bc66b48a20"
   },
   "generations": [
     {
@@ -522,7 +479,7 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
       "duration_seconds": 15.0,
       "panel_grid": "3x3",
       "total_panels": 9,
-      "total_shots": 8,
+      "total_shots": 6,
       "sheet_prompt": "image_prompts/s1/storyboard_sheet_g1.txt",
       "video_prompt": "video_prompts/s1_g1.txt",
       "tail_condition": null,
@@ -534,9 +491,9 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
       "id": "s1_g2",
       "scene_id": "s1",
       "duration_seconds": 15.0,
-      "panel_grid": "3x2",
+      "panel_grid": "2x3",
       "total_panels": 6,
-      "total_shots": 5,
+      "total_shots": 1,
       "sheet_prompt": "image_prompts/s1/storyboard_sheet_g2.txt",
       "video_prompt": "video_prompts/s1_g2.txt",
       "tail_condition": "clips/s1/g1_tail.mp4",
@@ -546,7 +503,7 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
     }
   ],
   "gates": {
-    "gate_0_critique": "PASSED (0 FAILs, 2 ADVISORY)",
+    "gate_0_critique": "PASSED (0 BLOCKERs, 2 MAJOR disposed)",
     "gate_1_sheets": "APPROVED_BY_USER",
     "gate_2_prompts": "APPROVED_BY_USER"
   }
@@ -559,9 +516,9 @@ Foley: Rhythmic diaper thuds, scuffling hands and feet on concrete.
 
 When preparing or validating any Story Maker V5 run, ensure:
 1. **Grid Selected Appropriately**:
-   - `3x2` (6 panels, 8:3 ratio) for standard 8–12s generations (default).
-   - `3x3` (9 panels, 16:9 ratio) for dense, rapid-cut 13–15s action generations.
+   - `3x2` / `2x3` (6 panels) for standard 8–15s generations (default) and oners.
+   - `3x3` (9 panels) for dense, rapid-cut 13–15s action generations.
 2. **Shot-to-Panel Ratio**: Every panel belongs to exactly one shot. No shot spans across generation boundaries.
 3. **Model Specifications Quoted**: All still prompts target **OpenAI GPT-Image-2** (3840×2160, WebP); video prompts target **Minimax Hailuo H3 R2V** (1056×608, 25fps, native stereo).
-4. **Tail Continuity Configured**: Every generation after `g1` declares `ref_videos: [previous_tail.mp4]`.
+4. **Tail Continuity Configured**: Every non-`hard_cut` generation after the episode's first declares `<Video 1>` and gets `ref_videos: [previous_tail.mp4]`.
 5. **No Text in Still Images**: Character, location, object, and storyboard prompts must explicitly forbid text, labels, numbers, captions, and watermarks.

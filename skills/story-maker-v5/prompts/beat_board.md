@@ -16,12 +16,14 @@ Agent 2 (scene writer) reads it to decide how to group beats into scenes.
 
 ## Rules
 
-- **8–15 beats** for short-form (30s–5min). Fewer for very short ads (min 3).
-  More for longer episodes, but never fewer than 3.
+- **8–15 beats** (advisory target) for short-form (30s–5min). Fewer for very
+  short ads. The validator **enforces only the 3-beat minimum**; the 8–15
+  range and "more for longer episodes" are guidance, not errors — a
+  deliberate 16-beat board warns but passes.
 - **Each beat is a change.** If a beat doesn't change the character's situation,
   emotion, or the audience's understanding, it's not a beat — cut it.
 - **Visible action.** Write what the camera can see, not inner thoughts.
-  "Kemi freezes, eyes wide" not "Kemi feels afraid."
+  "Ollie freezes, eyes wide" not "Ollie feels afraid."
 - **Emotional register.** Name the emotion the audience should feel. This drives
   shot size, camera, pacing, and sound choices downstream. See
   [`assets/directors-guide.md`](../assets/directors-guide.md) Section 1 for the
@@ -40,55 +42,60 @@ Agent 2 (scene writer) reads it to decide how to group beats into scenes.
 
 ## Output format (load-bearing — the validator parses this exactly)
 
-```
-# Beat Board — <story title>
+Canonical worked example:
+[`assets/example-ollie.md`](../assets/example-ollie.md) — all prompts use
+this same story (Ollie, the pond, the basket) so examples stay consistent
+across agents.
 
-target_seconds: 180
+```
+# Beat Board — Ollie's Dive
+
+target_seconds: 224
 beat_count: 9
 
-## Beat 1 — Joy
-description: Kemi and baby Timi forage peacefully along a sunlit jungle stream.
+## Beat 1 — Pride
+description: Ollie admires his handmade basket on the mossy boulder, beaming.
 emotion: joy
 estimated_seconds: 15
 
-## Beat 2 — Omen
-description: Birdsong fades to dead silence; menacing yellow eyes open in the undergrowth.
-emotion: unease
-estimated_seconds: 8
-
-## Beat 3 — Threat
-description: A fierce hyena emerges snarling from the shadows.
-emotion: fear
-estimated_seconds: 7
-
-## Beat 4 — Chase
-description: Kemi clutches her plantains and sprints through thick foliage with the predator in pursuit.
-emotion: tension
-estimated_seconds: 12
-
-## Beat 5 — Stand
-description: Kemi reaches a clearing, lowers the plantains, and pivots into a martial arts stance.
-emotion: determination
-estimated_seconds: 6
-
-## Beat 6 — Duel
-description: Kemi and the hyena clash in a wire-fu style duel; she dodges claws and delivers acrobatic kicks.
-emotion: excitement
+## Beat 2 — Spill
+description: A dragonfly startles Ollie; the basket tumbles into the pond.
+emotion: shock
 estimated_seconds: 15
 
-## Beat 7 — Impact
-description: A falling Fufu tin drops from the sky and bonks the hyena flat on the head.
-emotion: shock
-estimated_seconds: 5
+## Beat 3 — Discovery
+description: Peering through the hollow cylinder, Ollie glimpses the glowing underwater world — an idea ignites.
+emotion: wonder
+estimated_seconds: 15
 
-## Beat 8 — Scramble
-description: The hyena revives and snatches the tin; an all-out chaotic scramble erupts across the clearing.
-emotion: chaos
-estimated_seconds: 12
+## Beat 4 — Trial and Error
+description: Three helmet prototypes fail — no seal, no air, a flooding snorkel.
+emotion: tension
+estimated_seconds: 45
 
-## Beat 9 — Triumph
-description: Kemi executes a flying dive to reclaim the tin, sprints to the ridge, and hoists it proudly toward camera.
+## Beat 5 — Breakthrough
+description: The bark-disc float keeps the snorkel upright; the rig finally works.
 emotion: triumph
+estimated_seconds: 20
+
+## Beat 6 — Wonder
+description: Ollie explores a bioluminescent paradise, dances with leaf-fish, and wakes a lakebed of blooming flower-snails.
+emotion: awe
+estimated_seconds: 75
+
+## Beat 7 — Peril
+description: A giant iridescent fish approaches; its friendly smile unhinges into a cavernous jaw.
+emotion: fear
+estimated_seconds: 25
+
+## Beat 8 — Rescue
+description: Caloo plunges in, snatches Ollie by the scruff, and outruns the lunging predator.
+emotion: tension
+estimated_seconds: 10
+
+## Beat 9 — Button
+description: Soaked under his father's glare, Ollie offers the wet helmet and a cheesy grin: "Hey, Dad... Thirsty?"
+emotion: relief
 estimated_seconds: 10
 ```
 

@@ -54,19 +54,8 @@ def main() -> None:
         sys.exit(1)
     sb = validators.parse_storyboard(open(sb_path, encoding="utf-8").read())
 
-    # Check for scene-level storyboard sheet
-    scene_sheet_path = os.path.join(ip.image_prompts_dir(run_dir), scene_id, "storyboard_sheet.txt")
-    if os.path.isfile(scene_sheet_path):
-        prompt_text = ip.read_prompt(scene_sheet_path)
-        if not prompt_text:
-            print(f"  WARNING: scene sheet prompt is empty: {scene_sheet_path}; skipping.")
-            return
-        materialized = materialize_sheet_prompt(prompt_text, plan, sb, gen_id=args.gen or "all")
-        with open(scene_sheet_path, "w", encoding="utf-8") as f:
-            f.write(materialized)
-        print(f"  {scene_id}: materialized scene-level spatial block into {scene_sheet_path}")
-        return
-
+    # Per-generation prompts are canonical — the retired scene-level
+    # storyboard_sheet.txt is not materialized.
     # Process normal generations
     count = 0
     for gen in sb["generations"]:

@@ -30,6 +30,11 @@ sys.path.insert(0, str(SKILL_ROOT))
 import config  # noqa: E402
 from tools import image_pipeline as ip  # noqa: E402
 from tools import validators  # noqa: E402
+
+try:
+    from tools.asset_registry_v2 import RegistryV2  # noqa: E402
+except Exception:  # h3-chain registry not importable — fall back to V1
+    RegistryV2 = None
 from tools.char_sheet_builder import load_character_prompt  # noqa: E402
 from tools.location_sheet_builder import load_location_prompt  # noqa: E402
 from tools.object_sheet_builder import load_object_prompt  # noqa: E402
@@ -135,6 +140,16 @@ def build_assets(reg: ip.AssetRegistry, scenes: dict) -> None:
         ip.generate_object_sheet(reg, oid, prompt_text=prompt_text, object_fields=fields, ref_urls=ref_urls)
     reg.save()
 
+    # Refresh the human-readable shared-asset manifests (CHARACTERS.md,
+    # LOCATIONS.md, OBJECTS.md) that authoring prompts point agents at.
+    try:
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, scripts_dir)
+        from export_assets_manifest import export_manifests
+        export_manifests(reg.run_dir, reg.assets_dir)
+    except Exception as exc:
+        print(f"  warning: asset manifest export failed: {exc}")
+
 
 def _scene_meta(scenes: dict, scene_id: str) -> tuple[int, str | None]:
     """Return (index, prev_scene_id) for a scene_id."""
@@ -170,34 +185,26 @@ def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
     spatial = _spatial_plan(reg.run_dir, scene_id)
     spatial_gens = spatial["generations"] if spatial else {}
 
-    # Materialize spatial continuity blocks into sheet prompts before generation
+    # Materialize spatial continuity blocks into each generation's sheet
+    # prompt before generation (per-generation prompts are canonical).
     if spatial:
         from tools.spatial_prompt_builder import materialize_sheet_prompt
-        scene_sheet_path = os.path.join(ip.image_prompts_dir(reg.run_dir), scene_id, "storyboard_sheet.txt")
-        if os.path.isfile(scene_sheet_path):
-            prompt_text = ip.read_prompt(scene_sheet_path)
-            if prompt_text:
-                materialized = materialize_sheet_prompt(prompt_text, spatial, sb, "all")
-                with open(scene_sheet_path, "w", encoding="utf-8") as f:
-                    f.write(materialized)
-                print(f"  {scene_id}: materialized scene-level spatial bible")
-        else:
-            for gen in gens:
-                if gen.get("is_bridge"):
-                    continue
-                gid = gen["gen_id"]
-                if gid not in spatial_gens:
-                    continue
-                sheet_prompt_path = ip.sheet_prompt_path(reg.run_dir, scene_id, gid)
-                if not os.path.isfile(sheet_prompt_path):
-                    continue
-                prompt_text = ip.read_prompt(sheet_prompt_path)
-                if not prompt_text:
-                    continue
-                materialized = materialize_sheet_prompt(prompt_text, spatial, sb, gid)
-                with open(sheet_prompt_path, "w", encoding="utf-8") as f:
-                    f.write(materialized)
-                print(f"  {scene_id}/{gid}: materialized spatial bible")
+        for gen in gens:
+            if gen.get("is_bridge"):
+                continue
+            gid = gen["gen_id"]
+            if gid not in spatial_gens:
+                continue
+            sheet_prompt_path = ip.sheet_prompt_path(reg.run_dir, scene_id, gid)
+            if not os.path.isfile(sheet_prompt_path):
+                continue
+            prompt_text = ip.read_prompt(sheet_prompt_path)
+            if not prompt_text:
+                continue
+            materialized = materialize_sheet_prompt(prompt_text, spatial, sb, gid)
+            with open(sheet_prompt_path, "w", encoding="utf-8") as f:
+                f.write(materialized)
+            print(f"  {scene_id}/{gid}: materialized spatial bible")
 
     # Previous sheet for the FIRST generation = last sheet of the previous scene.
     prev_sheet_id: str | None = None
@@ -252,7 +259,7 @@ def build_sheets(reg: ip.AssetRegistry, scenes: dict, scene_id: str) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Build story-maker-v4 image media")
+    p = argparse.ArgumentParser(description="Build story-maker-v5 image media")
     p.add_argument("--output-dir", required=True, help="run output dir")
     p.add_argument("--assets-dir", default=None, help="shared assets dir (default: <output-dir>/../assets)")
     p.add_argument("--assets-only", action="store_true", help="only char sheets + location locks")
@@ -264,7 +271,13 @@ def main() -> int:
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(assets_dir, exist_ok=True)
 
-    reg = ip.AssetRegistry(run_dir, assets_dir)
+    # The image-build stage runs pre-GATE-1, so draft assets produced moments
+    # ago must resolve as refs — allow_draft=True. Cross-episode reuse of
+    # unapproved assets is still gated by assetctl/GATE 1 promotion.
+    if RegistryV2 is not None:
+        reg = RegistryV2(run_dir, assets_dir, allow_draft=True)
+    else:
+        reg = ip.AssetRegistry(run_dir, assets_dir)
     scenes = _scenes(run_dir)
 
     if args.assets_only:

@@ -15,6 +15,8 @@ Coordinate system (2.5D):
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 from typing import Any
 
@@ -876,10 +878,26 @@ def parse_spatial_qa_report(md: str) -> dict[str, Any]:
     return {"summary": summary, "sheets": sheets}
 
 
+def _sha256_file(path: str) -> str | None:
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+_SHEET_EXTS = ("webp", "png", "jpg", "jpeg")
+
+
 def validate_spatial_qa_report(
     md: str,
     *,
     expected_sheets: list[str] | None = None,
+    run_dir: str | None = None,
+    scene_id: str | None = None,
 ) -> ValidationResult:
     """Validate a spatial QA report.
 
@@ -887,11 +905,20 @@ def validate_spatial_qa_report(
         md: The QA report markdown text.
         expected_sheets: List of sheet IDs (e.g. ['s1/g1', 's1/g2', ...]) that
             must all be covered. If None, coverage is not checked.
+        run_dir: Run directory. When given with scene_id, recorded sha256
+            fields are verified against the actual sheet/plan files so the
+            report cannot assert it inspected something it never hashed.
+        scene_id: Scene the report covers (e.g. 's1').
     """
     res = ValidationResult()
     data = parse_spatial_qa_report(md)
     sheets = data["sheets"]
     summary = data["summary"]
+
+    plan_sha = None
+    if run_dir and scene_id:
+        plan_path = os.path.join(run_dir, f"spatial_plan_{scene_id}.md")
+        plan_sha = _sha256_file(plan_path)
 
     if not sheets:
         res.error("spatial QA report: no sheet entries parsed")
@@ -909,6 +936,40 @@ def validate_spatial_qa_report(
         if not sheet["status"]:
             res.error(f"{sid}: missing 'Status:' line")
             continue
+
+        # Verify recorded sha256 fields against the real files so the report
+        # is machine-checkable rather than asserted.
+        if run_dir and scene_id and "/" in sid:
+            s_part, g_part = sid.split("/", 1)
+            sheet_file = None
+            for ext in _SHEET_EXTS:
+                cand = os.path.join(
+                    run_dir, f"storyboard_sheet_{s_part}_{g_part}.{ext}"
+                )
+                if os.path.isfile(cand):
+                    sheet_file = cand
+                    break
+            recorded_img = sheet["image_sha256"].strip().lower()
+            if sheet_file:
+                actual_img = _sha256_file(sheet_file)
+                if not recorded_img:
+                    res.warn(f"{sid}: missing image_sha256 — run scripts/sheet_hashes.py")
+                elif recorded_img != actual_img:
+                    res.error(
+                        f"{sid}: image_sha256 does not match "
+                        f"{os.path.basename(sheet_file)} — the sheet changed "
+                        "after review; re-inspect it"
+                    )
+            recorded_plan = sheet["spatial_plan_sha256"].strip().lower()
+            if plan_sha is not None:
+                if not recorded_plan:
+                    res.warn(f"{sid}: missing spatial_plan_sha256 — run scripts/sheet_hashes.py")
+                elif recorded_plan != plan_sha:
+                    res.error(
+                        f"{sid}: spatial_plan_sha256 does not match "
+                        f"spatial_plan_{scene_id}.md — the plan changed after "
+                        "review; re-inspect"
+                    )
 
         if sheet["status"] == "PASS":
             pass_count += 1

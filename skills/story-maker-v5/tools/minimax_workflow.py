@@ -28,6 +28,7 @@ from tools.comfyui_tools import (
     curl_json,
     download_output,
     has_node_type,
+    upload_audio,
     upload_image,
     upload_video,
     wait_for_prompt,
@@ -47,7 +48,7 @@ _MINIMAX_LEGACY_UI = (
 DEFAULT_MINIMAX_UI = (
     _MINIMAX_SUBDIR_UI if _MINIMAX_SUBDIR_UI.exists() else _MINIMAX_LEGACY_UI
 )
-_UPLOAD_SUBFOLDER = "story-maker-v4"
+_UPLOAD_SUBFOLDER = "story-maker-v5"
 
 MINIMAX_NODE = "MiniMaxH3ReferenceToVideo"
 
@@ -546,12 +547,18 @@ def render_generation(
     extra_reference_video_paths: list[str] | None = None,
     extra_reference_audio_paths: list[str] | None = None,
     max_wait: int = 7200,
+    on_queued=None,
 ) -> dict:
     """Render one <=15s Minimax H3 generation from a storyboard sheet.
 
     Video/audio references are uploaded and wired into ref_videos/ref_audios
     dynamically, exactly like image references. When none are passed, the
     graph is pruned to the same shape as before (single sheet ref image).
+
+    ``on_queued`` is an optional callable invoked with ``prompt_id``
+    immediately after the job is accepted by ComfyUI — callers should persist
+    it so an interrupted run can re-poll ``/history/{prompt_id}`` instead of
+    re-submitting an expensive render.
     """
     if not os.path.isfile(sheet_path):
         return {"status": "error", "message": f"storyboard sheet missing: {sheet_path}"}
@@ -591,7 +598,7 @@ def render_generation(
     # Upload audio references (for audio carry-over across seams)
     reference_audio_names: list[str] = []
     for aud_path in (extra_reference_audio_paths or []):
-        upa = upload_image(aud_path, subfolder=_UPLOAD_SUBFOLDER)
+        upa = upload_audio(aud_path, subfolder=_UPLOAD_SUBFOLDER)
         if not upa or "name" not in upa:
             return {"status": "error", "message": f"audio reference upload failed: {aud_path}"}
         aname = f"{upa.get('subfolder')}/{upa['name']}" if upa.get("subfolder") else upa["name"]
@@ -607,7 +614,7 @@ def render_generation(
         width=width,
         height=height,
         seed=seed,
-        filename_prefix=f"story-maker-v4/{stem}",
+        filename_prefix=f"story-maker-v5/{stem}",
         reference_video_names=reference_video_names or None,
         reference_audio_names=reference_audio_names or None,
         aspect=asp,
@@ -618,6 +625,11 @@ def render_generation(
     prompt_id = queued.get("prompt_id")
     if not prompt_id:
         return {"status": "error", "message": f"queue failed: {json.dumps(queued)[:400]}"}
+    if on_queued is not None:
+        try:
+            on_queued(prompt_id)
+        except Exception as exc:
+            print(f"  warning: on_queued hook failed for {prompt_id}: {exc}")
 
     t0 = time.time()
     outputs = wait_for_prompt(prompt_id, max_wait=max_wait, poll_interval=10)

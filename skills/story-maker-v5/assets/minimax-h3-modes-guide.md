@@ -71,7 +71,7 @@ non_diegetic_music: N/A
 
 ## 4. Full-Reference Mode (Ref2VA) Contract
 
-This is the canonical format for `story-maker-v4` generations conditioned on storyboard sheets.
+This is the canonical format for `story-maker-v5` generations conditioned on storyboard sheets.
 
 ### Section Order (Strict)
 1. `subject_definitions:`

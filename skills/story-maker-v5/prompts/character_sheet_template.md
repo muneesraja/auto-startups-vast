@@ -8,6 +8,12 @@ Distinctive features:
 Outfit & accessories (must appear consistently on every body view):
 {clothing_accessories}
 
+Canonical fill (all prompts use the same worked story —
+[`assets/example-ollie.md`](../assets/example-ollie.md)):
+`Character: Young Ollie | Species: pookoo (otter-like woodland creature) | Age: 5`
+`Distinctive features: fluffy chocolate-brown fur, spiky russet head tuft, oversized black button nose, cream muzzle, huge emerald-green eyes, stubby paws, childlike proportions`
+`Outfit & accessories: bare fur, no clothing`
+
 Layout — four visual sections only, packed tightly on one 16:9 page (landscape orientation):
 
 ────────────────────────────────────────

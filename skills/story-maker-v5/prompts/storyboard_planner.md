@@ -54,12 +54,17 @@ as a `ref_video`. This means:
 
 - **The scene timeline is exactly the sum of generation durations** — no
   additive bridge seconds. `TARGET_story = TARGET_delivery`.
-- **Each generation after g1 should describe its opening as continuing from
-  the previous generation's ending state.** The video prompt for g(K+1) will
-  be rendered with the tail of gK attached, so the model sees the actual
-  ending frames.
-- **g1 of each scene after the first** also receives the tail of the previous
-  scene's last generation (cross-scene continuity).
+- **Continuation generations describe their opening as continuing from the
+  previous generation's ending state.** The video prompt for a continuation
+  is rendered with the previous generation's rendered tail attached, so the
+  model sees the actual ending frames.
+- **The boundary rule is load-bearing** (`tools/boundary.py`): a generation
+  whose first shot declares `hard_cut` opens fresh — the renderer attaches
+  no tail and the prompt must not declare `<Video 1>`. For scene boundaries,
+  the previous scene's `handoff.transition` decides: `hard_cut` = fresh
+  scene boundary; anything else = the tail is attached. Keep the two
+  declarations consistent — the validator errors when a `hard_cut` handoff
+  is followed by a `continuous` shot 1.
 
 ## Rules
 
@@ -68,36 +73,20 @@ as a `ref_video`. This means:
   folder. Reuse the existing cids and their exact wardrobe. Never invent a new
   `char_NN` not in the manifest.
 - **Shots are contiguous within a generation** and together fill it exactly.
-- **Dynamic Shot Depth & Story-First Pacing (MANDATORY)**: Before assigning cuts, the Director
-  must analyze the scene beats, dialogue, and physical choreography to determine
-  the natural dramatic pacing and shot depth:
-  * **1-Shot Master Take / Oner (10.0s – 15.0s)**: When the narrative beat is a continuous
-    physical sequence (e.g., continuous sliding down a cavern, sovereign entrance, unbroken
-    falling action, high-stakes continuous tracking, or sustained emotional dialogue), the shot
-    **MUST NOT be cut**. Author it as an unbroken single-shot Master Take (10.0–15.0s) filling
-    the entire generation.
-  * **Asymmetric 2-Shot Dynamic (2 shots per 15s)**: Unequal dramatic division based on
-    action/reaction or statement/rebuttal (e.g. 11.5s setup + 3.5s punchy reaction reveal;
-    9.0s statement + 6.0s rebuttal; 5.0s confrontation + 10.0s lethal whisper and freeze).
-  * **Dynamic Action Arc (3 shots per 15s)**: High-stakes physical sequences with varying tempo
-    (e.g. 6.0s drift/approach + 2.5s shock impact + 6.5s smoke/standoff).
-  * **Rapid Montage (4+ shots per 15s)**: Reserved strictly for high-tempo preparation,
-    chaotic impacts, or rapid flashbacks.
-  * **STRICT PROHIBITION**: Never mechanically slice every generation into arbitrary equal intervals
-    (e.g. 2 equal 7.5s slices or 4 equal 3.75s slices). Never default blindly to 2 shots per generation
-    or 4 shots per scene. Vary shot durations organically to establish a living cinematic rhythm.
-- **Multi-Character Prop Staging & Separation (MANDATORY)**:
-  * When multiple characters are dining, eating, or using tools simultaneously, **allocate individual props/vessels** in distinct spatial zones (e.g. "two steaming ceramic noodle bowls, one positioned directly in front of each brother").
-  * In `action:` describe each character interacting with their own dedicated prop and utensils (e.g., "Lebo scoops noodles from his bowl frame-left; Thabo holds his bowl frame-right with both hands").
-  * **Never stage multiple characters eating out of one single bowl simultaneously**—this creates visual crowding and limb distortion in image/video generation. (Single props are strictly reserved for physical tug-of-war conflict).
-- **Dialogue Progression & Anti-Loop Rule**:
-  * Dialogue must move forward with every cut. Never repeat the same blame, accusation, or question across consecutive shots (e.g., do not repeat "He broke it! / No, he broke it!" when a parent enters after an argument).
-  * **Authority Arrival Pivot:** When an authority figure enters, immediately pivot the dialogue from mutual squabbling to a shared plea, appeal, excuse, or silence, allowing the newcomer to deliver a knowing, witty response ("I know what you two really want") that triggers the resolution.
-- **10-Second Commercial Button Formula (for Branded Stories/Ads)**:
-  * Structure commercial button generations (10.0–15.0s total) for maximum brand elegance and authentic swagger:
-    - **Shot 1 (Setup & Hook, 2.0–3.0s)**: Characters reacting, smelling food, or locking eyes with the hero product.
-    - **Shot 2 (Authentic Slogan / Maternal Swagger, 5.0–7.0s)**: Speaker delivers the core tagline/motto in natural, regional vernacular inside `dialogue:` with confident posture and warm lighting.
-    - **Shot 3 (Sensory Crunch / Brand Button, 3.0–5.0s)**: Close-up on the hero product/satisfying crunch, beaming smile, and held brand tableau.
+- **Dynamic Shot Depth & Story-First Pacing (MANDATORY)**: shot count is a
+  directing choice — **1 to 8 shots per generation**, chosen from the
+  taxonomy in [`assets/production-rules.md`](../assets/production-rules.md)
+  §1 (oner master take → asymmetric 2-shot → action arc → rapid montage).
+  Oners are legal and mandatory when the beat demands an unbroken take;
+  1–2 shot generations carry the mandatory high-detail requirement.
+- **Multi-Character Prop Staging & Separation (MANDATORY)**: distinct
+  individual props/vessels per character — canonical rule in
+  [`assets/production-rules.md`](../assets/production-rules.md) §2.
+- **Dialogue Progression & Anti-Loop Rule** — canonical rule in
+  [`assets/production-rules.md`](../assets/production-rules.md) §3.
+- **10-Second Commercial Button Formula (for Branded Stories/Ads)** —
+  canonical formula in
+  [`assets/production-rules.md`](../assets/production-rules.md) §4.
 
 ### Transition grammar (8 values)
 
@@ -214,24 +203,36 @@ Animation principles to apply:
 - **Secondary motion**: cloth, hair, ears, tail follow the primary action with delay
 
 - **Scene, Generation & Panel Grid Relationship**:
-  * Each 5-15s video generation (`g1`, `g2`, ...) is anchored by exactly one storyboard sheet.
-  * **Dynamic Shot Pacing (2 Minimum to 8 Maximum per Generation)**:
-    - Never force a static 2-shot or 4-shot structure. Choose shot counts based on dramatic pacing:
-      - **Slow-Paced / Emotional / Intimate / Tension (2 Shots Minimum)**:
-        - E.g. 7.5s + 7.5s, or 6.0s + 9.0s.
-        - **MANDATORY HIGH DETAIL**: When planning only 2 shots, the shot descriptions MUST be super high in detail so that 15 seconds never feels static or boring! `acting_beat:` must describe multi-phase progression (e.g. `initial stillness → breathing catches → eyes widen → subtle lip tremor → tear spills → head lowers in defeat`), `camera:` must feature continuous evolving motion (`Push In slow with subtle parallax drift`), and `audio:` must have layered atmospheric sound (room tone, flickering flames, breath, fabric shifts).
-      - **Moderate Dramatic Pace / Dialogue / Discovery (3 to 4 Shots)**:
-        - Balanced cuts averaging 3.5s to 5.0s per shot.
-      - **Fast-Paced / Action / Comedy / Chase / Climax (5 to 8 Shots Maximum)**:
-        - Rapid cuts averaging 1.5s to 3.0s per shot for relentless momentum.
+  * Each 5-15s video generation (`g1`, `g2`, ...) is anchored by exactly one
+    storyboard sheet (`storyboard_sheet_<gen>.txt` — per-generation sheets are
+    the only convention).
+  * **Dynamic Shot Pacing (1 to 8 shots per generation)** — taxonomy in
+    [`assets/production-rules.md`](../assets/production-rules.md) §1:
+    - **Master Take / Oner (1 shot)**: continuous physical/emotional beats
+      that must not be cut; panels become temporal milestones. Mandatory
+      high detail.
+    - **Slow-Paced / Emotional / Intimate / Tension (1–2 shots)**: mandatory
+      high detail — multi-phase `acting_beat:`, evolving `camera:`, layered
+      `audio:`.
+    - **Moderate Dramatic Pace / Dialogue / Discovery (3 to 4 shots)**:
+      balanced cuts averaging 3.5s to 5.0s per shot.
+    - **Fast-Paced / Action / Comedy / Chase / Climax (5 to 8 shots)**:
+      rapid cuts averaging 1.5s to 3.0s per shot for relentless momentum.
   * **Storyboard Grid Selection (Default/Min 3x2, Max 3x3)**:
-    - **Default / Minimum Grid**: `3x2` (6 panels, 1920×720 widescreen cells). Ideal for 2 to 4 shots (each shot claims 1 to 3 panels showing progressive key poses/micro-beats).
+    - **Default / Minimum Grid**: `3x2` (6 panels, 1920×720 widescreen cells). Ideal for 1 to 4 shots (each shot claims 1 to 6 panels showing progressive key poses/micro-beats — a oner claims all panels as temporal milestones).
     - **Maximum Grid**: `3x3` (9 panels, 1280×720 true 16:9 cells). Ideal for 5 to 8 shots (each shot claims 1 to 2 panels).
     - **Alternative**: `2x3` (6 panels, 1280×1080) for scenes emphasizing vertical architecture or tall characters.
     - `panel_grid: RxC` must satisfy `R * C == total_panels` (6 to 9 panels). Grids outside [6, 9] are rejected by the validator.
-  * **Cross-Generation Seam Alignment Rule (CRITICAL)**:
-    - Because `render_all.py` extracts a 3-second tail from `gK` and conditions `gK+1` on it, the **closing shot of `gK` and the opening shot of `gK+1` MUST match in physical posture, camera framing, and actor positioning**.
-    - Never end `gK` on a standing close-up face and start `gK+1` on a wide shot of the character kneeling in a different room! Match-cut the physical and spatial state across generation seams.
+  * **Cross-Generation Seam Alignment Rule (CRITICAL for continuations)**:
+    - For a continuation boundary, `render_all.py` extracts a 3-second tail
+      from `gK` and conditions `gK+1` on it — the **closing shot of `gK` and
+      the opening shot of `gK+1` MUST match in physical posture, camera
+      framing, and actor positioning**. Never end `gK` on a standing
+      close-up face and start `gK+1` on a wide shot of the character
+      kneeling in a different room!
+    - For a **fresh-cut boundary** (gK+1 shot 1 = `hard_cut`, or the next
+      scene follows a `hard_cut` handoff) no tail is attached — the seam
+      rule does not apply and the next generation may open on any setup.
 - **Dynamic Cinematography Rule (MANDATORY)**:
   * Every shot must have an intentional camera angle from the taxonomy:
     `eye_level`, `low_angle`, `high_angle`, `bird_eye`, `worm_eye`, `side_profile`,
@@ -270,133 +271,130 @@ Animation principles to apply:
 
 ## Output format (load-bearing — verbatim)
 
+Canonical worked example:
+[`assets/example-ollie.md`](../assets/example-ollie.md) — all prompts use
+this same story (Ollie, the pond, the basket) so examples stay consistent
+across agents. Below: scene `s1` "The Idea" — `g1` is a 6-shot montage,
+`g2` is the canonical 1-shot oner (the cylinder-peek discovery).
+
 ```
-# Scene <scene_id> — <scene_title>
-scene_id: <scene_id>
-target_seconds: <int>
-cast: [char_01, char_02]
-location_ref_id: <lid>
+# Scene s1 — The Idea
+scene_id: s1
+target_seconds: 45
+cast: [char_01]
+location_ref_id: loc_01
 
 ## Generation g1 — 0.0-15.0s
 duration_seconds: 15.0
 panel_grid: 3x3
 
-### Shot 1 — 0.0-1.5s (continuous)
+### Shot 1 — 0.0-2.5s (continuous)
 panels: [1]
 characters_present: [char_01]
-shot_size: extreme_closeup
+shot_size: medium_closeup
 composition: visual_hierarchy, negative_space
 focus: shallow_focus
-acting_beat: held breath → eyes widen → curious lean-in
-layout: eye-level macro, face silhouette against dark basement negative space
+acting_beat: proud beam → chest puff → contented sniff
+layout: low-angle MCU, basket held up foreground, gerberas soft behind
 screen_direction: held
-camera_angle: eye_level
-action: Extreme close-up on the toddler's wide brown eyes peering curiously into the dark dusty basement.
-camera: Push In fast on eyes.
-audio: Heavy breathing, ambient basement hum.
+camera_angle: low_angle
+action: Ollie sits on the mossy boulder cradling his bark basket adorned with a spiral seashell and pink blossoms, beaming proudly.
+camera: Slow Push In.
+audio: soft contented sniff, shell clinking in basket, meadow birds, gentle breeze.
 dialogue:
 
-### Shot 2 — 1.5-3.0s (cut_on_action)
-panels: [2]
-characters_present: [char_01]
+### Shot 2 — 2.5-5.0s (hard_cut)
+panels: [2, 3]
+characters_present: []
 shot_size: wide
 composition: leading_lines, depth
-acting_beat: excited bounce → quick waddle-run → glance back
-layout: low tracking position, tiny feet foreground, boxes receding down corridor
+acting_beat: stillness → sparkle on water → settled glass
+layout: glassy pond fills midground, clover and gerberas foreground, ledge receding left
 screen_direction: left_to_right
 camera_angle: low_angle
-action: Low-angle tracking shot of the toddler's tiny feet in mismatched socks padding through dust past cardboard boxes.
-camera: Low Angle Tracking Shot at fast speed.
-audio: Soft padding footsteps on dust.
+action: Establishing shot of the pristine pond edge framed by clovers and orange gerberas, light sparkling on the water.
+camera: Push In toward water.
+audio: water gently lapping on pebbles, summer insects.
 dialogue:
 
-### Shot 3 — 3.0-5.0s (reaction_cut)
-panels: [3, 4]
+### Shot 3 — 5.0-8.0s (hard_cut)
+panels: [4]
 characters_present: [char_01]
 shot_size: medium
-composition: rule_of_thirds, leading_lines
-acting_beat: reach for canvas → push aside → awestruck pause in gold light
-layout: curtain edge foreground, toddler left third, glowing egg deep midground
+composition: rule_of_thirds, look_room
+acting_beat: careful walk → pause → look down at reflection
+layout: Ollie on the right third approaching the ledge, pond left, look-room toward water
 screen_direction: left_to_right
-camera_angle: three_quarter
-action: The toddler pushes aside a hanging canvas sheet; a golden light shaft illuminates a large speckled glowing egg.
-camera: Handheld whip pan right to reveal the glowing egg.
-audio: Fabric rustle, faint magical shimmer hum.
+camera_angle: eye_level
+action: Ollie cradles his basket and waddles up to the flat rock ledge, looking down at his reflection in the water.
+camera: Slow Dolly Right.
+audio: little paw steps on moss, playful woodwind.
 dialogue:
 
-### Shot 4 — 5.0-6.5s (reaction_cut)
-panels: [5]
+### Shot 4 — 8.0-10.5s (cut_on_action)
+panels: [5, 6]
 characters_present: [char_01]
 shot_size: closeup
 composition: center, visual_hierarchy
-acting_beat: breath catches → mouth falls open → eyes glisten
-layout: centered lit face, darkness falling off around cheeks
-screen_direction: held
-action: Close-up on the toddler's illuminated face, mouth agape in wonder.
-camera: Static close-up with subtle shake.
-audio: Toddler gasps.
-dialogue:
-
-### Shot 5 — 6.5-8.5s (hard_cut)
-panels: [6, 7]
-characters_present: [char_01]
-shot_size: extreme_closeup
-composition: center, depth
-acting_beat: shell trembles → crack snaps → pieces burst
-layout: egg fills frame, crack line bisecting the shell
-screen_direction: held
-action: A bright crack snaps across the eggshell and pieces burst open.
-camera: Push In fast to egg center.
-audio: Sharp crack sound, wet pop.
-dialogue:
-
-### Shot 6 — 8.5-10.5s (cut_on_action)
-panels: [8]
-characters_present: [char_02]
-shot_size: medium
-composition: rule_of_thirds, negative_space
-acting_beat: stumble → blink → delighted grin
-layout: tiny dino low in frame against open floor, shell fragments framing edges
-screen_direction: bottom_to_top
-action: The tiny green baby dinosaur stumbles out of the shell, blinks its huge yellow eyes, and smiles.
-camera: Tilt Up from shell to dino's face.
-audio: Dino cheerful chirp, playful pizzicato cue.
-dialogue:
-
-### Shot 7 — 10.5-15.0s (reaction_cut)
-panels: [9]
-characters_present: [char_01, char_02]
-shot_size: medium
-composition: center, visual_hierarchy
-acting_beat: dino looks up and squeaks → toddler startles → shocked retreat
-layout: two-shot with dino low-center and toddler recoiling frame-right
+acting_beat: buzz past ear → sharp turn → hind foot slips
+layout: dragonfly crosses frame-right, Ollie's head snapping to follow, basket edge slipping from paws
 screen_direction: left_to_right
-action: The baby dinosaur looks straight up at the toddler and squeaks "Mama!"; the toddler jumps back with wide shocked eyes.
-camera: Medium two-shot, rapid Push In on the toddler's reaction.
-audio: Dino cheep, toddler shriek.
-dialogue: char_02: "Mama!"
+camera_angle: eye_level
+action: A glowing green dragonfly buzzes around Ollie's ears; he turns quickly to track it and accidentally nudges the rock — his hind foot slips.
+camera: Orbiting Track.
+audio: dragonfly wing flutter, giggle of surprise, playful chime accent.
+dialogue:
 
-## Generation g2 — 15.0-27.0s
-duration_seconds: 12.0
+### Shot 5 — 10.5-13.0s (match_cut)
+panels: [7]
+characters_present: [char_01]
+shot_size: wide
+composition: depth, screen_direction
+acting_beat: basket tips → shell spills → splash down
+layout: basket tumbling frame-center into the pond, Ollie lunging left
+screen_direction: left_to_right
+camera_angle: high_angle
+action: The basket tips over the ledge — the shell and pink blossoms spill, tumbling into the pond with a splash.
+camera: Tilt Down following the basket's fall.
+audio: SPLASH as the basket hits water, sudden comedic pause in the score.
+dialogue:
+
+### Shot 6 — 13.0-15.0s (reaction_cut)
+panels: [8, 9]
+characters_present: [char_01]
+shot_size: closeup
+composition: center, visual_hierarchy
+acting_beat: gasp → drop to knees → lean forward over the water
+layout: Ollie's face centered, wide-eyed, pond shimmer behind
+screen_direction: held
+camera_angle: eye_level
+action: Ollie gasps and drops to his knees at the water's edge, leaning forward over the shallows where the hollow cylinder bobs.
+camera: Push In.
+audio: Ollie's gasp "Ah!", water ripples, inquisitive celesta.
+dialogue:
+
+## Generation g2 — 15.0-30.0s
+duration_seconds: 15.0
 panel_grid: 2x3
 
-### Shot 1 — 15.0-27.0s (continuous)
+### Shot 1 — 15.0-30.0s (continuous)
 panels: [1, 2, 3, 4, 5, 6]
-characters_present: [char_01, char_02]
-shot_size: medium
-composition: center, depth
-camera_angle: three_quarter
-acting_beat: cautious approach → gentle pet → mutual settle
-layout: quiet two-shot in dusty light, characters low-center
-screen_direction: held
-action: Unbroken continuous master take: the toddler approaches cautiously, gently pets the baby dinosaur's snout, and they settle together in the golden light.
-camera: Tracking Shot moving slowly inward, then Push In with small amplitude at slow speed.
-audio: Soft rustle of clothing, gentle dino purr, warm atmospheric ambient tone.
+characters_present: [char_01]
+shot_size: medium_closeup
+composition: frame_within_frame, visual_hierarchy, depth
+focus: shallow_focus
+acting_beat: curious lean-in → eyes widen → grinning lightbulb moment
+layout: Ollie prone on the ledge foreground-right, cylinder rim framing his face, waterline behind
+screen_direction: left_to_right
+camera_angle: low_angle
+action: Unbroken continuous master take: Ollie lies prone at the pond edge, lifts the hollow wooden cylinder to his eye, peers through at the shimmering underwater world — light refractions, swaying weeds — and his eyes widen into a grinning lightbulb moment.
+camera: Slow Push In with small amplitude at slow speed, drifting toward the cylinder opening.
+audio: muffled underwater hum through the tube, water lap, a single inquisitive celesta note.
 dialogue:
 
 ## Scene-end handoff -> scene s2
-on_screen: [char_01, char_02]
-mood: calm
+on_screen: [char_01]
+mood: wonder
 transition: hard_cut
 ```
 
@@ -405,14 +403,20 @@ transition: hard_cut
 - **Header names are exact.** The parser matches `## Generation gK — a-b s`,
   `### Shot N — a-b s (transition)`, and `## Scene-end handoff -> scene <next>`.
   Times are **scene-relative seconds** (may have one decimal).
-- **transition** is `continuous` (flows straight from what came before — the
-  previous shot's last frame or, for the first shot of a generation, the
-  previous generation/scene) or `hard_cut` (deliberate editorial cut).
+- **transition** takes the full 8-value grammar above. For the FIRST shot of
+  a generation it is load-bearing for the renderer: `hard_cut` opens the
+  generation fresh (no tail ref, no `<Video 1>` in the video prompt); any
+  other value means the previous generation's rendered tail is attached and
+  `<Video 1>` must be declared.
 - **`action`** is a single line: concrete, visible, present-tense events in
   order. This becomes the Minimax timeline text, so write what the camera
   sees — expressions, physical beats, props — not inner thoughts.
 - **`dialogue`**: `cid: "line"` (comma-separate multiple). Leave empty when
   silent. Keep lines short — the model lip-syncs and voices them.
-- **Handoff block:** `on_screen`, `mood`, `transition` (`hard_cut` |
-  `match_cut`). For the LAST scene, still emit the block pointing at a
-  sentinel (`-> scene end`).
+- **Handoff block:** `on_screen`, `mood`, `transition` (full 8-value
+  grammar). The handoff `transition` is load-bearing for the renderer:
+  `hard_cut` means the next scene's g1 opens fresh — no tail ref attached,
+  no `<Video 1>` in its video prompt. Any other value attaches the tail.
+  It must agree with the next scene's g1 shot-1 `transition` (a `hard_cut`
+  handoff followed by a `continuous` shot 1 is a validator error). For the
+  LAST scene, still emit the block pointing at a sentinel (`-> scene end`).

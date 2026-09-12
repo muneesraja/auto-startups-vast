@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import config
 
-# NOTE: story-maker-v4 renders video via the Minimax H3 R2V workflow
+# NOTE: story-maker-v5 renders video via the Minimax H3 R2V workflow
 # (tools/minimax_workflow.py). This module exposes only the generic ComfyUI
 # HTTP helpers that renderer needs (queue, poll, upload, download).
 
@@ -202,6 +202,12 @@ def _video_mime_type(video_path: str) -> str:
     return mimes.get(ext) or mimetypes.guess_type(video_path)[0] or "video/mp4"
 
 
+def _audio_mime_type(audio_path: str) -> str:
+    ext = os.path.splitext(audio_path)[1].lower()
+    mimes = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac"}
+    return mimes.get(ext) or mimetypes.guess_type(audio_path)[0] or "application/octet-stream"
+
+
 def has_node_type(class_type: str, base_url=None, auth=None) -> bool:
     """Check whether a ComfyUI server has a given node type installed."""
     try:
@@ -301,6 +307,56 @@ def upload_video(video_path, base_url=None, auth=None, subfolder=""):
         except Exception as e:
             if attempt == 2:
                 print(f"   upload_video failed: {e}")
+                return None
+            time.sleep(3)
+
+
+def upload_audio(audio_path, base_url=None, auth=None, subfolder=""):
+    """Upload an audio file to ComfyUI's input folder (same /upload/image endpoint).
+
+    ComfyUI's upload endpoint accepts any file type; the ``image`` form field
+    name is kept for compatibility. Returns the same dict shape as
+    :func:`upload_image` (``{name, subfolder, type}``).
+    """
+    if base_url is None:
+        base_url = config.COMFYUI_URL
+    if auth is None:
+        auth = config.COMFYUI_AUTH
+
+    base_url = base_url.rstrip("/")
+    mime_type = _audio_mime_type(audio_path)
+    cmd = ["curl", "-s", "-X", "POST", f"{base_url}/upload/image"]
+    cmd.extend(_resolve_args(base_url))
+    cmd.extend(_auth_args(auth))
+    cmd.extend(
+        [
+            "-F",
+            f"image=@{audio_path};type={mime_type}",
+            "-F",
+            f"subfolder={subfolder}",
+            "-F",
+            "type=input",
+            "-F",
+            "overwrite=true",
+        ]
+    )
+
+    for attempt in range(3):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"curl exit {result.returncode}: stderr={result.stderr.strip()[:200]}"
+                )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError as je:
+                raise RuntimeError(
+                    f"non-JSON response (first 200 chars): {result.stdout[:200]!r}"
+                ) from je
+        except Exception as e:
+            if attempt == 2:
+                print(f"   upload_audio failed: {e}")
                 return None
             time.sleep(3)
 

@@ -16,7 +16,7 @@ Render with the LoRA-enabled graph:
 
 ```bash
 export MINIMAX_H3_WORKFLOW="$PWD/workflows/comfyui/minimax/minimax-h3-r2v-style-lora.json"
-python3 skills/story-maker-v4/scripts/render_all.py --story <story> --episode 1
+python3 skills/story-maker-v5/scripts/render_all.py --output-dir outputs/story-maker-v5/<story>/epi-1
 ```
 
 `render_all.py` never edits LoRA slots — the workflow JSON is the single source

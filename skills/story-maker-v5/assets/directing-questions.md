@@ -1,4 +1,4 @@
-# Directing Questions Bank (story-maker-v4)
+# Directing Questions Bank (story-maker-v5)
 
 235+ questions for the critique agent (Agent 6) to evaluate the full director plan
 (beat_board.md + scenes.md + all storyboard_sN.md). Organized by the 7 sections of
@@ -59,8 +59,8 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q1.10 — Are character goals visible, not internal?
 - **Check:** scenes.md — goals are physical/visible, not emotional/internal.
-- **Pass:** "Kemi wants to protect Timi" shown as "Kemi shields Timi behind her."
-- **Fail:** goals stated as internal states ("Kemi wants to feel safe").
+- **Pass:** "Ollie wants to explore underwater" shown as "Ollie lowers the sealed helmet over his head."
+- **Fail:** goals stated as internal states ("Ollie wants to feel brave").
 
 ### Q1.11 — Does the story have a clear protagonist?
 - **Check:** developed_story.md — one character is the clear focus.
@@ -164,7 +164,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q1.31 — Does the scene allocate individual props/vessels for multi-character dining or actions?
 - **Check:** developed_story.md `## Objects`, scenes.md `objects:`, and storyboard_sN.md.
-- **Pass:** individual vessels/props allocated when multiple characters eat, drink, or work simultaneously (e.g. two separate noodle bowls).
+- **Pass:** individual vessels/props allocated when multiple characters eat, drink, or work simultaneously (e.g. two separate bark cups).
 - **Fail:** multiple characters depicted eating out of one single bowl simultaneously (causes visual crowding, tangled limbs, and model rendering artifacts).
 
 ---
@@ -805,17 +805,17 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q6.10 — Are character entrances animated with personality?
 - **Check:** storyboard_sN.md — new characters enter with a distinctive movement.
-- **Pass:** "the hyena slinks in low, shoulders rolling, ears flat."
-- **Fail:** characters enter with no personality ("the hyena walks in").
+- **Pass:** "the giant fish drifts in slow, scales rippling cyan, smile too wide."
+- **Fail:** characters enter with no personality ("the fish swims in").
 
 ### Q6.11 — Are character exits animated with purpose?
 - **Check:** storyboard_sN.md — exits show how the character leaves.
-- **Pass:** "Kemi sprints out of frame, dust kicking up behind her."
-- **Fail:** characters just disappear ("Kemi leaves").
+- **Pass:** "Ollie paddles out of frame, a trail of bubbles kicking up behind him."
+- **Fail:** characters just disappear ("Ollie leaves").
 
 ### Q6.12 — Is the protagonist's body language consistent?
 - **Check:** storyboard_sN.md — the protagonist moves consistently across shots.
-- **Pass:** Kemi's movement style (agile, martial, protective) is consistent.
+- **Pass:** Ollie's movement style (waddly, curious, low-to-the-ground) is consistent.
 - **Fail:** the protagonist's movement style changes between shots.
 
 ### Q6.13 — Are group animations choreographed?
@@ -870,7 +870,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q6.23 — Is the animation appropriate for the character's personality?
 - **Check:** storyboard_sN.md — each character moves in their own way.
-- **Pass:** the hyena moves differently from Kemi; the baby differently from both.
+- **Pass:** the giant fish glides differently from Ollie's paddling; the snails pulse differently from both.
 - **Fail:** all characters move the same way (no personality in movement).
 
 ### Q6.24 — Are transitions between actions smooth?
@@ -880,7 +880,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q6.25 — Is the final animation beat of the scene memorable?
 - **Check:** storyboard_sN.md — the last shot's action is iconic.
-- **Pass:** "Kemi slides to a hero stop, tin raised high, dust settling."
+- **Pass:** "Ollie hoists the dripping helmet, grinning: 'Hey, Dad... Thirsty?'"
 - **Fail:** the last shot's action is forgettable.
 
 ---
@@ -949,7 +949,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q7.13 — Are impact sounds specific, not generic?
 - **Check:** storyboard_sN.md — impacts are described specifically.
-- **Pass:** "metallic BONK on the hyena's head" not just "a sound."
+- **Pass:** "hollow wooden THUNK as the helmet bumps the ledge" not just "a sound."
 - **Fail:** generic impact sounds ("bang", "crash" without detail).
 
 ### Q7.14 — Is non-diegetic music described in video prompts?
@@ -999,7 +999,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 
 ### Q7.23 — Are vocal reactions described (gasps, shouts)?
 - **Check:** storyboard_sN.md — character vocal sounds are in audio: or dialogue:.
-- **Pass:** "toddler gasps" or "Kemi shouts a battle cry."
+- **Pass:** "Ollie's gasp 'Ah!'" or "Ollie sputters a muffled yelp inside the helmet."
 - **Fail:** characters are silent during action (no vocal reactions).
 
 ### Q7.24 — Does the final shot's audio leave a lasting impression?
@@ -1015,7 +1015,7 @@ artifacts, producing `critique_report.md` with PASS/FAIL per question.
 ### Q7.26 — Does dialogue progress dynamically without circular repetition across cuts?
 - **Check:** storyboard_sN.md `dialogue:` across consecutive shots.
 - **Pass:** dialogue moves the dramatic situation forward; when a parent or authority enters, dialogue pivots to an appeal, plea, bargaining, or resolution.
-- **Fail:** characters repeat identical accusations, defenses, or lines across cuts (e.g. repeating "He broke it! / No, he broke it!" after someone enters).
+- **Fail:** characters repeat identical accusations, defenses, or lines across cuts (e.g. repeating "It leaked! / No, it flooded!" after someone enters).
 
 ### Q7.27 — Is the commercial button or slogan delivered with authentic character voice?
 - **Check:** storyboard_sN.md / video_prompts/ for branded stories.

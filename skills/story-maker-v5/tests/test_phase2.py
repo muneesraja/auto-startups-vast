@@ -609,6 +609,7 @@ REF2VA_PROMPT = textwrap.dedent("""
     <Subject 1> is the toddler in the white onesie in <Picture 1>, with chubby cheeks and big eyes.
     <Subject 2> is the tiny green dinosaur in <Picture 1>, with large yellow eyes and a playful expression.
     <Picture 1> is the storyboard reference for [Shot 1] and [Shot 2], defining viewpoint, subject placement, and shot order.
+    (S1) is <Subject 2>'s voice.
 
     summary:
     [reference generation] The target video shows the baby running from the dinosaur, then befriending it.
@@ -805,6 +806,18 @@ def test_ref2va_prompt_warns_on_prompt_stuffing():
 def test_ref2va_prompt_warns_on_shallow_description():
     res = validators.validate_video_prompt(REF2VA_PROMPT, _sb(), "g1")
     assert res.ok
+    # 2-shot generations get the slow-paced/master-take detail warning
+    assert any("slow-paced/master-take generation" in w for w in res.warnings)
+
+
+def test_ref2va_prompt_warns_on_shallow_description_many_shots():
+    """>2-shot prompts under the word floor get the generic depth warning."""
+    sb = _sb()
+    gen = sb["generations"][0]
+    while len(gen["shots"]) < 4:
+        gen["shots"].append(dict(gen["shots"][-1]))
+    res = validators.validate_video_prompt(REF2VA_PROMPT, sb, "g1")
+    # The shot-count mismatch will error; assert the depth warning fires too
     assert any("optimal depth for MiniMax H3 is 350-500 words" in w for w in res.warnings)
 
 

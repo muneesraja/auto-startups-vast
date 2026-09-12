@@ -53,29 +53,45 @@ summary should reflect the screenplay's action lines, not paraphrase them.
 
 ## Output format (load-bearing — the validator parses this exactly)
 
+Canonical worked example:
+[`assets/example-ollie.md`](../assets/example-ollie.md) — all prompts use
+this same story (Ollie, the pond, the basket) so examples stay consistent
+across agents.
+
 ```
 # Scenes
-target_seconds: <run total>
+target_seconds: 224
 scene_budget: 70
 
-## Scene s1 — <title>
+## Scene s1 — The Idea
 scene_id: s1
-target_seconds: <int>
-cast: [char_01, char_02]
-characters_present: [char_01, char_02]
-location_id: loc_forest
+target_seconds: 45
+cast: [char_01]
+characters_present: [char_01]
+location_id: loc_01
 objects: [obj_01, obj_02]
 beats: [1, 2, 3]
-style_target: <concrete anime/cartoon craft target; no studio brands>
-acting_beat: <visible performance change from start pose/expression to end>
-layout_strategy: <foreground/midground/background staging and eye path>
-visual_motif: <repeating shape/color/light idea>
-sound_world: <recurring ambience/foley/score texture>
-beat: <one line summarizing the scene's central action>
+style_target: high-fidelity stylized 3D CGI animation with tactile physical shaders and subsurface scattering
+acting_beat: proud stillness → startled lurch → wide-eyed wonder
+layout_strategy: boulder and basket foreground-right, pond opening midground-left, eye path follows the basket's fall into the water
+visual_motif: round openings — basket mouth, cylinder rim, pond surface — each a portal that grows in meaning
+sound_world: meadow birds, gentle water lap, whimsical acoustic strings
+beat: A spilled basket reveals an underwater world to a young inventor.
 
-## Scene s2 — <title>
+## Scene s2 — The Underwater World
 scene_id: s2
-...
+target_seconds: 100
+cast: [char_01, char_03]
+characters_present: [char_01, char_03]
+location_id: loc_02
+objects: [obj_02, obj_03]
+beats: [6, 7]
+style_target: high-fidelity stylized 3D CGI animation, bioluminescent aquamarine palette
+acting_beat: cautious weightlessness → exuberant play → frozen awe
+layout_strategy: mossy terraces recede in depth planes, Ollie small against cathedral light beams, eye path drifts upward with the bubbles
+visual_motif: glowing round forms — snail blooms, lily pads, bubbles — echoing s1's portal motif underwater
+sound_world: crystalline underwater hum, bubble streams, soaring orchestral theme
+beat: Ollie explores a glowing alien paradise that slowly reveals its scale.
 ```
 
 - Scene ids are `s1`, `s2`, … (sequential).

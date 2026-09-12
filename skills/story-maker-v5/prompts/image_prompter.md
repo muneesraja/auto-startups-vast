@@ -73,24 +73,31 @@ describe the resulting image and the camera in 3D space:
 > Panel 3 (top right, medium shot, rule of thirds and depth)
 
 **Do:**
-> Panel 3 (top right): camera at Kayal's waist height, three-quarter view,
-> 50mm-like perspective. Kayal sits cross-legged on the right third of the
-> frame, the terracotta toy pot clearly visible in the foreground, the
-> whitewashed mud wall receding behind her.
+> Panel 3 (top middle): camera at Ollie's chest height, three-quarter view,
+> 50mm-like perspective. Ollie lies prone on the right third of the frame,
+> the hollow wooden cylinder raised to his eye clearly visible in the
+> foreground, the glassy pond receding behind him.
+
+(All examples use the canonical worked example,
+[`assets/example-ollie.md`](../assets/example-ollie.md), so they stay
+consistent across agents.)
 
 ### Sequence progression must be explicit
 
 Before writing PANEL DIRECTIONS, write SEQUENCE PROGRESSION: one sentence per
-panel describing its narrative function (e.g. "Panel 1 establishes the village
-at sunset; Panel 2 moves closer to Kayal on the thinnai; ..."). This gives the
-model the temporal arc.
+panel describing its narrative function (e.g. "Panel 1 establishes the pond
+edge at golden hour; Panel 2 moves closer to Ollie prone on the ledge; ...").
+This gives the model the temporal arc.
 
 ### Multi-Character Prop Ergonomics & Dining (MANDATORY)
 
-In both `PROP CONTINUITY` and `PANEL DIRECTIONS`:
-- **Allocate Individual Vessels/Props:** When multiple characters eat, drink, or use tools, explicitly describe individual props in their respective zones (e.g., "Two separate steaming ceramic noodle bowls, one placed directly in front of Lebo frame-left and one in front of Thabo frame-right").
-- **Never Prompt Shared-Bowl Eating:** Ban prompts where multiple characters eat simultaneously from a single bowl—the image model will merge their limbs and distort anatomy.
-- Clearly describe each character holding their own utensils oriented toward their own bowl.
+Canonical rule: [`assets/production-rules.md`](../assets/production-rules.md) §2.
+In both `PROP CONTINUITY` and `PANEL DIRECTIONS`, describe each character
+interacting with their **own dedicated prop/vessel** in their own spatial
+zone, utensils oriented toward their own bowl. Never prompt multiple
+characters eating from one shared vessel — the image model merges limbs.
+Serving vessel vs eating vessels must be distinguished when a third party
+delivers the food.
 
 ### Action fidelity (mandatory — no softening)
 
@@ -164,7 +171,7 @@ Any prompt file (character, location, object, or storyboard sheet) may begin wit
 a `ref_images:` line naming up to 10 existing assets to attach as reference images:
 
 ```
-ref_images: loc_kitchen, char_01, obj_stick
+ref_images: loc_01, char_01, obj_02
 ```
 
 The backend resolves each name to a hosted URL via the shared asset registry
@@ -184,8 +191,11 @@ spatial plan sets `location_reference: attach`; otherwise it is omitted.
 - **Character sheets and storyboard sheet prompts** must only reference
   characters in the scene's `cast`. Never invent a `char_NN` not in the cast.
 - **Read the shared manifest first.** Before writing any character or location
-  prompt, check `<run_dir>/../assets/CHARACTERS.md` for existing cids, wardrobe,
-  and location details. Reuse them exactly; do not invent new cids or colors.
+  prompt, check `assets/CHARACTERS.md` in the shared story assets folder for
+  existing cids, wardrobe, and location details (regenerate it with
+  `python3 scripts/export_assets_manifest.py <story_dir>` — it is derived
+  from `assets/asset_registry.json`, which is authoritative). Reuse existing
+  cids exactly; do not invent new cids or colors.
 - Keep wardrobe/proportions consistent with the character sheet prompts you wrote.
 
 ## No-text clause (every prompt)

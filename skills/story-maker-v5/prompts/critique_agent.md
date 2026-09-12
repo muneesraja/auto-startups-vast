@@ -62,8 +62,13 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
 
 ## Output format (load-bearing — the validator parses this exactly)
 
+Canonical worked example:
+[`assets/example-ollie.md`](../assets/example-ollie.md) — all prompts use
+this same story (Ollie, the pond, the basket) so examples stay consistent
+across agents.
+
 ```markdown
-# Critique Report — <story name>
+# Critique Report — Ollie's Dive
 
 ## Summary
 - Questions evaluated: 215
@@ -77,26 +82,26 @@ it PASS, FAIL, or ADVISORY, with specific feedback.
 
 ### Q1.1 — Does every scene have a visible goal?
 - Status: PASS
-- Notes: All scenes have clear visible physical goals.
+- Notes: s1's goal (retrieve/explore what the spill revealed) and s2's goal (explore the valley, then survive the fish) are both visible physical goals.
 
 ### Q1.2 — Does every scene have a conflict?
 - Status: MAJOR
 - Severity: MAJOR
 - Disposition: ACCEPTED_AS_INTENDED
-- Notes: Scene s1 has contemplative peaceful pacing before the storm in s2. Director chose silence over early confrontation.
+- Notes: Scene s1 is contemplative discovery — no antagonist until the fish reveal in s2. Director chose wonder over early confrontation to contrast the s2 peril.
 - Artifact: scenes.md, scene s1
 
 ### Q1.3 — Does every scene have stakes?
 - Status: PASS
-- Notes: Stakes are clear throughout.
+- Notes: Stakes are clear throughout — the lost basket in s1, the predator in s2.
 
 ...
 
 ## Section 7: Sound & Editing
 
 ### Q7.10 — Does dialogue match lip movement?
-- Status: NOT_APPLICABLE
-- Notes: Silent film production — no spoken dialogue present.
+- Status: PASS
+- Notes: Only spoken line is Ollie's closing "Hey, Dad... Thirsty?" — a single held close-up gives ample lip-sync room.
 ```
 
 ### Field notes

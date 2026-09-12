@@ -2044,7 +2044,7 @@
       "title": "Style LoRA stack",
       "properties": {},
       "widgets_values": [
-        "## MiniMax H3 R2V + style LoRAs\n\nThree `LoraLoaderModelOnly` slots are chained between `UNETLoader` and\nthe attention patch. `BasicScheduler` intentionally keeps the raw UNET,\nmatching `Minimax_h3_4_step_lora.json`.\n\n**Set strength to 0.0 to disable a slot** (a 0-strength LoRA is a no-op;\nit still costs a load, so delete the node if you never use it).\n\nPresets, trigger words and recommended strengths:\n`skills/story-maker-v4/assets/style-lora-presets.md`.\n\nModels are installed by `workflows/setup/minimax-h3-r2v-style-lora.sh`."
+        "## MiniMax H3 R2V + style LoRAs\n\nThree `LoraLoaderModelOnly` slots are chained between `UNETLoader` and\nthe attention patch. `BasicScheduler` intentionally keeps the raw UNET,\nmatching `Minimax_h3_4_step_lora.json`.\n\n**Set strength to 0.0 to disable a slot** (a 0-strength LoRA is a no-op;\nit still costs a load, so delete the node if you never use it).\n\nPresets, trigger words and recommended strengths:\n`skills/story-maker-v5/assets/style-lora-presets.md`.\n\nModels are installed by `workflows/setup/minimax-h3-r2v-style-lora.sh`."
       ],
       "color": "#432",
       "bgcolor": "#653"

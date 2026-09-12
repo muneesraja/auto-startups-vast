@@ -1,4 +1,4 @@
-# Director's guide (story-maker-v4)
+# Director's guide (story-maker-v5)
 
 A concise directing cheat sheet for the authoring agents. Each section connects
 story intent → visual/auditory choices using the vocabulary already in the skill.

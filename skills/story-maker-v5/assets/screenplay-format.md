@@ -1,7 +1,7 @@
 # Animation Screenplay Format Guide
 
 A reference for authoring production-grade animation screenplays inside
-`story-maker-v4`. Every `developed_story.md` must be written in this format.
+`story-maker-v5`. Every `developed_story.md` must be written in this format.
 
 The standard is drawn from professional feature animation screenwriting
 (Pixar, DreamWorks, Skydance Animation) and optimized for AI video generation

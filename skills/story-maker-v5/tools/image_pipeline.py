@@ -1,4 +1,4 @@
-"""Image media pipeline for story-maker-v4 (the "hands").
+"""Image media pipeline for story-maker-v5 (the "hands").
 
 Deterministic image generation. No LLM calls. Agent 4 (Claude) authors prompt
 *text* into ``<run_dir>/image_prompts/...``; this module reads those prompts,
@@ -121,10 +121,15 @@ class AssetRegistry:
     def __init__(self, run_dir: str, assets_dir: str):
         self.run_dir = run_dir
         self.assets_dir = assets_dir
+        # Episode scope for sheet keys, e.g. "epi-2" — sheets are
+        # episode-local assets and must not collide across episodes that
+        # share this registry.
+        self.run_label = os.path.basename(os.path.normpath(run_dir))
         self.path = os.path.join(assets_dir, "asset_registry.json")
         # Auto-migrate from per-episode registry if needed
         self._maybe_migrate()
         self.data: dict[str, dict[str, dict]] = self._load()
+        self._scope_sheet_keys()
 
     def _maybe_migrate(self) -> None:
         """If a per-episode registry exists at <run_dir>/asset_registry.json
@@ -154,6 +159,7 @@ class AssetRegistry:
                         "locations": loaded.get("locations", {}) or {},
                         "objects": loaded.get("objects", {}) or {},
                         "sheets": loaded.get("sheets", {}) or {},
+                        "sheets_legacy": loaded.get("sheets_legacy", {}) or {},
                     }
             except (json.JSONDecodeError, OSError):
                 pass
@@ -169,10 +175,38 @@ class AssetRegistry:
                         "locations": loaded.get("locations", {}) or {},
                         "objects": loaded.get("objects", {}) or {},
                         "sheets": loaded.get("sheets", {}) or {},
+                        "sheets_legacy": loaded.get("sheets_legacy", {}) or {},
                     }
             except (json.JSONDecodeError, OSError):
                 pass
-        return {"characters": {}, "locations": {}, "objects": {}, "sheets": {}}
+        return {"characters": {}, "locations": {}, "objects": {}, "sheets": {},
+                "sheets_legacy": {}}
+
+    def _scope_sheet_keys(self) -> None:
+        """Namespace unscoped legacy sheet keys (``s1_g1``) under the run label.
+
+        Sheets are episode-local: ``<run_label>.<scene>_<gen>`` (e.g.
+        ``epi-2.s1_g1``). Unscoped keys whose ``output_path`` resolves inside
+        this run_dir are renamed to the scoped form; all others are moved to
+        ``sheets_legacy`` where ``ref_images:`` lookups can still find them
+        but nothing overwrites them.
+        """
+        sheets = self.data["sheets"]
+        if not sheets:
+            return
+        legacy = self.data["sheets_legacy"]
+        run_dir_abs = os.path.abspath(self.run_dir)
+        for key in list(sheets):
+            if "." in key:
+                continue  # already episode-scoped
+            entry = sheets.pop(key)
+            out = entry.get("output_path") or ""
+            if out and not os.path.isabs(out):
+                out = os.path.join(self.run_dir, out)
+            if out and os.path.abspath(out).startswith(run_dir_abs + os.sep):
+                sheets[f"{self.run_label}.{key}"] = entry
+            else:
+                legacy.setdefault(key, entry)
 
     def save(self) -> None:
         os.makedirs(self.assets_dir, exist_ok=True)
@@ -190,8 +224,10 @@ class AssetRegistry:
         return self.data["objects"].setdefault(oid, {"output_path": "", "fal_image_url": ""})
 
     def sheet(self, sheet_id: str) -> dict:
-        """``sheet_id`` is ``<scene_id>_<gen_id>`` (e.g. ``s1_g2``)."""
-        return self.data["sheets"].setdefault(sheet_id, {"output_path": "", "fal_image_url": ""})
+        """``sheet_id`` is ``<scene_id>_<gen_id>`` (e.g. ``s1_g2``), stored
+        under the episode-scoped key ``<run_label>.<sheet_id>``."""
+        key = sheet_id if "." in sheet_id else f"{self.run_label}.{sheet_id}"
+        return self.data["sheets"].setdefault(key, {"output_path": "", "fal_image_url": ""})
 
     def character_path(self, cid: str) -> str:
         return os.path.join(self.assets_dir, "characters", f"{cid}.{_img_ext()}")
@@ -203,29 +239,37 @@ class AssetRegistry:
         return os.path.join(self.assets_dir, "objects", f"{oid}.{_img_ext()}")
 
     def sheet_path(self, scene_id: str, gen_id: str = "") -> str:
+        """Sheet image path. Per-generation sheets are canonical; the legacy
+        scene-level ``storyboard_sheet_<scene>.<ext>`` is only returned when
+        ``gen_id`` is empty."""
         ext = _img_ext()
         if gen_id:
-            gen_path = os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{ext}")
-            if os.path.isfile(gen_path):
-                return gen_path
-        scene_path = os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}.{ext}")
-        if os.path.isfile(scene_path):
-            return scene_path
-        if gen_id:
             return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}_{gen_id}.{ext}")
-        return scene_path
+        return os.path.join(self.run_dir, f"storyboard_sheet_{scene_id}.{ext}")
 
     def resolve_ref_name(self, name: str) -> str | None:
         """Resolve a ref_images name to a hosted URL.
 
         Resolution order: objects → locations → characters → sheets.
+        Sheet names may be unscoped (``s1_g1`` — resolved inside this run)
+        or fully scoped (``epi-2.s1_g1`` — explicit cross-episode ref).
         Returns the fal_image_url (or ensures it) or None if not found.
         """
         name = name.strip()
         if not name:
             return None
-        for section in ("objects", "locations", "characters", "sheets"):
+        for section in ("objects", "locations", "characters"):
             entry = self.data[section].get(name)
+            if entry and entry.get("output_path"):
+                url = ensure_asset_url(entry)
+                if url:
+                    return url
+        sheet_keys = [name] if "." in name else [f"{self.run_label}.{name}", name]
+        for key in sheet_keys:
+            entry = (
+                self.data["sheets"].get(key)
+                or self.data["sheets_legacy"].get(key)
+            )
             if entry and entry.get("output_path"):
                 url = ensure_asset_url(entry)
                 if url:
@@ -506,16 +550,16 @@ def object_prompt_path(run_dir: str, oid: str) -> str:
 def sheet_prompt_path(run_dir: str, scene_id: str, gen_id: str | None = None) -> str:
     """Path to the storyboard sheet prompt file.
 
-    If a scene-level prompt (storyboard_sheet.txt) exists, returns that.
-    Otherwise returns the per-generation prompt (storyboard_sheet_{gen_id}.txt).
+    Canonical convention: one prompt per generation —
+    ``image_prompts/<scene>/storyboard_sheet_<gen>.txt``. The retired
+    scene-level ``storyboard_sheet.txt`` is never read; validate_prompts
+    rejects it when found so stale files cannot silently shadow the
+    per-generation prompts.
     """
     scene_dir = os.path.join(image_prompts_dir(run_dir), scene_id)
-    scene_sheet = os.path.join(scene_dir, "storyboard_sheet.txt")
-    if os.path.isfile(scene_sheet):
-        return scene_sheet
     if gen_id:
         return os.path.join(scene_dir, f"storyboard_sheet_{gen_id}.txt")
-    return scene_sheet
+    return os.path.join(scene_dir, "storyboard_sheet.txt")
 
 
 def parse_ref_images(prompt_text: str) -> tuple[list[str], str]:

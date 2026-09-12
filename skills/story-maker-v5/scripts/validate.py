@@ -22,7 +22,7 @@ from tools import validators  # noqa: E402
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Validate a story-maker-v4 artifact")
+    p = argparse.ArgumentParser(description="Validate a story-maker-v5 artifact")
     p.add_argument("artifact", help="Path to the artifact file (md/json)")
     p.add_argument("--schema", required=True, choices=(
         "screenplay", "beat_board", "scenes", "storyboard", "prompts", "video_prompt",

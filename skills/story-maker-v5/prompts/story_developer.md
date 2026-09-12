@@ -34,10 +34,10 @@ Process according to the selected **Intake Mode**:
 Extract and classify explicit story rules into `## Constraints` and `story.json`:
 
 - **`HARD` (Severity: BLOCKER)**: Narrative invariants that must never be broken by downstream agents.
-  - `co_presence_exclusion`: Subjects that must NOT share a frame (e.g. *Girl and Wild Dogs must not appear in the same frame before Scene 8*).
-  - `visibility_exclusion`: Subjects forbidden from appearing in specific scenes/shots (e.g. *Girl is not visible in Scene 5 extreme-wide road shot*).
-  - `reveal_order`: Elements that must appear sequentially (e.g. *Yellow eyes must be seen before guardian dog body is revealed*).
-  - `prop_state`: Permanent object transformations (e.g. *Clay pot shatters in Scene 1 and remains abandoned at house; never carried to road*).
+  - `co_presence_exclusion`: Subjects that must NOT share a frame (e.g. *Ollie and the Giant Valley Fish must not share a frame before the reveal shot in Scene 2*).
+  - `visibility_exclusion`: Subjects forbidden from appearing in specific scenes/shots (e.g. *Caloo is not visible in any underwater shot before the rescue*).
+  - `reveal_order`: Elements that must appear sequentially (e.g. *The fish's friendly smile must be seen before its jaw unhinges*).
+  - `prop_state`: Permanent object transformations (e.g. *The basket sinks into the pond in Scene 1 and is never carried underwater or seen again*).
 - **`SOFT`**: Pacing, framing, or visual styling preferences that can flex if generation limits require.
 - **`EDITORIAL`**: Post-production elements (title cards, credits, end logos) that must **NEVER** be painted into storyboard sheets or fed to video prompter.
 
@@ -90,19 +90,20 @@ board per [`prompts/beat_board.md`](beat_board.md). Agent 2 reads both to group 
     iron, sizzling oil, cold draft, metallic clang).
   - **Earned Warmth:** Ban moralizing lectures; express bonds through teasing, swagger,
     and shared actions.
-- **Prop Allocation & Dining Ergonomics (MANDATORY).** When writing scenes involving meals, food, drinks, or tool usage:
-  - **Individual Portions:** Always allocate **individual vessels/portions** (e.g. "two steaming ceramic bowls, one placed squarely in front of each brother") when multiple characters eat simultaneously.
-  - **Ban Single-Vessel Cramming:** Never depict multiple characters eating out of a single shared bowl/plate simultaneously—this causes severe visual entanglement and model rendering artifacts.
-  - **Serving vs. Eating:** Distinguish between *Serving* (placing down separate bowls or serving from a pot) and *Eating* (each character interacting with their own bowl and utensils).
-  - Exception: A single object is permitted only when the explicit plot point is an unresolved tug-of-war conflict over one physical item.
-- **Dialogue Progression & Anti-Stutter (Status Quo Pivot).**
-  - **No Circular Dialogue:** Dialogue and character reactions must never repeat the same rhetorical accusation, defense, or argument across consecutive beats or cuts (e.g., if boys blame each other in Beat 1, they must NOT repeat "He broke it! / No, he broke it!" in Beat 2).
-  - **Authority Arrival Pivot:** When a new character enters (parent, authority, rival), characters freeze, drop the previous squabble, and pivot immediately to an appeal, plea, excuse, or bargaining (e.g., looking at Mom with wide pleading eyes asking for a replacement toy or food).
-  - **Knowing Response & Swagger:** The arriving character responds with knowing swagger or maternal insight ("I know what you two really want"), immediately propelling the story forward into the next action or resolution.
+- **Prop Allocation & Dining Ergonomics (MANDATORY).** Canonical rule:
+  [`assets/production-rules.md`](../assets/production-rules.md) §2. When writing
+  scenes involving meals, food, drinks, or tool usage, allocate individual
+  vessels/portions per character, never single-vessel cramming (except a
+  deliberate tug-of-war conflict), and distinguish *serving* from *eating*.
+- **Dialogue Progression & Anti-Stutter (Status Quo Pivot).** Canonical rule:
+  [`assets/production-rules.md`](../assets/production-rules.md) §3 — no circular
+  dialogue across beats/cuts; the authority-arrival pivot freezes the squabble
+  and flips to plea/appeal; the newcomer delivers the knowing response that
+  triggers resolution.
 - **Commercial Button & Slogan Delivery Arc (for Branded Stories/Ads).**
-  - When a product slogan, tagline, or commercial button is required, dedicate a clear 10-second beat/generation for the payoff.
-  - Structure the beat: brief setup (1.5–2s) → slogan delivered in natural colloquial character voice inside `<d>[Language] ...</d>` with parental warmth/swagger (4–6s) → satisfying sensory crunch and visual hold/smile button (2–3s).
-  - Integrate brand lines into the character's living vernacular rather than reciting stiff corporate ad copy.
+  Canonical formula: [`assets/production-rules.md`](../assets/production-rules.md) §4.
+  Integrate brand lines into the character's living vernacular rather than
+  reciting stiff corporate ad copy.
 - **Anime/cartoon production thinking.** Before prose expansion, choose a concrete
   production target: line/edge treatment, shape language, color script, background
   finish, and animation timing model (full, limited, smear, held pose). Give each
@@ -134,52 +135,54 @@ board per [`prompts/beat_board.md`](beat_board.md). Agent 2 reads both to group 
 1. Animation screenplay in `<run_dir>/developed_story.md` per [`assets/screenplay-format.md`](../assets/screenplay-format.md), inside a `# Screenplay` heading and fenced `text` code block, followed by `## Characters`, `## Locations`, `## Objects`, and `## Constraints` metadata sections.
 2. Companion canonical JSON in `<run_dir>/story.json` for deterministic machine validation.
 
-Example `## Constraints` section in `developed_story.md`:
+Example `## Constraints` section in `developed_story.md` (canonical
+worked example: [`assets/example-ollie.md`](../assets/example-ollie.md)):
 
 ```markdown
 ## Constraints
 - id: H1
   type: co_presence_exclusion
   severity: BLOCKER
-  subjects: [char_01, char_04]
-  valid_until_scene: s7
-  rule: Girl and wild dogs must not appear in the same frame before Scene 8.
+  subjects: [char_01, char_03]
+  valid_until_scene: s2
+  rule: Ollie and the Giant Valley Fish must not appear in the same frame
+    before the reveal shot in Scene 2.
 
 - id: H2
-  type: visibility_exclusion
+  type: prop_state
   severity: BLOCKER
-  subjects: [char_01]
-  scene: s5
-  rule: Girl is not visible in Scene 5's extreme-long road shot.
+  subjects: [obj_01]
+  rule: The basket sinks into the pond in Scene 1 and is never carried
+    underwater or seen again.
 
 - id: E1
   type: editorial
-  rule: Final title card is an editorial graphics card, excluded from image sheets.
+  rule: End title card is an editorial graphics card, excluded from image sheets.
 ```
 
 Example `<run_dir>/story.json`:
 
 ```json
 {
-  "title": "Kutty Karupu",
+  "title": "Ollie's Dive",
   "intake_mode": "preserve_script",
   "duration_mode": "preserve_script",
-  "target_seconds": 300,
+  "target_seconds": 224,
   "characters": [
-    {"id": "char_01", "name": "Little Girl", "species": "human", "age": 6}
+    {"id": "char_01", "name": "Young Ollie", "species": "pookoo", "age": 5}
   ],
   "locations": [
-    {"id": "loc_01", "name": "Village House", "landmarks": ["front_step", "clay_pot_area"]}
+    {"id": "loc_01", "name": "Sunlit Pond Edge", "landmarks": ["mossy_boulder", "rock_ledge", "waterline"]}
   ],
   "objects": [
-    {"id": "obj_01", "name": "Clay Pot", "states": ["intact", "broken", "abandoned"]}
+    {"id": "obj_01", "name": "Handmade Basket", "states": ["held", "floating", "sunk"]}
   ],
   "constraints": [
     {
       "id": "H1",
       "type": "co_presence_exclusion",
-      "subjects": ["char_01", "char_04"],
-      "valid_until_scene": "s7",
+      "subjects": ["char_01", "char_03"],
+      "valid_until_scene": "s2",
       "severity": "BLOCKER"
     }
   ]
