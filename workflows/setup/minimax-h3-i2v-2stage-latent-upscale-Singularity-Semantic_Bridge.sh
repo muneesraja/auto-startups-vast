@@ -17,6 +17,10 @@ if [ -d "/workspace/runpod" ]; then
     PLATFORM="runpod"
     COMFYUI_DIR="/workspace/ComfyUI"
     echo "  ✅ RunPod detected"
+elif [ -d "/workspace/runpod-slim" ]; then
+    PLATFORM="runpod"
+    COMFYUI_DIR="/workspace/runpod-slim/ComfyUI"
+    echo "  ✅ RunPod (slim) detected"
 elif [ -d "/workspace/ComfyUI" ]; then
     PLATFORM="vast"
     COMFYUI_DIR="/workspace/ComfyUI"
@@ -31,7 +35,13 @@ CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
 # ── Phase 0: Check ComfyUI version (H3 needs v0.30.0+) ──
 echo "==> Phase 0: Checking ComfyUI version..."
-CURRENT_VERSION=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('comfy'))" 2>/dev/null || echo "unknown")
+# Use git describe first — importlib.metadata.version('comfy') prints "unknown"
+# (PackageNotFoundError) even at v0.30.0 on some images, which spuriously trips
+# the upgrade branch and git-checkouts a newer master over a running instance.
+CURRENT_VERSION=$(git -C "$COMFYUI_DIR" describe --tags 2>/dev/null | sed 's/^v//')
+if [ -z "$CURRENT_VERSION" ]; then
+    CURRENT_VERSION=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('comfy'))" 2>/dev/null || echo "unknown")
+fi
 echo "  Current ComfyUI version: $CURRENT_VERSION"
 
 if [[ "$CURRENT_VERSION" == "unknown" ]] || [[ "$(printf '%s\n' "0.30.0" "$CURRENT_VERSION" | sort -V | head -n1)" != "0.30.0" ]]; then
