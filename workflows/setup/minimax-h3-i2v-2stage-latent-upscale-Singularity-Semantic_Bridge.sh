@@ -110,26 +110,48 @@ done
 
 # ── SageAttention v2 (fixes MiniMaxH3MemoryEfficientSageAttentionPatch) ──
 # KJNodes' H3 patch imports `get_cuda_arch_versions` from sageattention.core,
-# which only exists in SageAttention v2 (git tags v2.0.1/v2.2.0). PyPI
-# 'latest' is 1.0.6, which lacks it — the node hard-fails at queue time with
-# "sageattention is not new enough version or could not determine CUDA
-# architecture". Install v2.2.0 via the prebuilt Linux wheel (snw35, cu13/cp312,
-# no compile) and fall back to building v2.0.1 from GitHub if needed.
+# which only exists in SageAttention v2 (v2.0.1/v2.2.0). PyPI 'latest' is 1.0.6
+# and lacks it — the node hard-fails at queue time with "sageattention is not
+# new enough version or could not determine CUDA architecture".
+#
+# ⚠️ The prebuilt wheel MUST match the pod's torch CUDA major. The snw35 release
+# tag `cu12-2.2.0-cu13-2.2.0` hosts BOTH the `+cu12` and `+cu13` assets under one
+# tag. Picking the wrong one installs cleanly, then dies at import with
+# "libcudart.so.13: cannot open shared object file" on a cu128 pod (observed).
+# So select the wheel from torch.version.cuda — never hardcode.
+#
+# A prebuilt wheel can ALSO fail on a torch ABI mismatch with the pod's exact
+# torch build (observed: "undefined symbol ..._ZNK3c1010TensorImpl15decref_pyobjectEv"
+# on torch 2.8.0+cu128). That is why the compile-from-source fallback has to be
+# reachable: do NOT pipe the wheel install straight into `tail`, or the status
+# you test is tail's (always 0) and the fallback silently never fires.
 if $COMFY_PYTHON -c "from sageattention.core import get_cuda_arch_versions" >/dev/null 2>&1; then
     echo "  ✅ sageattention v2 API (get_cuda_arch_versions) present"
 else
-    echo "  ⚠️  sageattention missing or stale v1 (lacks get_cuda_arch_versions) — installing v2.2.0 prebuilt wheel..."
-    WHEEL_URL="https://github.com/snw35/sageattention-wheel/releases/download/cu12-2.2.0-cu13-2.2.0/sageattention-2.2.0%2Bcu13-cp312-cp312-linux_x86_64.whl"
-    if ! $COMFY_PIP install --no-cache-dir "$WHEEL_URL" 2>&1 | tail -3; then
-        echo "  ⚠️  Wheel install failed — building v2.0.1 from GitHub..."
+    echo "  ⚠️  sageattention missing or stale v1 (lacks get_cuda_arch_versions) — installing v2.2.0..."
+    CUDA_MAJOR="$($COMFY_PYTHON -c 'import torch;print((torch.version.cuda or "12.0").split(".")[0])' 2>/dev/null || echo 12)"
+    PY_TAG="$($COMFY_PYTHON -c 'import sys;print("cp%d%d" % sys.version_info[:2])' 2>/dev/null || echo cp312)"
+    WHEEL_URL="https://github.com/snw35/sageattention-wheel/releases/download/cu12-2.2.0-cu13-2.2.0/sageattention-2.2.0%2Bcu${CUDA_MAJOR}-${PY_TAG}-${PY_TAG}-linux_x86_64.whl"
+    echo "  torch is CUDA ${CUDA_MAJOR} → $(basename "$WHEEL_URL")"
+    WHEEL_OK=1
+    $COMFY_PIP install --no-cache-dir "$WHEEL_URL" > /tmp/sage_wheel.log 2>&1 || WHEEL_OK=0
+    tail -3 /tmp/sage_wheel.log 2>/dev/null || true
+    # An install can exit 0 and still be unimportable (wrong CUDA major, or a torch
+    # ABI mismatch). Verify the IMPORT, never the pip exit code.
+    if [ "$WHEEL_OK" = "1" ] && \
+       $COMFY_PYTHON -c "from sageattention.core import get_cuda_arch_versions" >/dev/null 2>&1; then
+        echo "  ✅ SageAttention v2 installed (prebuilt wheel)"
+    else
+        echo "  ⚠️  Prebuilt wheel unusable for this torch build — compiling v2.0.1 from source..."
         ARCHS="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d ' .' | sed 's/^/sm/')"
         [ -n "$ARCHS" ] && export TORCH_CUDA_ARCH_LIST="$ARCHS"
         $COMFY_PIP install --no-cache-dir --no-build-isolation \
-            'git+https://github.com/thu-ml/SageAttention.git@v2.0.1' 2>&1 | tail -5 || true
+            'git+https://github.com/thu-ml/SageAttention.git@v2.0.1' > /tmp/sage_src.log 2>&1 || true
+        tail -5 /tmp/sage_src.log 2>/dev/null || true
+        $COMFY_PYTHON -c "from sageattention.core import get_cuda_arch_versions" >/dev/null 2>&1 \
+            && echo "  ✅ SageAttention v2 installed (source build)" \
+            || echo "  ⚠️  SageAttention unavailable — not fatal: this workflow's ModelAttentionBackend also offers 'pytorch attention', which needs no sage install."
     fi
-    $COMFY_PYTHON -c "from sageattention.core import get_cuda_arch_versions" >/dev/null 2>&1 \
-        && echo "  ✅ SageAttention v2 installed" \
-        || echo "  ⚠️  SageAttention v2 install failed — bypass the patch node in the UI (VRAM opt, not required)."
 fi
 
 # ── ComfyUI launch flags for H3 on 24GB — all three are load-bearing ──
