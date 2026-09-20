@@ -173,7 +173,9 @@ fi
 LAUNCHER=/root/start_comfyui.sh
 if [ ! -f /opt/supervisor-scripts/comfyui.sh ]; then
     LAUNCH_PY="$(command -v "$COMFY_PYTHON" 2>/dev/null || command -v python3)"
-    if grep -qs -- '--disable-pinned-memory' "$LAUNCHER"; then
+    # Match the exec/launch line only: a comment that merely *mentions* the flag must
+    # not be able to mask a launcher that does not actually pass it.
+    if grep -qsE 'main\.py.*--disable-pinned-memory' "$LAUNCHER"; then
         echo "  ✅ $LAUNCHER already carries the H3 flags"
     else
         echo "  📥 Writing RunPod launcher $LAUNCHER with H3 memory flags..."
