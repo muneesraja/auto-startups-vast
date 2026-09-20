@@ -187,12 +187,46 @@ fi
 # Vast's template injects COMFYUI_ARGS from /etc/environment which OVERRIDES the
 # default in /opt/supervisor-scripts/comfyui.sh, so append the flag to the
 # launch line, not the default. Dynamic VRAM is a separate feature and stays on.
-if [ -f /opt/supervisor-scripts/comfyui.sh ] && \
-   ! grep -q -- '--disable-comfy-compiler' /opt/supervisor-scripts/comfyui.sh; then
-  echo "  📥 Adding --disable-comfy-compiler to the supervisor launch line..."
-  sed -i 's#${COMFYUI_ARGS} 2>&1#${COMFYUI_ARGS} --disable-comfy-compiler 2\&1#' \
-    /opt/supervisor-scripts/comfyui.sh || true
-  NODES_INSTALLED=$((NODES_INSTALLED + 1))
+# ALL THREE flags are load-bearing on a 24GB card (same set as the sibling
+# SemBridge script - keep them in sync):
+#   --lowvram                standing rule on 24GB
+#   --disable-comfy-compiler torch.compile traces the model with fake/CPU tensors and
+#                            the int8 kernel rejects CPU input -> phantom OOM
+#   --disable-pinned-memory  PRIMARY OOM FIX. ComfyUI pins ram*0.90 of system RAM and
+#                            pinned pages are unswappable AND unreclaimable, so a
+#                            cgroup-capped pod fails allocations mid-run.
+#                            Ref: growthlabs-docs/comfyui/minimax-h3-local-24gb.md
+H3_FLAGS="--lowvram --disable-comfy-compiler --disable-pinned-memory"
+
+# Vast.ai: supervisord-managed; inject each flag into its command line (idempotent).
+if [ -f /opt/supervisor-scripts/comfyui.sh ]; then
+  for FLAG in $H3_FLAGS; do
+    if grep -q -- "$FLAG" /opt/supervisor-scripts/comfyui.sh; then
+      echo "  ✅ supervisor launch line already has $FLAG"
+    else
+      echo "  📥 Adding $FLAG to the supervisor launch line..."
+      sed -i "s#\${COMFYUI_ARGS} 2>&1#\${COMFYUI_ARGS} $FLAG 2>\&1#" \
+        /opt/supervisor-scripts/comfyui.sh || true
+    fi
+  done
+fi
+
+# RunPod bare pods: NO supervisor exists, so the block above can never apply. Write a
+# launcher carrying the flags; the restart block below prefers it.
+LAUNCHER=/root/start_comfyui.sh
+if [ ! -f /opt/supervisor-scripts/comfyui.sh ]; then
+  LAUNCH_PY="$(command -v "$COMFYUI_PYTHON" 2>/dev/null || command -v python3)"
+  if grep -qsE 'main\.py.*--disable-pinned-memory' "$LAUNCHER"; then
+    echo "  ✅ $LAUNCHER already carries the H3 flags"
+  else
+    echo "  📥 Writing RunPod launcher $LAUNCHER with H3 memory flags..."
+    cat > "$LAUNCHER" <<LAUNCHER_EOF
+#!/bin/bash
+cd $COMFYUI_DIR
+exec $LAUNCH_PY main.py --listen 0.0.0.0 --port 8188 --enable-cors-header $H3_FLAGS
+LAUNCHER_EOF
+    chmod +x "$LAUNCHER"
+  fi
 fi
 
 # ─── Phase 2: Models ─────────────────────────────────────────────────────────
@@ -234,6 +268,9 @@ step() { STEP=$((STEP + 1)); echo "[$STEP/$TOTAL] $1"; }
 
 # 1. Diffusion model — Singularity ref2va v1.3 INT8 (note: the NON-pruned v1.3
 #    variant; the sibling SemBridge script downloads the Pruned one, not this).
+# Filename must be the ref2vA variant: the repo has no "ref2v" file, and this
+# script's OWN verification block below expects "...ref2va_v1.3_int8.safetensors".
+# (The download line said ref2v and would have 404'd on a 31.7GB pull.)
 step "Minimax-h3_Singularity_ref2va_v1.3_int8.safetensors (diffusion model, ~31.7GB)"
 hf_download "WarmBloodAban/Minimax-h3_Singularity" \
   "Minimax-h3_Singularity_ref2va_v1.3_int8.safetensors" "$MODELS_DIR/diffusion_models"
@@ -264,9 +301,23 @@ hf_download "Alissonerdx/Minimax-H3-ComfyUI" \
   "loras/minimax_h3_lms_v1.0_r64.safetensors" "$MODELS_DIR"
 
 # 7. Latent upscaler 3D (bf16 — the workflow names the bf16 file, not fp16)
-step "minimax_h3_latent_upscaler_3d_bf16.safetensors (latent upscaler, ~0.6GB)"
-hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" \
-  "minimax_h3_latent_upscaler_3d_bf16.safetensors" "$MODELS_DIR/latent_upscale_models"
+# NOTE: LBH-123-AI/Minimax_h3_latent_Upscaler reshuffled its weights into a
+# `minimax_h3_latent_upscaler_3d_conv_v1/` subdir (2026-09) - the same reshuffle the
+# sibling SemBridge script already handles for the fp16 variant. The bare filename
+# 404s. Download the nested file, then flatten it to the exact name this script's
+# verification block (and the workflow) expects.
+step "minimax_h3_latent_upscaler_3d_bf16.safetensors (latent upscaler, ~0.6GB, nested repo)"
+UP_SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
+UP_TGT="$MODELS_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_bf16.safetensors"
+if [ -s "$UP_TGT" ]; then
+  echo "  ✅ already present: $UP_TGT"
+else
+  hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "$UP_SRC" "$MODELS_DIR/latent_upscale_models" || true
+  if [ -s "$MODELS_DIR/latent_upscale_models/$UP_SRC" ]; then
+    mv "$MODELS_DIR/latent_upscale_models/$UP_SRC" "$UP_TGT"
+    echo "  ✅ flattened to $UP_TGT"
+  fi
+fi
 
 echo "  ✅ All $TOTAL files downloaded"
 
@@ -293,7 +344,16 @@ if [ "$NODES_INSTALLED" -gt 0 ] || ! comfyui_alive; then
     sleep 4
     PID2=$(ps -eo pid,comm,args | awk '$2 ~ /python/ && /main\.py/ && !/tcl/ {print $1}') || true
     [ -n "${PID2:-}" ] && kill -9 "$PID2" 2>/dev/null || true
-    (cd "$COMFYUI_DIR" && nohup "$COMFYUI_PYTHON" main.py $COMFYUI_ARGS > "$COMFYUI_DIR/comfyui.log" 2>&1 &)
+    # `nohup ... &` does NOT survive SSH session end (documented pitfall); tmux does.
+    # COMFYUI_ARGS was captured from the live process above, so the H3 flags survive.
+    if command -v tmux >/dev/null 2>&1; then
+      tmux kill-session -t comfyui 2>/dev/null || true
+      sleep 1
+      tmux new-session -d -s comfyui \
+        "cd '$COMFYUI_DIR' && exec '$COMFYUI_PYTHON' main.py $COMFYUI_ARGS > /workspace/comfyui.log 2>&1"
+    else
+      (cd "$COMFYUI_DIR" && nohup "$COMFYUI_PYTHON" main.py $COMFYUI_ARGS > "$COMFYUI_DIR/comfyui.log" 2>&1 &)
+    fi
   fi
   for _ in $(seq 1 60); do
     if comfyui_alive; then echo "  ✅ ComfyUI ready on port $COMFYUI_PORT"; break; fi
