@@ -68,8 +68,52 @@ This template encodes all of the above.
 7. Validate per the global `workflow-researcher` §4 checklist.
 8. `bash -n <new-script>.sh` + commit + push.
 
+## Second pattern: repos with REAL subdir prefixes (no `split_files/`)
+
+Not every Comfy-Org repo uses the `split_files/<sub>/` browse-tree prefix. `Comfy-Org/stable-audio-3`
+and `Comfy-Org/Qwen3.5` store files at their real ComfyUI subdirs (`checkpoints/`, `text_encoders/`).
+For those the move step is **wrong** — pass the models dir itself as `local_dir` and let the filename
+prefix create the subdir:
+
+```bash
+BASE_DIR="$COMFYUI_DIR/models"          # NOT the ComfyUI root
+hf_download "Comfy-Org/stable-audio-3" "checkpoints/<file>.safetensors" "$BASE_DIR"
+# → $BASE_DIR/checkpoints/<file>.safetensors   (no mv, no nesting)
+```
+
+`hf_hub_download` replicates the repo file structure under `local_dir` ("the file structure from the
+repo will be replicated in this location"), so this is deterministic — but passing
+`$BASE_DIR/models/checkpoints` as local_dir **and** a prefixed filename double-nests. Decide per
+repo: run `hf download <repo> --dry-run` first and read the paths.
+
+## Zero packs ≠ zero requirements: check the comfy-core version floor
+
+A `cnr_id == "comfy-core"` manifest means there are no packs to clone — it does **not** mean the
+base image can run the workflow. The audio class leans on relatively new core nodes and
+model-family support. Before declaring a script pack-free-and-done, verify the markers exist at the
+target tag (raw.githubusercontent GET, no clone needed):
+
+```bash
+T=v0.22.0
+for pair in "comfy_extras/nodes_textgen.py:class TextGenerate" \
+            "comfy_extras/nodes_logic.py:class CustomComboNode" \
+            "comfy/text_encoders/sa3.py:class" \
+            "comfy/sd.py:STABLE_AUDIO"; do
+  f=${pair%%:*}; m=${pair#*:}
+  printf '%s %s -> %s\n' "$T" "$f" "$(curl -sS "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/$T/$f" | grep -c "$m")"
+done
+```
+
+Then encode the floor in the script as a Phase 0 version check, kept conservative: upgrade only when
+a version was detected **and** is below the floor; on `unknown`, warn and continue (base images
+usually already satisfy it). `stable-audio-3-medium-base.sh` floor: **v0.22.0** (Vast base image
+v0.23.0 passes). The `properties.ver` field in the workflow JSON is **not** the floor — it is the
+node-pack version at authoring time and does not track ComfyUI release tags.
+
 ## Related
 
-- `stable-audio-3-medium-base.sh` in `auto-startups-vast/workflows/setup/` — same shape, but with a different prefix pattern (no `split_files/` → uses `$BASE_DIR/models` directly with bare filenames).
+- `stable-audio-3-medium-base.sh` in `auto-startups-vast/workflows/setup/` — same shape, real
+  `checkpoints/` + `text_encoders/` prefixes (no `split_files/`), so `local_dir` is the models dir
+  with no move step. Also carries the Phase 0 core-floor check.
 - `ltx-23-director-hotfix.sh` — canonical reference for the move-rename pattern with `split_files/` prefixes.
 - `references/setup-script-bugs-2026-07-22.md` (in `vast-ai-script-runner`) — Bug 18 audit recipe: zero-node-packs workflows do need the restart (this is the Bug 16b fix), but the restart must be done correctly.
