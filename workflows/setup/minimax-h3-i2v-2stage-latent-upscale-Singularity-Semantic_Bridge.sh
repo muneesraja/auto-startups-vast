@@ -176,16 +176,28 @@ H3_FLAGS="--lowvram --disable-comfy-compiler --disable-pinned-memory"
 
 # ── Vast.ai: ComfyUI is supervisord-managed; inject the flags into its command line ──
 # (Vast injects COMFYUI_ARGS, which overrides the default in the supervisor script.)
+# ⚠️ ONE substitution for ALL missing flags. A per-flag loop CANNOT work: the natural
+# anchor `${COMFYUI_ARGS} 2>&1` is consumed by the first sed, so every later iteration
+# matches nothing and `|| true` hides it. Observed on a fresh pod: the launch line came
+# out with --lowvram only, silently missing --disable-comfy-compiler (H3 int8 OOM) and
+# --disable-pinned-memory (the primary OOM fix). The replacement text below deliberately
+# contains no `&` and no `$`, so it is immune to sed's whole-match `&` metachar and to
+# shell `$` interpolation; the range starts at the `python main.py` line so the
+# `COMFYUI_ARGS=` assignment above it is never rewritten.
 if [ -f /opt/supervisor-scripts/comfyui.sh ]; then
+    WRAP=/opt/supervisor-scripts/comfyui.sh
+    MISSING=""
     for FLAG in $H3_FLAGS; do
-        if grep -q -- "$FLAG" /opt/supervisor-scripts/comfyui.sh; then
-            echo "  ✅ supervisor launch line already has $FLAG"
-        else
-            echo "  📥 Adding $FLAG to the supervisor launch line..."
-            sed -i "s#\${COMFYUI_ARGS} 2>&1#\${COMFYUI_ARGS} $FLAG 2>\&1#" \
-                /opt/supervisor-scripts/comfyui.sh || true
-        fi
+        grep -q -- "$FLAG" "$WRAP" || MISSING="$MISSING $FLAG"
     done
+    if [ -z "$MISSING" ]; then
+        echo "  ✅ supervisor launch line already has:$H3_FLAGS"
+    else
+        echo "  📥 Adding missing H3 flags to the supervisor launch line:$MISSING"
+        cp "$WRAP" "${WRAP}.bak.$(date +%Y%m%d_%H%M%S)"
+        sed -i "/python main\.py/,\$ s#\${COMFYUI_ARGS}#\${COMFYUI_ARGS}${MISSING}#" "$WRAP"
+        sed -n '/python main\.py/,+2p' "$WRAP" | sed 's/^/    /'
+    fi
 fi
 
 # ── RunPod bare pods (runpod/pytorch): there is NO supervisor, so the block above ──

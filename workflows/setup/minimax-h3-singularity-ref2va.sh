@@ -198,17 +198,25 @@ fi
 #                            Ref: growthlabs-docs/comfyui/minimax-h3-local-24gb.md
 H3_FLAGS="--lowvram --disable-comfy-compiler --disable-pinned-memory"
 
-# Vast.ai: supervisord-managed; inject each flag into its command line (idempotent).
+# Vast.ai: supervisord-managed; inject every MISSING flag in ONE substitution. A per-flag
+# loop silently drops all but the first — its `${COMFYUI_ARGS} 2>&1` anchor is consumed by
+# the first sed and `|| true` hides the miss. Replacement text has no `&`/`$`, dodging
+# sed's whole-match metachar and shell expansion; range starts at the launch line so the
+# `COMFYUI_ARGS=` assignment above it is untouched.
 if [ -f /opt/supervisor-scripts/comfyui.sh ]; then
+  WRAP=/opt/supervisor-scripts/comfyui.sh
+  MISSING=""
   for FLAG in $H3_FLAGS; do
-    if grep -q -- "$FLAG" /opt/supervisor-scripts/comfyui.sh; then
-      echo "  ✅ supervisor launch line already has $FLAG"
-    else
-      echo "  📥 Adding $FLAG to the supervisor launch line..."
-      sed -i "s#\${COMFYUI_ARGS} 2>&1#\${COMFYUI_ARGS} $FLAG 2>\&1#" \
-        /opt/supervisor-scripts/comfyui.sh || true
-    fi
+    grep -q -- "$FLAG" "$WRAP" || MISSING="$MISSING $FLAG"
   done
+  if [ -z "$MISSING" ]; then
+    echo "  ✅ supervisor launch line already has:$H3_FLAGS"
+  else
+    echo "  📥 Adding missing H3 flags to the supervisor launch line:$MISSING"
+    cp "$WRAP" "${WRAP}.bak.$(date +%Y%m%d_%H%M%S)"
+    sed -i "/python main\.py/,\$ s#\${COMFYUI_ARGS}#\${COMFYUI_ARGS}${MISSING}#" "$WRAP"
+    sed -n '/python main\.py/,+2p' "$WRAP" | sed 's/^/    /'
+  fi
 fi
 
 # RunPod bare pods: NO supervisor exists, so the block above can never apply. Write a
