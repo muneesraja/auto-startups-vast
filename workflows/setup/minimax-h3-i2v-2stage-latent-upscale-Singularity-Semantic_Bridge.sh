@@ -346,9 +346,16 @@ elif [ -x "$LAUNCHER" ]; then
     rm -f "$COMFYUI_DIR/user/comfyui.db.lock" 2>/dev/null || true
     tmux new-session -d -s comfyui "$LAUNCHER 2>&1 | tee /workspace/comfyui.log"
     # Wait for the API before claiming success.
+    # ⚠️ `set -e` trap: a bare `CODE=$(curl ...)` assignment inherits curl's exit
+    # status, and curl exits 7 (couldn't connect) while ComfyUI is still loading.
+    # That aborted the whole script on the FIRST loop iteration, so the health-wait
+    # never ran and "✅ Setup complete!" never printed (observed 2026-09-23 on
+    # RunPod pod ua8s0lfrmisoqt: EXIT_CODE=7 with a perfectly healthy ComfyUI).
+    # Always swallow curl's status here — a failed probe is expected, not fatal.
     for i in $(seq 1 40); do
         CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
-               http://localhost:8188/system_stats 2>/dev/null)
+               http://localhost:8188/system_stats 2>/dev/null || true)
+        [ -n "$CODE" ] || CODE=000
         if [ "$CODE" = "200" ]; then
             echo "  ✅ ComfyUI ready (http://localhost:8188)"
             break
