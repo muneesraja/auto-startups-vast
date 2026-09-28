@@ -154,6 +154,42 @@ else
     fi
 fi
 
+# ── AVX2-less host guard: kornia_rs SIGILLs ComfyUI at boot ──
+# The image ships kornia_rs, a Rust (maturin) wheel compiled with AVX2+FMA
+# (~58k ymm / ~9k vfmadd instruction sites). On a host whose CPU predates AVX2
+# (e.g. Intel i7-3770 / Ivy Bridge — /proc/cpuinfo has `avx` but no `avx2`),
+# `import kornia_rs` raises SIGILL (exit 132). kornia/io/io.py imports it
+# unconditionally at module top level and kornia/__init__.py imports io, so
+# `import kornia` kills the interpreter; ComfyUI hits it via
+# comfy_extras/nodes_post_processing.py and supervisord crash-loops it forever
+# (`comfyui STARTING`, nothing on 18188) with NO error in the setup log — the
+# script still prints "✅ Setup complete!". Upgrading kornia_rs does NOT help
+# (0.2.0 adds AVX-512). Fix: pin kornia 0.7.1, which has no kornia-rs hard
+# dependency (that only lands in 0.7.2+) and guards the import with
+# try/except ImportError; ComfyUI's own floor is kornia>=0.7.1, and the only
+# kornia APIs these graphs touch are kornia.color (+ kornia.morphology in
+# KJNodes) — all present in 0.7.1. Nothing here uses kornia.io, the sole
+# kornia_rs-dependent API.
+if ! grep -qw avx2 /proc/cpuinfo; then
+    KORNIA_VER="$($COMFY_PYTHON -c 'import kornia;print(kornia.__version__)' 2>/dev/null || echo none)"
+    if [ "$KORNIA_VER" = "none" ] || \
+       [ "$(printf '%s\n' 0.7.1 "$KORNIA_VER" | sort -V | tail -1)" != "0.7.1" ]; then
+        echo "  ⚠️  Host has no AVX2 + kornia ${KORNIA_VER} — pinning kornia 0.7.1 (kornia_rs would SIGILL)..."
+        $COMFY_PIP uninstall -y kornia-rs >/dev/null 2>&1 || true
+        $COMFY_PIP install -q 'kornia==0.7.1' >/tmp/kornia_pin.log 2>&1 || true
+        tail -2 /tmp/kornia_pin.log 2>/dev/null || true
+        KV="$($COMFY_PYTHON -c 'import kornia;print(kornia.__version__)' 2>/dev/null || echo FAILED)"
+        if [ "$KV" = "FAILED" ]; then
+            echo "  ❌ kornia still unimportable — ComfyUI will NOT boot on this host."
+            echo "      Move the instance to a host with AVX2 (a full model re-download is the cost)."
+        else
+            echo "  ✅ kornia $KV pinned — ComfyUI can boot on this AVX-less host"
+        fi
+    else
+        echo "  ✅ no AVX2 host, but kornia 0.7.1 is already pinned"
+    fi
+fi
+
 # ── ComfyUI launch flags for H3 on 24GB — all three are load-bearing ──
 #   --lowvram                 keep VRAM headroom on a 24GB card (standing rule)
 #   --disable-comfy-compiler  ComfyUI's torch.compile "model compiler" (on by default,
