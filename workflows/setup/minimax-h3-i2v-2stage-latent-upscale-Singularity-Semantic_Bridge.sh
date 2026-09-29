@@ -2,11 +2,11 @@
 # ---
 # name: MiniMax H3 I2V 2-Stage Latent Upscale (Singularity + Semantic Bridge)
 # workflow: minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge
-# aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity, minimax-h3-i2v-singularity-semantic-bridge]
-# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; Singularity ref2va pruned base + Semantic Bridge (FL2VA/text-conditioning adapter)
-# size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB)
+# aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity, minimax-h3-i2v-singularity-semantic-bridge, h3-bunny-bridge]
+# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; Singularity ref2va pruned base + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
+# size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB) + BUNNY bridge adapters (~44MB)
 # min_vram: 24GB
-# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge]
+# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge]
 # ---
 
 set -e
@@ -277,6 +277,56 @@ else
 fi
 cd "$COMFYUI_DIR"
 
+# ── Phase 1c: BUNNY_H3_Conditioning_Bridge custom node (CONDITIONING adapter) ──
+# JOKER141 / FourBunny continuation of the speach1sdef178 Semantic Bridge research
+# direction, focused on high-dynamic action logic + complex multi-actor scenes.
+# Node repo:  https://github.com/aa335615543-ux/BUNNY_H3_Conditioning_Bridge
+# Adapters:   https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge
+# Registers exactly ONE class: BunnyH3ConditioningBridge -> "BUNNY H3 Conditioning
+# Bridge" (category BUNNY/MiniMax H3, __version__ 0.3.0). It is inserted inline on
+# the existing H3 CONDITIONING path (in: CONDITIONING, out: CONDITIONING) and
+# applies a small residual (alpha 0.10-0.15, magnitude_match per_token) — no new
+# ComfyUI model category and no extra sampler wiring needed.
+# ⚠️ Kept ALONGSIDE MiniMax_H3_Semantic_Bridge (Phase 1b), not as a replacement:
+# that pack provides SenseNovaH3DistilledBridge, which the *_fl2v.json variant
+# still uses. The two register different class names, so they coexist safely.
+echo "==> Installing BUNNY_H3_Conditioning_Bridge custom node..."
+BUNNY_REPO="https://github.com/aa335615543-ux/BUNNY_H3_Conditioning_Bridge"
+BUNNY_DIR="$CUSTOM_NODES_DIR/BUNNY_H3_Conditioning_Bridge"
+mkdir -p "$CUSTOM_NODES_DIR"
+if command -v comfy >/dev/null 2>&1; then
+    comfy node install "$BUNNY_REPO" 2>/dev/null || true
+fi
+# comfy-cli/Marketplace installs it under the registry name
+# (bunny-h3-semantic-bridge, from pyproject [tool.comfy] DisplayName); a manual clone
+# lands as BUNNY_H3_Conditioning_Bridge. Both are valid to ComfyUI, so resolve
+# whichever one actually exists instead of assuming the folder name.
+for CAND in "$CUSTOM_NODES_DIR/bunny-h3-semantic-bridge" "$CUSTOM_NODES_DIR/BUNNY_H3_Conditioning_Bridge"; do
+    [ -f "$CAND/nodes.py" ] && BUNNY_DIR="$CAND" && break
+done
+if [ ! -f "$BUNNY_DIR/nodes.py" ]; then
+    echo "  📥 Cloning $BUNNY_REPO ..."
+    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$BUNNY_REPO" BUNNY_H3_Conditioning_Bridge ) \
+        || echo "  ⚠️  BUNNY bridge clone failed (non-fatal)"
+fi
+if [ -f "$BUNNY_DIR/nodes.py" ]; then
+    echo "  ✅ BUNNY H3 Conditioning Bridge installed at $BUNNY_DIR"
+else
+    echo "  ⚠️  BUNNY bridge node missing — its adapters below cannot be used"
+fi
+# Adapter lookup in nodes.py is: bundled <node>/models/ FIRST, then the external
+# models/semantic_bridge/ dir (which the node registers as a model folder path).
+# We use the bundled dir — it is what the README documents, it wins the lookup,
+# and it keeps the adapter travelling with the node install.
+BUNNY_MODELS_DIR="$BUNNY_DIR/models"
+mkdir -p "$BUNNY_MODELS_DIR"
+# requirements.txt is just `safetensors` (already a ComfyUI dependency), but install
+# it defensively against the node's own dir so a future dep can't be missed.
+if [ -f "$BUNNY_DIR/requirements.txt" ]; then
+    echo "  Installing BUNNY bridge deps..."
+    $COMFY_PIP install -q -r "$BUNNY_DIR/requirements.txt" 2>&1 | tail -3 || true
+fi
+
 # ── Create model directories ──
 echo "==> Creating model directories..."
 mkdir -p "$BASE_DIR"/{vae,vae_approx,text_encoders,diffusion_models,loras,latent_upscale_models,semantic_bridge}
@@ -293,38 +343,38 @@ source "$BASE_DIR/_hf_download.sh"
 echo "==> Starting model downloads..."
 
 # ── VAE (video) ──
-echo "[1/15] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
+echo "[1/17] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/15] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
+echo "[2/17] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/15] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
+echo "[3/17] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
 hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
-echo "[4/15] Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors (Diffusion Model)..."
+echo "[4/17] Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors (Diffusion Model)..."
 hf_download "WarmBloodAban/Minimax-h3_Singularity" "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors" "$BASE_DIR/diffusion_models"
 
 # ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
-echo "[5/15] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+echo "[5/17] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
-echo "[6/15] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+echo "[6/17] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[7/15] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
+echo "[7/17] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
 
 # ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[8/15] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
+echo "[8/17] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
 # ── LoRA: H3 Realism People (fal) ──
-echo "[9/15] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
+echo "[9/17] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
 hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.safetensors" "$BASE_DIR/loras"
 
 
@@ -333,7 +383,7 @@ hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.
 # `minimax_h3_latent_upscaler_3d_conv_v1/` subdir (2026-09). The bare filename 404s.
 # Download the nested file then flatten it to the exact name the workflow references
 # (minimax_h3_latent_upscaler_3d_fp16.safetensors) so the node's dropdown picks it up.
-echo "[10/15] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
+echo "[10/17] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
 SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
 TGT="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
 if [ ! -s "$TGT" ]; then
@@ -347,24 +397,42 @@ else
 fi
 
 # ── Tiny VAE for live preview ──
-echo "[11/15] taeh3.safetensors (Tiny VAE - live preview)..."
+echo "[11/17] taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR"
 
 # ── Semantic Bridge adapter model ──
-echo "[12/15] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
+echo "[12/17] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
 hf_download "speach1sdef178/MiniMax-H3-Semantic-Bridge" "MiniMaxH3_SemanticBridge_v1.safetensors" "$BASE_DIR/semantic_bridge"
 
 # ── LoRA: ref2v turbo 4-step v0.1 (comfyui) ──
-echo "[13/15] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
+echo "[13/17] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: General Motion Continuity Repair (JOKER141) ──
-echo "[14/15] Motion_Repair.safetensors (LoRA - General Motion Continuity Repair)..."
+echo "[14/17] Motion_Repair.safetensors (LoRA - General Motion Continuity Repair)..."
 hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: Combat Base V2 (JOKER141) ──
-echo "[15/15] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
+echo "[15/17] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
 hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BASE_DIR/loras"
+
+# ── BUNNY H3 ActionLogic Bridge adapters (JOKER141) ──
+# 22MB residual MLPs (5120 -> 512 -> 512 -> 5120) that plug inline on the H3
+# CONDITIONING path. They target what motion repair cannot fix: who is doing what,
+# attacker/target confusion, weapon/object ownership, spatial continuity after a
+# position exchange, identity+state after occlusion, prompt/environment continuity.
+# Both go into the node's own models/ dir, which nodes.py checks FIRST.
+#   V1 — the documented default: the README install step, its "Recommended
+#        settings", the repo's Example Workflow, and nodes.py all pin V1 (it is
+#        force-listed at the top of the node's `adapter` dropdown).
+#   V2 — the rebuilt-pipeline adapter described in the V2 update notes. Same
+#        architecture/dims as V1 and only ~22MB, so it ships too and you pick it
+#        from the dropdown. Drop this line if you want V1 only.
+echo "[16/17] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
+hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V1.safetensors" "$BUNNY_MODELS_DIR"
+
+echo "[17/17] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
+hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V2.safetensors" "$BUNNY_MODELS_DIR"
 
 echo "==> All downloads completed!"
 
