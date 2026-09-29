@@ -733,6 +733,10 @@ The following operational addenda are maintained with this skill:
 - **Audio subgraphs:** `references/audio-subgraph-t2a.md` and
   `templates/audio-subgraph-t2a.template` — reusable audio workflow guidance.
 - **SCAIL-2/Wan discovery:** `references/scail-2-wan-discovery-2026-07-23.md`.
+- **BUNNY H3 Conditioning Bridge:** `references/bunny-h3-bridge-2026-09-29.md` — the
+  node (GitHub `aa335615543-ux`) and its weights (HF `JOKER141`) live under
+  DIFFERENT orgs; adapter lookup is bundled `<node>/models/` FIRST; resolve the
+  node folder name (`bunny-h3-semantic-bridge` vs `BUNNY_H3_Conditioning_Bridge`).
 
 Before treating an unfamiliar node as a custom pack, check ComfyUI's
 `comfy_extras/` on the required version. Recent model-family nodes may be
