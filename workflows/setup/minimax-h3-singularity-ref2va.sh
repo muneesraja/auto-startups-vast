@@ -196,7 +196,18 @@ fi
 #                            pinned pages are unswappable AND unreclaimable, so a
 #                            cgroup-capped pod fails allocations mid-run.
 #                            Ref: growthlabs-docs/comfyui/minimax-h3-local-24gb.md
-H3_FLAGS="--lowvram --disable-comfy-compiler --disable-pinned-memory"
+#
+# ⚠️ --disable-comfy-compiler exists only in builds that SHIP the Comfy model
+# compiler (upstream master). A release without it aborts main.py at argparse with
+# "unrecognized arguments: --disable-comfy-compiler" and ComfyUI never binds. Probe
+# the build and pass only what it accepts (mirrors the SemBridge sibling script).
+H3_FLAGS="--lowvram --disable-pinned-memory"
+if ( cd "$COMFYUI_DIR" && "$COMFYUI_PYTHON" main.py --help 2>&1 ) | grep -q -- "--disable-comfy-compiler"; then
+  H3_FLAGS="$H3_FLAGS --disable-comfy-compiler"
+  echo "  ✅ build ships the Comfy model compiler — adding --disable-comfy-compiler"
+else
+  echo "  ℹ️  build has no --disable-comfy-compiler (no Comfy model compiler here) — omitting it"
+fi
 
 # Vast.ai: supervisord-managed; inject every MISSING flag in ONE substitution. A per-flag
 # loop silently drops all but the first — its `${COMFYUI_ARGS} 2>&1` anchor is consumed by
