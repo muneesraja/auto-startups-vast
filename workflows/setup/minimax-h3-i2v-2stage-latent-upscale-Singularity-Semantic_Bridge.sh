@@ -33,7 +33,7 @@ fi
 BASE_DIR="$COMFYUI_DIR/models"
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 
-# ── Phase 0: Check ComfyUI version (H3 needs v0.30.0+) ──
+# ── Phase 0: Check ComfyUI core meets the H3 prerequisites (>= 0.33.2) ──
 echo "==> Phase 0: Checking ComfyUI version..."
 # Use git describe first — importlib.metadata.version('comfy') prints "unknown"
 # (PackageNotFoundError) even at v0.30.0 on some images, which spuriously trips
@@ -44,15 +44,55 @@ if [ -z "$CURRENT_VERSION" ]; then
 fi
 echo "  Current ComfyUI version: $CURRENT_VERSION"
 
-if [[ "$CURRENT_VERSION" == "unknown" ]] || [[ "$(printf '%s\n' "0.30.0" "$CURRENT_VERSION" | sort -V | head -n1)" != "0.30.0" ]]; then
-    echo "  ⚠️  ComfyUI < v0.30.0 detected (or unknown) — upgrading to master..."
-    cd "$COMFYUI_DIR"
-    git fetch origin master --depth=1 2>/dev/null || git fetch origin main --depth=1 2>/dev/null
-    git stash 2>/dev/null || true
-    git checkout origin/master -- . 2>/dev/null || git checkout origin/main -- . 2>/dev/null
-    echo "  ✅ ComfyUI upgraded to master"
+# The version tag alone is NOT a sufficient gate. This workflow needs core >= 0.33.2:
+#   * ModelAttentionBackend is a comfy-core node (the workflow records core ver 0.33.2)
+#   * comfyui-minimax-h3-audio-T8 imports AttentionTensorContainer from
+#     comfy.ldm.modules.attention at module top level
+# On v0.30.0 both are absent: the pack's import dies ("IMPORT FAILED") and
+# MiniMaxH3DualClockSamplerT8 / ModelAttentionBackend never register, so the workflow
+# loads with Missing Node Packs — while a tag-only ">= 0.30.0" check reports
+# "no upgrade needed" and the script's log stays green. Gate on capability, not the tag.
+MIN_CORE="0.33.2"
+NEED_UPGRADE=0
+if [[ "$CURRENT_VERSION" == "unknown" ]] || \
+   [[ "$(printf '%s\n' "$MIN_CORE" "$CURRENT_VERSION" | sort -V | head -n1)" != "$MIN_CORE" ]]; then
+    NEED_UPGRADE=1
+fi
+grep -q "AttentionTensorContainer" "$COMFYUI_DIR/comfy/ldm/modules/attention.py" 2>/dev/null || NEED_UPGRADE=1
+grep -rq "class ModelAttentionBackend" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null || NEED_UPGRADE=1
+
+if [ "$NEED_UPGRADE" = "1" ]; then
+    echo "  ⚠️  core $CURRENT_VERSION lacks the H3 prerequisites (need >= $MIN_CORE) — upgrading..."
+    ver_ge() { [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+    # Plain `git stash` ONLY — never --include-untracked: that would clobber the
+    # untracked .venv-cu128/ and leave ComfyUI unable to start at all.
+    git -C "$COMFYUI_DIR" stash --quiet 2>/dev/null || true
+    # Prefer a released tag >= MIN_CORE (deterministic); fall back to origin/master.
+    git -C "$COMFYUI_DIR" fetch origin --tags --quiet 2>/dev/null || \
+        git -C "$COMFYUI_DIR" fetch origin master --depth=1 --quiet 2>/dev/null || true
+    TARGET_TAG=$(git -C "$COMFYUI_DIR" tag --sort=-version:refname 2>/dev/null | grep -E '^v[0-9]' | head -1 || true)
+    if [ -n "$TARGET_TAG" ] && ver_ge "$TARGET_TAG" "v$MIN_CORE"; then
+        echo "  Checking out $TARGET_TAG"
+        git -C "$COMFYUI_DIR" checkout "$TARGET_TAG" --quiet 2>/dev/null || true
+    else
+        echo "  No tag >= v$MIN_CORE found — falling back to origin/master"
+        git -C "$COMFYUI_DIR" checkout origin/master -- . 2>/dev/null || \
+            git -C "$COMFYUI_DIR" checkout origin/main -- . 2>/dev/null || true
+    fi
+    UPGRADED=1
+    # Verify the checkout actually delivered what the gate just tested for.
+    V2=$(git -C "$COMFYUI_DIR" describe --tags 2>/dev/null | sed 's/^v//')
+    if grep -q "AttentionTensorContainer" "$COMFYUI_DIR/comfy/ldm/modules/attention.py" 2>/dev/null && \
+       grep -rq "class ModelAttentionBackend" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null; then
+        echo "  ✅ ComfyUI upgraded to $V2 — H3 prerequisites present"
+    else
+        echo "  ❌ Upgrade incomplete: H3 prerequisites STILL missing after checkout ($V2)."
+        echo "      MiniMaxH3DualClockSamplerT8 / ModelAttentionBackend will not register —"
+        echo "      the workflow would load with Missing Node Packs. Not queueing a run."
+        exit 1
+    fi
 else
-    echo "  ✅ ComfyUI $CURRENT_VERSION >= v0.30.0 — no upgrade needed"
+    echo "  ✅ ComfyUI $CURRENT_VERSION >= $MIN_CORE with H3 prerequisites — no upgrade needed"
 fi
 
 # ── Detect ComfyUI Python ──
@@ -75,6 +115,16 @@ else
     COMFY_PYTHON="python3"
     COMFY_PIP="pip3"
     echo "  ⚠️  Using system Python"
+fi
+
+# ── Phase 0b: refresh ComfyUI python deps after a core upgrade ──
+# An upgraded core can import new packages (e.g. comfy-kitchen, pulled in by
+# ModelAttentionBackend / sparse attention). Without this the new core can fail at
+# import time and ComfyUI never binds — the same silent-green failure class as the
+# unknown-flag bug. Runs only when Phase 0 actually upgraded.
+if [ "${UPGRADED:-0}" = "1" ] && [ -f "$COMFYUI_DIR/requirements.txt" ]; then
+    echo "==> Phase 0b: Installing ComfyUI requirements after core upgrade..."
+    $COMFY_PIP install -q -r "$COMFYUI_DIR/requirements.txt" 2>&1 | tail -3 || true
 fi
 
 # ── Phase 1: Install Custom Nodes ──
