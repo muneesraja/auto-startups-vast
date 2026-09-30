@@ -7,9 +7,31 @@
 # size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB) + BUNNY bridge adapters (~44MB)
 # min_vram: 24GB
 # nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge]
+# usage: ./minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.sh [--interactive]
+#   --interactive  Prompt for HF_TOKEN on stdin (hidden) before starting. Needs a TTY
+#                  (tmux pane or foreground shell). Enter = keep env/config token.
 # ---
 
 set -e
+
+# ── CLI args ──
+# --interactive prompts for HF_TOKEN before any long work. Manual/foreground runs
+# usually have no token in the env and no /root/config/token.json, so the helper
+# would abort mid-Phase-2 after the custom nodes were already installed.
+INTERACTIVE=0
+for arg in "$@"; do
+    case "$arg" in
+        --interactive|-i) INTERACTIVE=1 ;;
+        -h|--help)
+            echo "Usage: $0 [--interactive]"
+            echo "  --interactive   Prompt for HF_TOKEN on stdin (hidden input)."
+            echo "                  Enter = keep the token already in env/config."
+            echo "                  Needs a TTY (tmux pane / foreground shell) — do NOT pipe stdin in."
+            exit 0
+            ;;
+        *) echo "⚠️  Ignoring unknown argument: $arg" ;;
+    esac
+done
 
 # ── Platform Detection ──
 echo "==> Detecting platform..."
@@ -28,6 +50,33 @@ elif [ -d "/workspace/ComfyUI" ]; then
 else
     echo "❌ Unknown platform - ComfyUI directory not found"
     exit 1
+fi
+
+# ── Interactive HF_TOKEN prompt (--interactive) ──
+if [ "$INTERACTIVE" = "1" ]; then
+    echo "==> Interactive mode — collecting HF_TOKEN"
+    if [ ! -t 0 ]; then
+        echo "  ⚠️  stdin is not a TTY — nothing to read."
+        echo "      Run in a tmux pane or a foreground shell (no stdin pipe), then re-run."
+    else
+        if [ -n "${HF_TOKEN:-}" ]; then
+            echo "  ℹ️  HF_TOKEN already in env (${#HF_TOKEN} chars) — press Enter to keep it."
+        fi
+        # -s hides the token from the terminal; `|| true` keeps `set -e` from
+        # aborting the whole script on EOF (e.g. someone pipes stdin in anyway).
+        read -rsp "  🔑 Enter HF_TOKEN (hidden, Enter = use existing env/config): " _HF_INPUT || true
+        echo
+        if [ -n "${_HF_INPUT:-}" ]; then
+            export HF_TOKEN="$_HF_INPUT"
+            case "$HF_TOKEN" in
+                hf_*) echo "  ✅ HF_TOKEN set (${#HF_TOKEN} chars)" ;;
+                *)    echo "  ⚠️  HF_TOKEN does not start with 'hf_' — continuing, but downloads may 401." ;;
+            esac
+            unset _HF_INPUT
+        else
+            echo "  ℹ️  No input — falling back to \$HF_TOKEN / /root/config/token.json"
+        fi
+    fi
 fi
 
 BASE_DIR="$COMFYUI_DIR/models"
