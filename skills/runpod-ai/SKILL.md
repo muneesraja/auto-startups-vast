@@ -261,6 +261,14 @@ You can also pass the exact filename (with or without `.sh`).
 
 ### Step-by-Step: Run a Workflow on an Existing Pod
 
+> **Munees runs from the pod's Jupyter notebook terminal — no tmux needed.** A Jupyter terminal is a
+> persistent server-side PTY: closing/reloading the browser tab does not kill the process, so
+> detaching is pointless. For him the recipe collapses to two commands typed straight into that
+> terminal — `curl -sSL <raw script url> -o /root/h3.sh && chmod +x /root/h3.sh` then
+> `bash /root/h3.sh --interactive` — with `2>&1 | tee /root/h3.log` if he wants a log to re-read.
+> Keep tmux for raw SSH sessions that can drop. When he asks "how do I run this script", answer with
+> those commands inline in chat, not a doc link.
+
 **1. Get SSH connection info**
 
 ```bash
