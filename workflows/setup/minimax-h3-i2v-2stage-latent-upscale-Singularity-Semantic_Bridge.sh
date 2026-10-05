@@ -6,7 +6,7 @@
 # description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; Singularity ref2va pruned base + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
 # size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
 # min_vram: 24GB
-# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyLiterals, ComfyUI-ShellAgent-Plugin]
+# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8]
 # usage: ./minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.sh [--interactive]
 #   --interactive  Prompt for HF_TOKEN on stdin (hidden) before starting. Needs a TTY
 #                  (tmux pane or foreground shell). Enter = keep env/config token.
@@ -192,6 +192,10 @@ if command -v comfy >/dev/null 2>&1; then
     comfy node install https://github.com/yolain/ComfyUI-Easy-Use 2>/dev/null || true
     comfy node install https://github.com/M1kep/ComfyLiterals 2>/dev/null || true
     comfy node install https://github.com/myshell-ai/ComfyUI-ShellAgent-Plugin 2>/dev/null || true
+    # MiniMaxH3PromptEnhancerT8 (separate repo from the audio-T8 pack — the node class is
+    # NOT in comfyui-minimax-h3-audio-T8). Ships no requirements.txt; its pyproject needs
+    # numpy/Pillow/requests/comfyui-frontend-package>=1.49.6.
+    comfy node install https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 2>/dev/null || true
     echo "  ✅ comfy-cli done"
 else
     echo "  comfy-cli not found, cloning manually..."
@@ -203,6 +207,7 @@ else
     [ -d ComfyUI-Easy-Use ] || git clone --depth=1 https://github.com/yolain/ComfyUI-Easy-Use || true
     [ -d ComfyLiterals ] || git clone --depth=1 https://github.com/M1kep/ComfyLiterals || true
     [ -d ComfyUI-ShellAgent-Plugin ] || git clone --depth=1 https://github.com/myshell-ai/ComfyUI-ShellAgent-Plugin || true
+    [ -d comfyui-minimax-h3-prompt-enhancer-T8 ] || git clone --depth=1 https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 || true
     cd "$COMFYUI_DIR"
 fi
 
@@ -212,7 +217,8 @@ echo "==> Installing node dependencies..."
 # (comfyui-easy-use) while a manual clone uses the repo name (ComfyUI-Easy-Use) — list both
 # variants and skip the ones that don't exist, so a missing dir can't abort a good run.
 for repo in ComfyUI-KJNodes comfyui-minimax-h3-audio-T8 Comfyui_Minimax_h3_latent_Upscaler ComfyUI-VideoHelperSuite \
-            ComfyLiterals ComfyUI-ShellAgent-Plugin comfyui-easy-use ComfyUI-Easy-Use; do
+            ComfyLiterals ComfyUI-ShellAgent-Plugin comfyui-easy-use ComfyUI-Easy-Use \
+            comfyui-minimax-h3-prompt-enhancer-T8; do
     [ -d "$CUSTOM_NODES_DIR/$repo" ] || continue
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
