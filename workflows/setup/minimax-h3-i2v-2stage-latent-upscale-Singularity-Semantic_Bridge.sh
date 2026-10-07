@@ -6,7 +6,7 @@
 # description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; int8 diffusion base — hybrid fl2va+ref2va by default, Singularity ref2va pruned via --interactive + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
 # size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
 # min_vram: 24GB
-# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8]
+# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8]
 # usage: ./minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.sh [--interactive]
 #   --interactive  Prompt for HF_TOKEN (hidden) and ask which diffusion model to
 #                  download. Needs a TTY (tmux pane or foreground shell).
@@ -274,6 +274,7 @@ echo "==> Installing node dependencies..."
 # variants and skip the ones that don't exist, so a missing dir can't abort a good run.
 for repo in ComfyUI-KJNodes comfyui-minimax-h3-audio-T8 Comfyui_Minimax_h3_latent_Upscaler ComfyUI-VideoHelperSuite \
             ComfyLiterals ComfyUI-ShellAgent-Plugin comfyui-easy-use ComfyUI-Easy-Use \
+            ComfyUI-Easy-Media comfyui-easy-media \
             comfyui-minimax-h3-prompt-enhancer-T8; do
     [ -d "$CUSTOM_NODES_DIR/$repo" ] || continue
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
@@ -517,6 +518,56 @@ mkdir -p "$BUNNY_MODELS_DIR"
 if [ -f "$BUNNY_DIR/requirements.txt" ]; then
     echo "  Installing BUNNY bridge deps..."
     $COMFY_PIP install -q -r "$BUNNY_DIR/requirements.txt" 2>&1 | tail -3 || true
+fi
+
+# ── Phase 1d: ComfyUI-Easy-Media custom node (MultiTrack editor + H3 project pipeline) ──
+# yolain's media/video-pipeline pack: https://github.com/yolain/ComfyUI-Easy-Media
+# The MultiTrack graph needs FIVE of its classes:
+#   easy modelLoaderPack, easy multiTrackEditor, easy multitrackProject,
+#   easy multitrackProjectVideoCombine, easy saveVideo
+# ⚠️ HARD FLOOR v1.3.0 — easy multitrackProject / easy multitrackProjectVideoCombine /
+# easy modelLoaderPack only exist from v1.3.0 (the MultiTrack Project pipeline landed
+# then). An OUT-OF-DATE ComfyUI-Manager registry cache serves v1.2.1, which installs
+# "successfully", registers 66 classes, and still reports "Missing Node Packs:
+# ComfyUI-Easy-Media" for exactly those three (observed 2026-10-07 on Vast
+# 85.30.169.224:40517 — Manager logged "ComfyRegistry cache update is still in
+# progress, so an outdated cache is being used"). So pin the clone, and REPLACE any
+# below-floor copy already on disk instead of trusting it. Zero pip deps
+# (pyproject `dependencies = []`); FFmpeg IS a hard runtime prerequisite.
+echo "==> Installing ComfyUI-Easy-Media custom node..."
+EASY_MEDIA_REPO="https://github.com/yolain/ComfyUI-Easy-Media"
+EASY_MEDIA_TAG="v1.3.4"
+# comfy-cli/Manager lands the REGISTRY name (comfyui-easy-media); a clone lands the
+# repo name (ComfyUI-Easy-Media). Resolve whichever exists — never clone a second
+# copy beside it, two dirs would register the same node ids twice.
+EASY_MEDIA_DIR=""
+if [ -d "$CUSTOM_NODES_DIR/ComfyUI-Easy-Media" ]; then
+    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/ComfyUI-Easy-Media"
+elif [ -d "$CUSTOM_NODES_DIR/comfyui-easy-media" ]; then
+    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/comfyui-easy-media"
+fi
+if [ -n "$EASY_MEDIA_DIR" ] && \
+   ! grep -rq -- "easy multitrackProject" "$EASY_MEDIA_DIR" --include=*.py 2>/dev/null; then
+    echo "  ⚠️  $(basename "$EASY_MEDIA_DIR") predates $EASY_MEDIA_TAG — replacing with the pinned release"
+    rm -rf "$EASY_MEDIA_DIR"
+    EASY_MEDIA_DIR=""
+fi
+if [ -z "$EASY_MEDIA_DIR" ]; then
+    echo "  📥 Cloning $EASY_MEDIA_REPO @ $EASY_MEDIA_TAG ..."
+    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 --branch "$EASY_MEDIA_TAG" \
+        "$EASY_MEDIA_REPO" ComfyUI-Easy-Media ) || echo "  ⚠️  Easy-Media clone failed (non-fatal)"
+    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/ComfyUI-Easy-Media"
+fi
+if grep -rq -- "easy multitrackProject" "$EASY_MEDIA_DIR" --include=*.py 2>/dev/null; then
+    echo "  ✅ ComfyUI-Easy-Media installed at $EASY_MEDIA_DIR ($(git -C "$EASY_MEDIA_DIR" describe --tags 2>/dev/null || echo 'no tag'))"
+else
+    echo "  ⚠️  ComfyUI-Easy-Media is missing the MultiTrack Project nodes — the graph will report 'Missing Node Packs'"
+fi
+# FFmpeg is a README-flagged hard prerequisite for the whole pack (every video node shells out to it).
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo "  ✅ ffmpeg present ($(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}'))"
+else
+    echo "  ⚠️  ffmpeg NOT found — ComfyUI-Easy-Media video nodes need it: apt-get install -y ffmpeg"
 fi
 
 # ── Create model directories ──
