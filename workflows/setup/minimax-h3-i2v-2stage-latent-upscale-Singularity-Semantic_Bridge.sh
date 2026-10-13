@@ -4,7 +4,7 @@
 # workflow: minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge
 # aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity, minimax-h3-i2v-singularity-semantic-bridge, h3-bunny-bridge]
 # description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; int8 diffusion base — hybrid fl2va+ref2va by default, Singularity ref2va pruned via --interactive + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
-# size: ~71GB + taeh3 + 2 JOKER141 LoRAs (~310MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
+# size: ~71GB + taeh3 + 3 JOKER141 LoRAs (~465MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
 # min_vram: 24GB
 # nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8]
 # usage: ./minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.sh [--interactive]
@@ -586,41 +586,41 @@ source "$BASE_DIR/_hf_download.sh"
 echo "==> Starting model downloads..."
 
 # ── VAE (video) ──
-echo "[1/18] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
+echo "[1/19] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/18] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
+echo "[2/19] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/18] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
+echo "[3/19] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
 hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
 # Selected at startup: hybrid fl2va+ref2va int8 by default, Singularity ref2va
 # pruned via `--interactive` choice 2. One file only — see the header for which
 # workflow JSON matches which file.
-echo "[4/18] $DIFFUSION_FILE (Diffusion Model)..."
+echo "[4/19] $DIFFUSION_FILE (Diffusion Model)..."
 hf_download "$DIFFUSION_REPO" "$DIFFUSION_FILE" "$BASE_DIR/diffusion_models"
 
 # ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
-echo "[5/18] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+echo "[5/19] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
-echo "[6/18] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+echo "[6/19] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[7/18] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
+echo "[7/19] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
 
 # ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[8/18] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
+echo "[8/19] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
 # ── LoRA: H3 Realism People (fal) ──
-echo "[9/18] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
+echo "[9/19] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
 hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.safetensors" "$BASE_DIR/loras"
 
 
@@ -629,7 +629,7 @@ hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.
 # `minimax_h3_latent_upscaler_3d_conv_v1/` subdir (2026-09). The bare filename 404s.
 # Download the nested file then flatten it to the exact name the workflow references
 # (minimax_h3_latent_upscaler_3d_fp16.safetensors) so the node's dropdown picks it up.
-echo "[10/18] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
+echo "[10/19] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
 SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
 TGT="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
 if [ ! -s "$TGT" ]; then
@@ -643,24 +643,28 @@ else
 fi
 
 # ── Tiny VAE for live preview ──
-echo "[11/18] taeh3.safetensors (Tiny VAE - live preview)..."
+echo "[11/19] taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR"
 
 # ── Semantic Bridge adapter model ──
-echo "[12/18] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
+echo "[12/19] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
 hf_download "speach1sdef178/MiniMax-H3-Semantic-Bridge" "MiniMaxH3_SemanticBridge_v1.safetensors" "$BASE_DIR/semantic_bridge"
 
 # ── LoRA: ref2v turbo 4-step v0.1 (comfyui) ──
-echo "[13/18] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
+echo "[13/19] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
-# ── LoRA: General Motion Continuity Repair (JOKER141) ──
-echo "[14/18] Motion_Repair.safetensors (LoRA - General Motion Continuity Repair)..."
-hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair.safetensors" "$BASE_DIR/loras"
+# ── LoRA: General Motion Continuity Repair V2 (JOKER141) ──
+echo "[14/19] Motion_Repair_V2.safetensors (LoRA - General Motion Continuity Repair V2)..."
+hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair_V2.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: Combat Base V2 (JOKER141) ──
-echo "[15/18] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
+echo "[15/19] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
 hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BASE_DIR/loras"
+
+# ── LoRA: Fight Flow Fight Interaction V1 (JOKER141) ──
+echo "[16/19] H3_Fight_Flow_V1.safetensors (LoRA - Fight Flow Fight Interaction V1)..."
+hf_download "JOKER141/H3-Fight-Flow-Fight-Interaction-LoRA" "H3_Fight_Flow_V1.safetensors" "$BASE_DIR/loras"
 
 # ── BUNNY H3 ActionLogic Bridge adapters (JOKER141) ──
 # 22MB residual MLPs (5120 -> 512 -> 512 -> 5120) that plug inline on the H3
@@ -674,19 +678,19 @@ hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BA
 #   V2 — the rebuilt-pipeline adapter described in the V2 update notes. Same
 #        architecture/dims as V1 and only ~22MB, so it ships too and you pick it
 #        from the dropdown. Drop this line if you want V1 only.
-echo "[16/18] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
+echo "[17/19] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
 hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V1.safetensors" "$BUNNY_MODELS_DIR"
 
-echo "[17/18] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
+echo "[18/19] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
 hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V2.safetensors" "$BUNNY_MODELS_DIR"
 
 # ── LoRA: DMAD 4-step full (Kijai/MiniMax-H3-experimental, avg rank 39) ──
 # The file lives under the repo's `loras/` subdir, so dest is $BASE_DIR — NOT $BASE_DIR/loras.
 # The helper mirrors the repo-relative path, so it lands at models/loras/<name>; passing
 # $BASE_DIR/loras would nest it as loras/loras/<name> (on disk, but invisible to the dropdown).
-# Download-only, like Motion_Repair / Combat V2: no shipped graph references it — add a
+# Download-only, like Motion_Repair_V2 / Combat V2 / Fight Flow: no shipped graph references it — add a
 # LoraLoaderModelOnly node and select it to use it.
-echo "[18/18] minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
+echo "[19/19] minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
 hf_download "Kijai/MiniMax-H3-experimental" "loras/minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors" "$BASE_DIR"
 
 echo "==> All downloads completed!"
