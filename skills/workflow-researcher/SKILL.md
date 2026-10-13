@@ -733,6 +733,11 @@ The following operational addenda are maintained with this skill:
 - **Audio subgraphs:** `references/audio-subgraph-t2a.md` and
   `templates/audio-subgraph-t2a.template` — reusable audio workflow guidance.
 - **SCAIL-2/Wan discovery:** `references/scail-2-wan-discovery-2026-07-23.md`.
+- **BUNNY SelfLift H3 (Sol-Attn):** `references/h3-selflift-solattn-packs-2026-10-13.md` —
+  the `selflift-Avatar` / `BSAI-ComfyUI-Sol-H3` (`SolAttnMiniMax`) /
+  `ComfyUI-YCNodes-MiniMax-H3` (`H3SigmaRefiner`) packs, comfy_kitchen's fail-soft
+  Sol-Attn kernels, and the renamed-widget alias rule (upscaler `_V2`,
+  `Motion_Repair` → `Motion_Repair_V2`).
 - **BUNNY H3 Conditioning Bridge:** `references/bunny-h3-bridge-2026-09-29.md` — the
   node (GitHub `aa335615543-ux`) and its weights (HF `JOKER141`) live under
   DIFFERENT orgs; adapter lookup is bundled `<node>/models/` FIRST; resolve the
