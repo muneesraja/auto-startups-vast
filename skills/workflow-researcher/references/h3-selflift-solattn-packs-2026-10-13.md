@@ -11,7 +11,7 @@ Singularity/Semantic-Bridge script, 20 downloads, ~64.4GB measured.
 | Class in JSON | Pack | Notes |
 |---|---|---|
 | `SelfLiftAvatarH3Sampler`, `SelfLiftAvatarH3TST` | `slmonker/selflift-Avatar` | clone dir **must** be `selflift-Avatar` (README + users). Registers 3 ids; coexists with facok's `comfyui-SelfLift`. Zero pip deps. |
-| `SolAttnMiniMax` | `xm6018924/BSAI-ComfyUI-Sol-H3` | file `sol_attn_minimax_v2.py`. NOT `kijai/ComfyUI-SolAttn_triton` (that one only exports `SolAttnPatch`/`SolAttnBlockProbe`). |
+| `SolAttnMiniMax` | **already in `comfyui-minimax-h3-audio-T8`** | vendored at the pack root as `sol_attn_minimax_v2.py`. Verified live 2026-10-13: `/object_info` → `SolAttnMiniMax -> custom_nodes.comfyui-minimax-h3-audio-T8`. NOT in `kijai/ComfyUI-SolAttn_triton` (only `SolAttnPatch`/`SolAttnBlockProbe`), and `xm6018924/BSAI-ComfyUI-Sol-H3` is a **second provider of the same node id** (identical 14-widget schema; 40.9KB/v2.9.2 vs the bundled 39.6KB) — install it only as a fallback when the bundled class is missing, never alongside. |
 | `H3SigmaRefiner` | `yichengup/ComfyUI-YCNodes-MiniMax-H3` | `py/h3_sigma_refiner.py`; `__init__.py` self-imports all `py/*.py`. No requirements.txt. |
 
 `ComfyMathExpression` (comfy_extras/nodes_math.py), `ResolutionSelector`
