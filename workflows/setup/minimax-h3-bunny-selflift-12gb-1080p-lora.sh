@@ -6,7 +6,7 @@
 # description: MiniMax H3 2-stage SelfLift (avatar) render with 3D latent upscaling — H3SigmaRefiner sigma refine + Sol-Attn sparse attention + the BUNNY two-stage LoRA chain (Combat V2 / Fight-Flow V1 / Motion Repair); int8 hybrid fl2va+ref2va base. Superset of the Singularity/Semantic-Bridge script (Semantic Bridge + BUNNY conditioning-bridge packs + Easy-Media are still installed)
 # size: ~64.4GB measured (hybrid fl2va+ref2va int8; either diffusion base lands ~64-65GB)
 # min_vram: 24GB
-# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8, selflift-Avatar, BSAI-ComfyUI-Sol-H3, ComfyUI-YCNodes-MiniMax-H3]
+# nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8, selflift-Avatar, ComfyUI-YCNodes-MiniMax-H3]
 # usage: ./minimax-h3-bunny-selflift-12gb-1080p-lora.sh [--interactive]
 #   --interactive  Prompt for HF_TOKEN (hidden) and ask which diffusion model to
 #                  download. Needs a TTY (tmux pane or foreground shell).
@@ -172,7 +172,8 @@ grep -rq "class ModelAttentionBackend" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null 
 #   SaveVideo / CreateVideo  — comfy_extras/nodes_video.py (stage-2 AV output)
 #   ComfyMathExpression      — comfy_extras/nodes_math.py (auto frame-count node)
 #   comfy_api/latest (io.ComfyNode + ComfyExtension) — imported at module top level by
-#   BSAI-ComfyUI-Sol-H3's SolAttnMiniMax; without it the pack logs IMPORT FAILED and
+#   the SolAttnMiniMax node (vendored in comfyui-minimax-h3-audio-T8); without it the
+#   pack logs IMPORT FAILED and
 #   the workflow loads with Missing Node Packs while a tag-only check stays green.
 grep -rq "class SaveVideo" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null || NEED_UPGRADE=1
 grep -rq "class MathExpressionNode" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null || NEED_UPGRADE=1
@@ -267,8 +268,11 @@ if command -v comfy >/dev/null 2>&1; then
     # numpy/Pillow/requests/comfyui-frontend-package>=1.49.6.
     comfy node install https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 2>/dev/null || true
     # BUNNY SelfLift graph packs (see Phases 1e/1f/1g for what each one registers).
+    # NOTE: xm6018924/BSAI-ComfyUI-Sol-H3 is deliberately NOT installed here — its
+    # SolAttnMiniMax node id is already provided by comfyui-minimax-h3-audio-T8
+    # (installed above). Two packs registering one node id makes the winner
+    # load-order dependent. Phase 1f clones BSAI only as a fallback.
     comfy node install https://github.com/slmonker/selflift-Avatar 2>/dev/null || true
-    comfy node install https://github.com/xm6018924/BSAI-ComfyUI-Sol-H3 2>/dev/null || true
     comfy node install https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3 2>/dev/null || true
     echo "  ✅ comfy-cli done"
 else
@@ -283,7 +287,6 @@ else
     [ -d ComfyUI-ShellAgent-Plugin ] || git clone --depth=1 https://github.com/myshell-ai/ComfyUI-ShellAgent-Plugin || true
     [ -d comfyui-minimax-h3-prompt-enhancer-T8 ] || git clone --depth=1 https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 || true
     [ -d selflift-Avatar ] || git clone --depth=1 https://github.com/slmonker/selflift-Avatar || true
-    [ -d BSAI-ComfyUI-Sol-H3 ] || git clone --depth=1 https://github.com/xm6018924/BSAI-ComfyUI-Sol-H3 || true
     [ -d ComfyUI-YCNodes-MiniMax-H3 ] || git clone --depth=1 https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3 || true
     cd "$COMFYUI_DIR"
 fi
@@ -297,7 +300,7 @@ for repo in ComfyUI-KJNodes comfyui-minimax-h3-audio-T8 Comfyui_Minimax_h3_laten
             ComfyLiterals ComfyUI-ShellAgent-Plugin comfyui-easy-use ComfyUI-Easy-Use \
             ComfyUI-Easy-Media comfyui-easy-media \
             comfyui-minimax-h3-prompt-enhancer-T8 \
-            selflift-Avatar BSAI-ComfyUI-Sol-H3 ComfyUI-YCNodes-MiniMax-H3; do
+            selflift-Avatar ComfyUI-YCNodes-MiniMax-H3; do
     [ -d "$CUSTOM_NODES_DIR/$repo" ] || continue
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
@@ -619,32 +622,45 @@ else
     echo "  ⚠️  selflift-Avatar missing SelfLiftAvatarH3Sampler — the graph will report Missing Node Packs"
 fi
 
-# ── Phase 1f: BSAI-ComfyUI-Sol-H3 (SolAttnMiniMax — Sol-Attn sparse attention) ──
-# https://github.com/xm6018924/BSAI-ComfyUI-Sol-H3 — registers SolAttnMiniMax
-# ("Patch Sol-Attn (MiniMax)"), the MODEL patch this workflow inserts between the
-# SelfLift TST node and the sampler. It installs an optimized_attention_override
-# backed by comfy_kitchen's CUDA sol_attn kernels (bf16, head_dim 128, sm_80+;
-# RTX 50-series sm_120 path). With no comfy_kitchen the node logs
-# "kernel failed (...) falling back" and the render still completes — it just loses
-# the sparse-attention speedup. That is a silent regression, so we probe below.
-# ⚠️ The repo ships install.py (auto: pip-installs comfy_kitchen + downloads a ~300MB
-# "FastH3" 4-step LoRA into models/loras/). We deliberately do NOT run it: this graph
-# brings its own turbo LoRA and takes comfy_kitchen from ComfyUI itself. A later
-# ComfyUI-Manager pass may run it anyway — harmless (one extra LoRA on disk).
-echo "==> Installing BSAI-ComfyUI-Sol-H3 custom node..."
-BSAI_REPO="https://github.com/xm6018924/BSAI-ComfyUI-Sol-H3"
-BSAI_DIR="$CUSTOM_NODES_DIR/BSAI-ComfyUI-Sol-H3"
-if command -v comfy >/dev/null 2>&1; then
-    comfy node install "$BSAI_REPO" 2>/dev/null || true
-fi
-[ -f "$BSAI_DIR/sol_attn_minimax_v2.py" ] || \
-    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$BSAI_REPO" BSAI-ComfyUI-Sol-H3 ) \
-        || echo "  ⚠️  BSAI-ComfyUI-Sol-H3 clone failed (non-fatal)"
-if grep -q "class SolAttnMiniMax" "$BSAI_DIR/sol_attn_minimax_v2.py" 2>/dev/null; then
-    echo "  ✅ SolAttnMiniMax present at $BSAI_DIR"
+# ── Phase 1f: Sol-Attn provider check (SolAttnMiniMax) ──
+# The workflow's "Patch Sol-Attn (MiniMax)" node is provided by
+# `comfyui-minimax-h3-audio-T8`, installed in Phase 1 — T8mars vendors the same
+# single-file node at the pack root (`sol_attn_minimax_v2.py`). Verified live
+# 2026-10-13: /object_info's python_module for SolAttnMiniMax =
+# `custom_nodes.comfyui-minimax-h3-audio-T8`.
+# So xm6018924/BSAI-ComfyUI-Sol-H3 is deliberately NOT installed here: it registers
+# the SAME node id, and a second provider makes the winner load-order dependent
+# (the two files even differ — bundled 39.6KB vs BSAI 40.9KB / v2.9.2 — while both
+# expose an identical 14-widget schema, so the choice is invisible until it isn't).
+# This block asserts the class is really present and only then clones BSAI as a
+# fallback, so a future audio-T8 that drops the vendored file fails LOUDLY instead
+# of shipping a graph with a Missing Node Pack.
+echo "==> Verifying the Sol-Attn provider (SolAttnMiniMax)..."
+SOLATTN_SRC="$CUSTOM_NODES_DIR/comfyui-minimax-h3-audio-T8/sol_attn_minimax_v2.py"
+if grep -q "class SolAttnMiniMax" "$SOLATTN_SRC" 2>/dev/null; then
+    echo "  ✅ SolAttnMiniMax provided by comfyui-minimax-h3-audio-T8 (no extra pack needed)"
 else
-    echo "  ⚠️  SolAttnMiniMax missing — the graph will report Missing Node Packs"
+    echo "  ⚠️  comfyui-minimax-h3-audio-T8 no longer vendors SolAttnMiniMax —"
+    echo "      falling back to the standalone pack xm6018924/BSAI-ComfyUI-Sol-H3"
+    BSAI_REPO="https://github.com/xm6018924/BSAI-ComfyUI-Sol-H3"
+    BSAI_DIR="$CUSTOM_NODES_DIR/BSAI-ComfyUI-Sol-H3"
+    if command -v comfy >/dev/null 2>&1; then
+        comfy node install "$BSAI_REPO" 2>/dev/null || true
+    fi
+    [ -f "$BSAI_DIR/sol_attn_minimax_v2.py" ] || \
+        ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$BSAI_REPO" BSAI-ComfyUI-Sol-H3 ) \
+            || echo "  ⚠️  BSAI fallback clone failed (non-fatal)"
+    if grep -q "class SolAttnMiniMax" "$BSAI_DIR/sol_attn_minimax_v2.py" 2>/dev/null; then
+        echo "  ✅ SolAttnMiniMax present at $BSAI_DIR"
+    else
+        echo "  ❌ SolAttnMiniMax unavailable from BOTH packs — the graph will report Missing Node Packs."
+    fi
 fi
+
+# ⚠️ The BSAI repo also ships an install.py that pip-installs comfy_kitchen and
+# downloads a ~300MB "FastH3" 4-step LoRA into models/loras/. We never run it — this
+# graph brings its own turbo LoRA and takes comfy_kitchen from ComfyUI itself. A
+# later ComfyUI-Manager pass may run it; harmless (one extra LoRA on disk).
 
 # ── Sol-Attn runtime prerequisites: comfy_kitchen kernels + triton ──
 # SolAttnMiniMax needs comfy_kitchen with the sol_attn sink_blocks / sink_q / tail
