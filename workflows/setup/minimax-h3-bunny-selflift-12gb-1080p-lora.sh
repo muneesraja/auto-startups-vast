@@ -55,7 +55,8 @@ for arg in "$@"; do
             echo "  Interactive choice 3 is the FastH3 Omni ref2v 8-step pruned int8 base (~20.7GiB):"
             echo "    fasth3_omniref_8step_pruned_int8_convrot.safetensors"
             echo "    (download only — no bundled graph matches it yet; 8 steps, cfg 1.0,"
-            echo "     video shift 12.0, audio shift 3.0, no turbo LoRA)"
+            echo "     video shift 12.0, audio shift 3.0, no turbo LoRA; its VAEs AND text"
+            echo "     encoder are pulled from FastVideo/FastH3-Omni-Comfy, same files as Comfy-Org)"
             echo "  The three are different weight files — match the workflow's UNETLoader widget."
             echo "  This script targets the BUNNY SelfLift graph, whose UNETLoader names the hybrid:"
             echo "    workflows/comfyui/minimax/BUNNY_SelfLift_12GB1080P_LORA__1.json"
@@ -125,11 +126,11 @@ SINGULARITY_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_
 # FastH3 Omni ships inside the repo's diffusion_models/ subdir — the filename keeps
 # that prefix so hf_download mirrors it, and step [4/21] points the helper at
 # $BASE_DIR instead of $BASE_DIR/diffusion_models (otherwise it nests twice and the
-# UNETLoader dropdown never sees the file). Its card also pins its own vae/ copies,
-# so steps [1/21]-[2/21] source the VAEs from this repo when choice 3 is picked
-# (byte-identical to Comfy-Org's — same LFS sha256 + size, verified 2026-10 — so the
-# paths land the same two files; the switch is provenance, not a different decode).
-# The text encoder stays on Comfy-Org (also byte-identical).
+# UNETLoader dropdown never sees the file). Its card also pins its own vae/ and
+# text_encoders/ copies, so steps [1/21]-[3/21] source ALL THREE from this repo when
+# choice 3 is picked (byte-identical to Comfy-Org's — same LFS sha256 + size, verified
+# 2026-10 — so the paths land the same files; the switch is provenance, not a
+# different decode).
 FASTH3_REPO="FastVideo/FastH3-Omni-Comfy"
 FASTH3_FILE="diffusion_models/fasth3_omniref_8step_pruned_int8_convrot.safetensors"
 # No bundled graph: the shipped H3 graphs drive a turbo LoRA on a 4/5/6-step
@@ -179,7 +180,7 @@ if [ "$INTERACTIVE" = "1" ]; then
         echo "               bypass its turbo LoRA, then use: 8 steps, cfg 1.0,"
         echo "               video shift 12.0, audio shift 3.0, euler sampler."
         echo "               Prompt reference tags: <Picture 1> <Video 1> <Audio 1>"
-        echo "     VAEs: pulled from $FASTH3_REPO (its card's copies)"
+        echo "     VAEs + text encoder: pulled from $FASTH3_REPO (its card's copies)"
     fi
 else
     echo "==> Non-interactive: diffusion model = $DIFFUSION_FILE (hybrid fl2va+ref2va int8)"
@@ -199,15 +200,28 @@ if [ -z "$CURRENT_VERSION" ]; then
 fi
 echo "  Current ComfyUI version: $CURRENT_VERSION"
 
-# The version tag alone is NOT a sufficient gate. This workflow needs core >= 0.33.2:
+# The version tag alone is NOT a sufficient gate. The floor is core >= 0.42.0:
 #   * ModelAttentionBackend is a comfy-core node (the workflow records core ver 0.33.2)
 #   * comfyui-minimax-h3-audio-T8 imports AttentionTensorContainer from
 #     comfy.ldm.modules.attention at module top level
-# On v0.30.0 both are absent: the pack's import dies ("IMPORT FAILED") and
-# MiniMaxH3DualClockSamplerT8 / ModelAttentionBackend never register, so the workflow
-# loads with Missing Node Packs — while a tag-only ">= 0.30.0" check reports
-# "no upgrade needed" and the script's log stays green. Gate on capability, not the tag.
-MIN_CORE="0.35.0"
+#   * FastH3 Omni (choice 3) is a PDD (step-stacked head) release — metadata
+#     `{"config": "{\"transformer\": {\"pdd_steps\": 32}}"}` — so its
+#     final_layer.audio_out is [1024, 5376] (32 audio ch x 32 steps) and
+#     final_layer.video_out is [3072, 5376] (96 x 32). Only core >= 0.42.0 reads
+#     pdd_steps in model_detection.py and divides by it; on 0.35.x-0.41.x it takes the
+#     head widths verbatim — audio_latents_dim 1024 instead of 32 — and step 1 dies with:
+#       RuntimeError: The size of tensor a (32) must match the size of tensor b (1024)
+#       at non-singleton dimension 1
+#     from comfy/ldm/minimax/model.py forward() (the audio_scale carry fixup).
+# On v0.30.0 the same packs are also missing AttentionTensorContainer/ModelAttentionBackend:
+# their import dies ("IMPORT FAILED") and MiniMaxH3DualClockSamplerT8 never registers, so
+# the workflow loads with Missing Node Packs — while a tag-only check reports "no upgrade
+# needed" and the script's log stays green. Gate on capability, not the tag.
+#
+# 0.42.0 is the floor for EVERY diffusion choice (not just FastH3): it is the first tag
+# with pdd-aware detection, so one pin covers all three bases and a pod that later swaps
+# to FastH3 never needs a second upgrade pass.
+MIN_CORE="0.42.0"
 NEED_UPGRADE=0
 if [[ "$CURRENT_VERSION" == "unknown" ]] || \
    [[ "$(printf '%s\n' "$MIN_CORE" "$CURRENT_VERSION" | sort -V | head -n1)" != "$MIN_CORE" ]]; then
@@ -225,6 +239,10 @@ grep -rq "class ModelAttentionBackend" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null 
 grep -rq "class SaveVideo" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null || NEED_UPGRADE=1
 grep -rq "class MathExpressionNode" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null || NEED_UPGRADE=1
 [ -f "$COMFYUI_DIR/comfy_api/latest/__init__.py" ] || NEED_UPGRADE=1
+# PDD-aware detection: required by the FastH3 Omni base, and implied by MIN_CORE 0.42.0
+# for every path. Kept as a capability grep (not just the tag) so a mis-tagged or
+# patched tree can't report green and then die on step 1 with 32 vs 1024.
+grep -q "pdd_steps" "$COMFYUI_DIR/comfy/model_detection.py" 2>/dev/null || NEED_UPGRADE=1
 
 if [ "$NEED_UPGRADE" = "1" ]; then
     echo "  ⚠️  core $CURRENT_VERSION lacks the H3 prerequisites (need >= $MIN_CORE) — upgrading..."
@@ -250,12 +268,13 @@ if [ "$NEED_UPGRADE" = "1" ]; then
     if grep -q "AttentionTensorContainer" "$COMFYUI_DIR/comfy/ldm/modules/attention.py" 2>/dev/null && \
        grep -rq "class ModelAttentionBackend" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null && \
        grep -rq "class SaveVideo" "$COMFYUI_DIR/comfy_extras/" 2>/dev/null && \
-       [ -f "$COMFYUI_DIR/comfy_api/latest/__init__.py" ]; then
+       [ -f "$COMFYUI_DIR/comfy_api/latest/__init__.py" ] && \
+       grep -q "pdd_steps" "$COMFYUI_DIR/comfy/model_detection.py" 2>/dev/null; then
         echo "  ✅ ComfyUI upgraded to $V2 — H3 prerequisites present"
     else
         echo "  ❌ Upgrade incomplete: H3 prerequisites STILL missing after checkout ($V2)."
-        echo "      MiniMaxH3DualClockSamplerT8 / ModelAttentionBackend will not register —"
-        echo "      the workflow would load with Missing Node Packs. Not queueing a run."
+        echo "      MiniMaxH3DualClockSamplerT8 / ModelAttentionBackend will not register, or the"
+        echo "      FastH3 PDD audio head is rebuilt at 1024 ch (latent has 32). Not queueing a run."
         exit 1
     fi
 else
@@ -788,16 +807,20 @@ source "$BASE_DIR/_hf_download.sh"
 # ── Downloads ──
 echo "==> Starting model downloads..."
 
-# ── VAE source follows the diffusion-model choice ──
-# The FastH3 Omni card pins its OWN vae/ copies, so choice 3 pulls them from
-# FastVideo/FastH3-Omni-Comfy. The two files are byte-identical to Comfy-Org's
-# (same LFS sha256 + size), so nothing re-decodes differently — and because both
-# repos use the same repo-relative `vae/<name>` path, huggingface_hub sees the
-# already-present file and skips the transfer. The text encoder stays on Comfy-Org.
+# ── VAE + text-encoder source follows the diffusion-model choice ──
+# The FastH3 Omni card pins its OWN vae/ and text_encoders/ copies, so choice 3 pulls
+# all three from FastVideo/FastH3-Omni-Comfy (vae/minimax_h3_video_vae_fp16,
+# vae/minimax_h3_audio_vae_fp32, text_encoders/qwen3vl_32b_minimax_h3_int8_convrot).
+# They are byte-identical to Comfy-Org/MiniMax-H3's (same LFS sha256 + size), so
+# nothing re-decodes differently — and because both repos use the same repo-relative
+# `vae/...` / `text_encoders/...` paths, huggingface_hub sees the already-present
+# file and skips the transfer.
 if [ "$DIFFUSION_REPO" = "$FASTH3_REPO" ]; then
     VAE_REPO="$FASTH3_REPO"
+    TEXT_ENC_REPO="$FASTH3_REPO"
 else
     VAE_REPO="Comfy-Org/MiniMax-H3"
+    TEXT_ENC_REPO="Comfy-Org/MiniMax-H3"
 fi
 
 # ── VAE (video) ──
@@ -809,8 +832,11 @@ echo "[2/21] minimax_h3_audio_vae_fp32.safetensors (VAE - audio, $VAE_REPO)..."
 hf_download "$VAE_REPO" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/21] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
-hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
+# Same repo-relative `text_encoders/<name>` path in both repos, so local_dir is
+# $BASE_DIR and the file lands at models/text_encoders/<name> (the CLIPLoader dropdown
+# path). Passing $BASE_DIR/text_encoders would nest it twice.
+echo "[3/21] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder, $TEXT_ENC_REPO)..."
+hf_download "$TEXT_ENC_REPO" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
 # Selected at startup: hybrid fl2va+ref2va int8 by default, Singularity ref2va V2
