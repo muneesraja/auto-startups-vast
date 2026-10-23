@@ -2641,11 +2641,11 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+        "Minimax-h3_Singularity_ref2va_v2_int8.safetensors",
         "default"
       ],
       "widgets_values_named": {
-        "unet_name": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+        "unet_name": "Minimax-h3_Singularity_ref2va_v2_int8.safetensors",
         "weight_dtype": "default"
       }
     },

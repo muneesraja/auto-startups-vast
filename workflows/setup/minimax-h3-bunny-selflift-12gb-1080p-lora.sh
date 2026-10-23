@@ -3,8 +3,8 @@
 # name: BUNNY H3 SelfLift 2-Stage Latent Upscale (12GB 1080P LoRA)
 # workflow: BUNNY_SelfLift_12GB1080P_LORA__1
 # aliases: [bunny-selflift, h3-bunny-selflift, minimax-h3-bunny-selflift, h3-selflift-2stage, bunny-h3-1080p, h3-bunny-12gb, minimax-h3-bunny-lora]
-# description: MiniMax H3 2-stage SelfLift (avatar) render with 3D latent upscaling — H3SigmaRefiner sigma refine + Sol-Attn sparse attention + the BUNNY two-stage LoRA chain (Combat V2 / Fight-Flow V1 / Motion Repair); int8 hybrid fl2va+ref2va base. Superset of the Singularity/Semantic-Bridge script (Semantic Bridge + BUNNY conditioning-bridge packs + Easy-Media are still installed)
-# size: ~64.4GB measured (hybrid fl2va+ref2va int8; either diffusion base lands ~64-65GB)
+# description: MiniMax H3 2-stage SelfLift (avatar) render with 3D latent upscaling — H3SigmaRefiner sigma refine + Sol-Attn sparse attention + the BUNNY two-stage LoRA chain (Combat V2 / Fight-Flow V1 / Motion Repair / Superhuman Combat); int8 hybrid fl2va+ref2va base. Superset of the Singularity/Semantic-Bridge script (Semantic Bridge + BUNNY conditioning-bridge packs + Easy-Media are still installed)
+# size: ~64.6GB measured with the hybrid base (~77.7GB with the Singularity V2 base, which is unpruned at ~31.7GiB; ~65.8GB with the FastH3 Omni 8-step base at ~20.7GiB)
 # min_vram: 24GB
 # nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8, selflift-Avatar, ComfyUI-YCNodes-MiniMax-H3]
 # usage: ./minimax-h3-bunny-selflift-12gb-1080p-lora.sh [--interactive]
@@ -14,13 +14,22 @@
 #   Diffusion model — non-interactive runs ALWAYS take the hybrid:
 #     [default]   minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors
 #                 (smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models)
-#     [choice 2]  Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors
+#     [choice 2]  Minimax-h3_Singularity_ref2va_v2_int8.safetensors
 #                 (WarmBloodAban/Minimax-h3_Singularity)
-#   These are two DIFFERENT weight files (~19.5GiB each), NOT aliases — the
-#   workflow's UNETLoader widget must name the one you downloaded:
+#     [choice 3]  fasth3_omniref_8step_pruned_int8_convrot.safetensors
+#                 (FastVideo/FastH3-Omni-Comfy, inside its diffusion_models/ subdir)
+#   All three are DIFFERENT weight files (hybrid ~19.5GiB, Singularity V2
+#   ~31.7GiB — the V2 int8 release is NOT pruned, FastH3 Omni ~20.7GiB), NOT
+#   aliases — the workflow's UNETLoader widget must name the one you downloaded:
 #     hybrid      -> workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale.json
 #                    workflows/comfyui/minimax/BUNNY_SelfLift_12GB1080P_LORA__1.json   <- the workflow THIS script targets
 #     Singularity -> workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json
+#     FastH3 Omni -> no bundled graph yet (state 2026-10): the two shipped graphs run
+#                    a turbo LoRA on a 4/5/6-step ManualSigmas schedule, while this
+#                    base is already 8-step distilled (cfg 1.0, video shift 12.0,
+#                    audio shift 3.0, no turbo LoRA). Load the core "MiniMax H3
+#                    Reference to Video" template or re-point either graph's
+#                    UNETLoader, bypass its LoRA, and use an 8-step schedule.
 # ---
 
 set -e
@@ -41,9 +50,13 @@ for arg in "$@"; do
             echo "                  Enter = keep token, hybrid diffusion model."
             echo "  Without --interactive the hybrid fl2va+ref2va int8 UNET is always used:"
             echo "    minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
-            echo "  Interactive choice 2 is the Singularity ref2va pruned base:"
-            echo "    Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors"
-            echo "  The two are different weight files — match the workflow's UNETLoader widget."
+            echo "  Interactive choice 2 is the Singularity ref2va V2 base (unpruned, ~31.7GiB):"
+            echo "    Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
+            echo "  Interactive choice 3 is the FastH3 Omni ref2v 8-step pruned int8 base (~20.7GiB):"
+            echo "    fasth3_omniref_8step_pruned_int8_convrot.safetensors"
+            echo "    (download only — no bundled graph matches it yet; 8 steps, cfg 1.0,"
+            echo "     video shift 12.0, audio shift 3.0, no turbo LoRA)"
+            echo "  The three are different weight files — match the workflow's UNETLoader widget."
             echo "  This script targets the BUNNY SelfLift graph, whose UNETLoader names the hybrid:"
             echo "    workflows/comfyui/minimax/BUNNY_SelfLift_12GB1080P_LORA__1.json"
             exit 0
@@ -99,22 +112,39 @@ if [ "$INTERACTIVE" = "1" ]; then
 fi
 
 # ── Diffusion-model selection ──
-# The two models are different weights (both ~19.5GiB int8), NOT aliases, so the
-# download is a straight choice and the workflow's UNETLoader widget must name the
-# file that landed. Non-interactive runs always take the hybrid fl2va+ref2va UNET.
+# Three different weights (hybrid ~19.5GiB, Singularity V2 ~31.7GiB unpruned int8,
+# FastH3 Omni ~20.7GiB 8-step pruned int8), NOT aliases, so the download is a
+# straight choice and the workflow's UNETLoader widget must name the file that
+# landed. Non-interactive runs always take the hybrid fl2va+ref2va UNET.
 DIFFUSION_REPO="smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models"
 DIFFUSION_FILE="minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
 DIFFUSION_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale.json"
 SINGULARITY_REPO="WarmBloodAban/Minimax-h3_Singularity"
-SINGULARITY_FILE="Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors"
+SINGULARITY_FILE="Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
 SINGULARITY_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json"
+# FastH3 Omni ships inside the repo's diffusion_models/ subdir — the filename keeps
+# that prefix so hf_download mirrors it, and step [4/21] points the helper at
+# $BASE_DIR instead of $BASE_DIR/diffusion_models (otherwise it nests twice and the
+# UNETLoader dropdown never sees the file). Its card pairs it with the SAME text
+# encoder + video/audio VAEs this script already pulls from Comfy-Org — verified
+# byte-identical (same LFS sha256/size) in both repos, so only the UNET is extra.
+FASTH3_REPO="FastVideo/FastH3-Omni-Comfy"
+FASTH3_FILE="diffusion_models/fasth3_omniref_8step_pruned_int8_convrot.safetensors"
+# No bundled graph: the shipped H3 graphs drive a turbo LoRA on a 4/5/6-step
+# ManualSigmas schedule, while this base is natively 8-step (cfg 1.0, video shift
+# 12.0, audio shift 3.0, NO turbo LoRA — a turbo LoRA on a distilled 8-step base
+# over-accelerates). Deliberately left empty so the script cannot print a
+# "load workflow:" line for a graph whose sigmas/LoRA would be wrong.
+FASTH3_WORKFLOW=""
 
 if [ "$INTERACTIVE" = "1" ]; then
     echo "==> Interactive mode — choose the diffusion model"
     echo "    1) $DIFFUSION_FILE"
     echo "         hybrid fl2va+ref2va int8, ~19.5GiB  [default]"
     echo "    2) $SINGULARITY_FILE"
-    echo "         Singularity ref2va pruned v1.3 int8, ~19.5GiB"
+    echo "         Singularity ref2va V2 int8 (unpruned), ~31.7GiB"
+    echo "    3) $(basename "$FASTH3_FILE")"
+    echo "         FastH3 Omni ref2v 8-step pruned int8, ~20.7GiB (download only)"
     if [ ! -t 0 ]; then
         echo "  ⚠️  stdin is not a TTY — keeping the default (1): $DIFFUSION_FILE"
     else
@@ -126,6 +156,11 @@ if [ "$INTERACTIVE" = "1" ]; then
                 DIFFUSION_FILE="$SINGULARITY_FILE"
                 DIFFUSION_WORKFLOW="$SINGULARITY_WORKFLOW"
                 ;;
+            3|fasth3|FastH3|omni|Omni)
+                DIFFUSION_REPO="$FASTH3_REPO"
+                DIFFUSION_FILE="$FASTH3_FILE"
+                DIFFUSION_WORKFLOW="$FASTH3_WORKFLOW"
+                ;;
             1|hybrid|Hybrid|"") ;;
             *) echo "  ⚠️  Unrecognised choice '$_MDL_INPUT' — using the default (1)." ;;
         esac
@@ -133,7 +168,16 @@ if [ "$INTERACTIVE" = "1" ]; then
     fi
     echo "  ✅ Diffusion model: $DIFFUSION_FILE"
     echo "     from: $DIFFUSION_REPO"
-    echo "     load workflow: workflows/comfyui/minimax/$DIFFUSION_WORKFLOW"
+    if [ -n "$DIFFUSION_WORKFLOW" ]; then
+        echo "     load workflow: workflows/comfyui/minimax/$DIFFUSION_WORKFLOW"
+    else
+        # FastH3 Omni: be explicit instead of pretending a bundled graph fits.
+        echo "     workflow: none bundled — load the core 'MiniMax H3 Reference to Video'"
+        echo "               template (or re-point a graph's UNETLoader at this file),"
+        echo "               bypass its turbo LoRA, then use: 8 steps, cfg 1.0,"
+        echo "               video shift 12.0, audio shift 3.0, euler sampler."
+        echo "               Prompt reference tags: <Picture 1> <Video 1> <Audio 1>"
+    fi
 else
     echo "==> Non-interactive: diffusion model = $DIFFUSION_FILE (hybrid fl2va+ref2va int8)"
 fi
@@ -605,7 +649,7 @@ fi
 # ⚠️ Keep the clone dir name `selflift-Avatar` — it is what the README documents
 # (`git clone ... custom_nodes/selflift-Avatar`) and what users look for on disk.
 # Its sampler's `upscaler_model` dropdown lists every filename containing "h3" from
-# models/latent_upscale_models/ — which is why the [10/20] step installs the V2 alias.
+# models/latent_upscale_models/ — which is why the [10/21] step installs the V2 alias.
 echo "==> Installing selflift-Avatar custom node..."
 SELFLIFT_REPO="https://github.com/slmonker/selflift-Avatar"
 SELFLIFT_DIR="$CUSTOM_NODES_DIR/selflift-Avatar"
@@ -742,41 +786,55 @@ source "$BASE_DIR/_hf_download.sh"
 echo "==> Starting model downloads..."
 
 # ── VAE (video) ──
-echo "[1/20] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
+echo "[1/21] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/20] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
+echo "[2/21] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
 hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
-echo "[3/20] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
+echo "[3/21] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
 hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
 # ── Diffusion Model ──
-# Selected at startup: hybrid fl2va+ref2va int8 by default, Singularity ref2va
-# pruned via `--interactive` choice 2. One file only — see the header for which
-# workflow JSON matches which file.
-echo "[4/20] $DIFFUSION_FILE (Diffusion Model)..."
-hf_download "$DIFFUSION_REPO" "$DIFFUSION_FILE" "$BASE_DIR/diffusion_models"
+# Selected at startup: hybrid fl2va+ref2va int8 by default, Singularity ref2va V2
+# int8 via `--interactive` choice 2, FastH3 Omni 8-step via choice 3. One file
+# only — see the header for which workflow JSON matches which file.
+echo "[4/21] $(basename "$DIFFUSION_FILE") (Diffusion Model)..."
+# ⚠️ FastH3 Omni lives at <repo>/diffusion_models/<file>, i.e. DIFFUSION_FILE already
+# carries a `diffusion_models/` prefix. hf_download mirrors the repo-relative path,
+# so its local_dir must be $BASE_DIR — passing $BASE_DIR/diffusion_models would
+# land it at models/diffusion_models/diffusion_models/<file>, on disk but invisible
+# to the UNETLoader dropdown. The other two repos ship bare filenames at the root.
+if [ "$DIFFUSION_REPO" = "$FASTH3_REPO" ]; then
+    DIFFUSION_DEST="$BASE_DIR"
+else
+    DIFFUSION_DEST="$BASE_DIR/diffusion_models"
+fi
+hf_download "$DIFFUSION_REPO" "$DIFFUSION_FILE" "$DIFFUSION_DEST"
+if [ ! -s "$BASE_DIR/diffusion_models/$(basename "$DIFFUSION_FILE")" ]; then
+    echo "  ⚠️  expected models/diffusion_models/$(basename "$DIFFUSION_FILE") — not on disk."
+    echo "      The UNETLoader dropdown will not list it; re-run or check the download log."
+fi
 
 # ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
-echo "[5/20] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+echo "[5/21] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
-echo "[6/20] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+echo "[6/21] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[7/20] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
+echo "[7/21] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
 
 # ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[8/20] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
+echo "[8/21] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
 hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
 # ── LoRA: H3 Realism People (fal) ──
-echo "[9/20] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
+echo "[9/21] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
 hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.safetensors" "$BASE_DIR/loras"
 
 
@@ -785,7 +843,7 @@ hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.
 # `minimax_h3_latent_upscaler_3d_conv_v1/` subdir (2026-09). The bare filename 404s.
 # Download the nested file then flatten it to the exact name the workflow references
 # (minimax_h3_latent_upscaler_3d_fp16.safetensors) so the node's dropdown picks it up.
-echo "[10/20] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
+echo "[10/21] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
 SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
 TGT="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
 if [ ! -s "$TGT" ]; then
@@ -814,15 +872,15 @@ if [ -s "$TGT" ] && [ ! -s "$TGT_V2" ]; then
 fi
 
 # ── Tiny VAE for live preview ──
-echo "[11/20] taeh3.safetensors (Tiny VAE - live preview)..."
+echo "[11/21] taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR"
 
 # ── Semantic Bridge adapter model ──
-echo "[12/20] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
+echo "[12/21] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
 hf_download "speach1sdef178/MiniMax-H3-Semantic-Bridge" "MiniMaxH3_SemanticBridge_v1.safetensors" "$BASE_DIR/semantic_bridge"
 
 # ── LoRA: ref2v turbo 4-step v0.1 (comfyui) ──
-echo "[13/20] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
+echo "[13/21] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: General Motion Continuity Repair V2 (JOKER141) ──
@@ -832,7 +890,7 @@ hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_4step_v0.1_comfy
 # v1 name is hardlinked to the V2 file below — one 155MB file on disk, and node 45
 # loads instead of erroring on a missing file. Select `Motion_Repair_V2.safetensors`
 # in the dropdown to make the choice explicit.
-echo "[14/20] Motion_Repair_V2.safetensors (LoRA - General Motion Continuity Repair V2)..."
+echo "[14/21] Motion_Repair_V2.safetensors (LoRA - General Motion Continuity Repair V2)..."
 hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair_V2.safetensors" "$BASE_DIR/loras"
 
 # ── v1-name alias so the shipped graph loads with no manual dropdown change ──
@@ -844,7 +902,7 @@ if [ -s "$MR_V2" ] && [ ! -s "$MR_V1" ]; then
 fi
 
 # ── LoRA: Combat Base V2 (JOKER141) ──
-echo "[15/20] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
+echo "[15/21] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
 hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BASE_DIR/loras"
 
 # ── BUNNY H3 ActionLogic Bridge adapters (JOKER141) ──
@@ -859,10 +917,10 @@ hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BA
 #   V2 — the rebuilt-pipeline adapter described in the V2 update notes. Same
 #        architecture/dims as V1 and only ~22MB, so it ships too and you pick it
 #        from the dropdown. Drop this line if you want V1 only.
-echo "[16/20] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
+echo "[16/21] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
 hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V1.safetensors" "$BUNNY_MODELS_DIR"
 
-echo "[17/20] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
+echo "[17/21] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
 hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V2.safetensors" "$BUNNY_MODELS_DIR"
 
 # ── LoRA: DMAD 4-step full (Kijai/MiniMax-H3-experimental, avg rank 39) ──
@@ -871,7 +929,7 @@ hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge
 # $BASE_DIR/loras would nest it as loras/loras/<name> (on disk, but invisible to the dropdown).
 # Download-only, like Motion_Repair / Combat V2: no shipped graph references it — add a
 # LoraLoaderModelOnly node and select it to use it.
-echo "[18/20] minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
+echo "[18/21] minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
 hf_download "Kijai/MiniMax-H3-experimental" "loras/minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors" "$BASE_DIR"
 
 # ── BUNNY SelfLift graph additions (BUNNY_SelfLift_12GB1080P_LORA__1.json) ──
@@ -886,15 +944,32 @@ hf_download "Kijai/MiniMax-H3-experimental" "loras/minimax_h3_DMAD_4step_full_lo
 # ── LoRA: Turbo v4 step600 EMA pruned (comfyui) ── ("H3 Turbo 加速 LoRA", node 5)
 # The workflow loads it through a LoraLoaderBypassModelOnly at strength 0.7 — the
 # model-only path, since the H3 int8 UNET has no CLIP half to adapt.
-echo "[19/20] minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors (LoRA - Turbo v4 step600 EMA pruned)..."
+echo "[19/21] minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors (LoRA - Turbo v4 step600 EMA pruned)..."
 hf_download "Momoking/MiniMax-H3-Turbo-Lora-ComfyUI" "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors" "$BASE_DIR/loras"
 
 # ── LoRA: H3 Fight Flow V1 (JOKER141 fight-interaction) ── (node 47, strength 0.65)
 # Drives unarmed / melee-weapon / gun-fu combat choreography (see the workflow's
 # "fight flow LORA" note: "Unarmed combat interaction", "Melee weapon interaction",
 # "Gun-fu interaction"). This graph's prompt is a sword-fight sequence, hence 0.65.
-echo "[20/20] H3_Fight_Flow_V1.safetensors (LoRA - Fight Flow fight-interaction V1)..."
+echo "[20/21] H3_Fight_Flow_V1.safetensors (LoRA - Fight Flow fight-interaction V1)..."
 hf_download "JOKER141/H3-Fight-Flow-Fight-Interaction-LoRA" "H3_Fight_Flow_V1.safetensors" "$BASE_DIR/loras"
+
+# ── LoRA: Superhuman Combat (JOKER141) ──
+# https://huggingface.co/JOKER141/H3-superhuman-combat-lora
+# The third member of the same author's fight chain, and the only one this graph
+# does NOT wire up yet: the checkpoint's own recommended stack is
+#   Combat Base V2 0.65 (node 83, graph currently 0.5) + Motion Repair V2 0.35
+#   (node 45, graph currently 0.25) + Superhuman Combat 0.65
+# — the first two are installed above ([14/21] / [15/21]), so this completes the
+# chain for anyone who adds a LoraLoaderModelOnly at ~0.65. It targets explosive
+# power / momentum transfer / cinematic superhuman choreography, i.e. exactly the
+# "burst speed with weight and consequence" layer that motion repair cannot add.
+# Download-only, like Motion_Repair / Combat V2 / DMAD: no shipped graph references
+# it, so nothing silently changes for existing renders.
+# ⚠️ The upstream filename is misspelled ("SuperHunman", not "Superhuman") — keep it
+# verbatim or the download 404s. Renaming it locally would also break the name.
+echo "[21/21] SuperHunman.safetensors (LoRA - Superhuman Combat)..."
+hf_download "JOKER141/H3-superhuman-combat-lora" "SuperHunman.safetensors" "$BASE_DIR/loras"
 
 echo "==> All downloads completed!"
 

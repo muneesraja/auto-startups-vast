@@ -2095,11 +2095,11 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+        "Minimax-h3_Singularity_ref2va_v2_int8.safetensors",
         "default"
       ],
       "widgets_values_named": {
-        "unet_name": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+        "unet_name": "Minimax-h3_Singularity_ref2va_v2_int8.safetensors",
         "weight_dtype": "default"
       }
     },
@@ -2632,7 +2632,7 @@
       ],
       "size": [
         550.3770233689311,
-        334
+        1270.3948232503149
       ],
       "flags": {
         "collapsed": false
@@ -2853,6 +2853,74 @@
       }
     },
     {
+      "id": 41,
+      "type": "LoraLoaderModelOnly",
+      "pos": [
+        1656.9176966783482,
+        4918.871334874713
+      ],
+      "size": [
+        597.5978487974194,
+        82
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 57
+        },
+        {
+          "label": "lora_name",
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          }
+        },
+        {
+          "label": "strength_model",
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            177
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.2",
+        "Node name for S&R": "LoraLoaderModelOnly",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        1
+      ],
+      "widgets_values_named": {
+        "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        "strength_model": 1
+      }
+    },
+    {
       "id": 22,
       "type": "ResolutionSelector",
       "pos": [
@@ -2925,12 +2993,12 @@
       },
       "widgets_values": [
         "16:9 (Widescreen)",
-        0.3,
+        0.2,
         128
       ],
       "widgets_values_named": {
         "aspect_ratio": "16:9 (Widescreen)",
-        "megapixels": 0.3,
+        "megapixels": 0.2,
         "multiple": 128
       },
       "color": "#322",
@@ -2990,74 +3058,6 @@
       },
       "color": "#232",
       "bgcolor": "#353"
-    },
-    {
-      "id": 41,
-      "type": "LoraLoaderModelOnly",
-      "pos": [
-        1656.9176966783482,
-        4918.871334874713
-      ],
-      "size": [
-        597.5978487974194,
-        82
-      ],
-      "flags": {},
-      "order": 21,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "model",
-          "name": "model",
-          "type": "MODEL",
-          "link": 57
-        },
-        {
-          "label": "lora_name",
-          "name": "lora_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "lora_name"
-          }
-        },
-        {
-          "label": "strength_model",
-          "name": "strength_model",
-          "type": "FLOAT",
-          "widget": {
-            "name": "strength_model"
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            177
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.33.2",
-        "Node name for S&R": "LoraLoaderModelOnly",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        },
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
-        1
-      ],
-      "widgets_values_named": {
-        "lora_name": "minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors",
-        "strength_model": 1
-      }
     }
   ],
   "links": [
@@ -3622,10 +3622,10 @@
     "frontendVersion": "1.52.7",
     "VHS_latentpreview": false,
     "ds": {
-      "scale": 0.6277773208811643,
+      "scale": 0.8355716140928319,
       "offset": [
-        -1805.3875550333828,
-        -4642.829640646043
+        -694.8428344998227,
+        -5550.6495539576545
       ]
     }
   },

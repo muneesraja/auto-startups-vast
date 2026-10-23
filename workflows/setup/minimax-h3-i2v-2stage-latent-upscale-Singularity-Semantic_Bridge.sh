@@ -3,8 +3,8 @@
 # name: MiniMax H3 I2V 2-Stage Latent Upscale (Singularity + Semantic Bridge)
 # workflow: minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge
 # aliases: [minimax-h3-i2v, h3-i2v-2stage, h3-latent-upscale, minimax-h3-i2v-singularity, minimax-h3-i2v-singularity-semantic-bridge, h3-bunny-bridge]
-# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; int8 diffusion base — hybrid fl2va+ref2va by default, Singularity ref2va pruned via --interactive + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
-# size: ~71GB + taeh3 + 3 JOKER141 LoRAs (~465MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
+# description: MiniMax H3 image-to-video with 2-stage sampling, sigma split, latent upscaling; int8 diffusion base — hybrid fl2va+ref2va by default, Singularity ref2va V2 (unpruned) via --interactive + Semantic Bridge (FL2VA/text-conditioning adapter) + BUNNY H3 Conditioning Bridge (action-logic residual adapter)
+# size: ~71GB with the hybrid base (~84GB with the Singularity V2 base; it is unpruned at ~31.7GiB) + taeh3 + 3 JOKER141 LoRAs (~465MB) + BUNNY bridge adapters (~44MB) + DMAD 4-step LoRA (~350MB)
 # min_vram: 24GB
 # nodes: [comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8]
 # usage: ./minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.sh [--interactive]
@@ -14,9 +14,10 @@
 #   Diffusion model — non-interactive runs ALWAYS take the hybrid:
 #     [default]   minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors
 #                 (smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models)
-#     [choice 2]  Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors
+#     [choice 2]  Minimax-h3_Singularity_ref2va_v2_int8.safetensors
 #                 (WarmBloodAban/Minimax-h3_Singularity)
-#   These are two DIFFERENT weight files (~19.5GiB each), NOT aliases — the
+#   These are two DIFFERENT weight files (hybrid ~19.5GiB, Singularity V2
+#   ~31.7GiB — the V2 int8 release is NOT pruned), NOT aliases — the
 #   workflow's UNETLoader widget must name the one you downloaded:
 #     hybrid      -> workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale.json
 #     Singularity -> workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json
@@ -40,8 +41,8 @@ for arg in "$@"; do
             echo "                  Enter = keep token, hybrid diffusion model."
             echo "  Without --interactive the hybrid fl2va+ref2va int8 UNET is always used:"
             echo "    minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
-            echo "  Interactive choice 2 is the Singularity ref2va pruned base:"
-            echo "    Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors"
+            echo "  Interactive choice 2 is the Singularity ref2va V2 base (unpruned, ~31.7GiB):"
+            echo "    Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
             echo "  The two are different weight files — match the workflow's UNETLoader widget."
             exit 0
             ;;
@@ -96,14 +97,15 @@ if [ "$INTERACTIVE" = "1" ]; then
 fi
 
 # ── Diffusion-model selection ──
-# The two models are different weights (both ~19.5GiB int8), NOT aliases, so the
+# The two models are different weights (hybrid ~19.5GiB, Singularity V2 ~31.7GiB
+# unpruned int8), NOT aliases, so the
 # download is a straight choice and the workflow's UNETLoader widget must name the
 # file that landed. Non-interactive runs always take the hybrid fl2va+ref2va UNET.
 DIFFUSION_REPO="smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models"
 DIFFUSION_FILE="minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
 DIFFUSION_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale.json"
 SINGULARITY_REPO="WarmBloodAban/Minimax-h3_Singularity"
-SINGULARITY_FILE="Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors"
+SINGULARITY_FILE="Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
 SINGULARITY_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json"
 
 if [ "$INTERACTIVE" = "1" ]; then
@@ -111,7 +113,7 @@ if [ "$INTERACTIVE" = "1" ]; then
     echo "    1) $DIFFUSION_FILE"
     echo "         hybrid fl2va+ref2va int8, ~19.5GiB  [default]"
     echo "    2) $SINGULARITY_FILE"
-    echo "         Singularity ref2va pruned v1.3 int8, ~19.5GiB"
+    echo "         Singularity ref2va V2 int8 (unpruned), ~31.7GiB"
     if [ ! -t 0 ]; then
         echo "  ⚠️  stdin is not a TTY — keeping the default (1): $DIFFUSION_FILE"
     else
@@ -599,7 +601,7 @@ hf_download "Comfy-Org/MiniMax-H3" "text_encoders/qwen3vl_32b_minimax_h3_int8_co
 
 # ── Diffusion Model ──
 # Selected at startup: hybrid fl2va+ref2va int8 by default, Singularity ref2va
-# pruned via `--interactive` choice 2. One file only — see the header for which
+# V2 int8 via `--interactive` choice 2. One file only — see the header for which
 # workflow JSON matches which file.
 echo "[4/19] $DIFFUSION_FILE (Diffusion Model)..."
 hf_download "$DIFFUSION_REPO" "$DIFFUSION_FILE" "$BASE_DIR/diffusion_models"
