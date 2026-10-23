@@ -125,9 +125,11 @@ SINGULARITY_WORKFLOW="minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_
 # FastH3 Omni ships inside the repo's diffusion_models/ subdir — the filename keeps
 # that prefix so hf_download mirrors it, and step [4/21] points the helper at
 # $BASE_DIR instead of $BASE_DIR/diffusion_models (otherwise it nests twice and the
-# UNETLoader dropdown never sees the file). Its card pairs it with the SAME text
-# encoder + video/audio VAEs this script already pulls from Comfy-Org — verified
-# byte-identical (same LFS sha256/size) in both repos, so only the UNET is extra.
+# UNETLoader dropdown never sees the file). Its card also pins its own vae/ copies,
+# so steps [1/21]-[2/21] source the VAEs from this repo when choice 3 is picked
+# (byte-identical to Comfy-Org's — same LFS sha256 + size, verified 2026-10 — so the
+# paths land the same two files; the switch is provenance, not a different decode).
+# The text encoder stays on Comfy-Org (also byte-identical).
 FASTH3_REPO="FastVideo/FastH3-Omni-Comfy"
 FASTH3_FILE="diffusion_models/fasth3_omniref_8step_pruned_int8_convrot.safetensors"
 # No bundled graph: the shipped H3 graphs drive a turbo LoRA on a 4/5/6-step
@@ -177,6 +179,7 @@ if [ "$INTERACTIVE" = "1" ]; then
         echo "               bypass its turbo LoRA, then use: 8 steps, cfg 1.0,"
         echo "               video shift 12.0, audio shift 3.0, euler sampler."
         echo "               Prompt reference tags: <Picture 1> <Video 1> <Audio 1>"
+        echo "     VAEs: pulled from $FASTH3_REPO (its card's copies)"
     fi
 else
     echo "==> Non-interactive: diffusion model = $DIFFUSION_FILE (hybrid fl2va+ref2va int8)"
@@ -785,13 +788,25 @@ source "$BASE_DIR/_hf_download.sh"
 # ── Downloads ──
 echo "==> Starting model downloads..."
 
+# ── VAE source follows the diffusion-model choice ──
+# The FastH3 Omni card pins its OWN vae/ copies, so choice 3 pulls them from
+# FastVideo/FastH3-Omni-Comfy. The two files are byte-identical to Comfy-Org's
+# (same LFS sha256 + size), so nothing re-decodes differently — and because both
+# repos use the same repo-relative `vae/<name>` path, huggingface_hub sees the
+# already-present file and skips the transfer. The text encoder stays on Comfy-Org.
+if [ "$DIFFUSION_REPO" = "$FASTH3_REPO" ]; then
+    VAE_REPO="$FASTH3_REPO"
+else
+    VAE_REPO="Comfy-Org/MiniMax-H3"
+fi
+
 # ── VAE (video) ──
-echo "[1/21] minimax_h3_video_vae_fp16.safetensors (VAE - video)..."
-hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
+echo "[1/21] minimax_h3_video_vae_fp16.safetensors (VAE - video, $VAE_REPO)..."
+hf_download "$VAE_REPO" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
 # ── VAE (audio) ──
-echo "[2/21] minimax_h3_audio_vae_fp32.safetensors (VAE - audio)..."
-hf_download "Comfy-Org/MiniMax-H3" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
+echo "[2/21] minimax_h3_audio_vae_fp32.safetensors (VAE - audio, $VAE_REPO)..."
+hf_download "$VAE_REPO" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
 # ── Text Encoder ──
 echo "[3/21] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder)..."
