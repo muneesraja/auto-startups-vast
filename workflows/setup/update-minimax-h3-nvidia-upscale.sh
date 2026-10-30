@@ -15,12 +15,16 @@ for arg in "$@"; do
     esac
 done
 
-# ── Interactive HF_TOKEN prompt if requested and in a TTY ──
-if [ "$INTERACTIVE" = "1" ] && [ -t 0 ]; then
+# ── Interactive HF_TOKEN prompt if requested ──
+if [ "$INTERACTIVE" = "1" ]; then
     if [ -n "${HF_TOKEN:-}" ]; then
         echo "  ℹ️  HF_TOKEN already in env — press Enter to keep it."
     fi
-    read -rsp "🔑 Enter HF_TOKEN (hidden, Enter to use existing env/config): " _HF_INPUT || true
+    if [ -r /dev/tty ]; then
+        read -rsp "🔑 Enter HF_TOKEN (hidden, Enter to skip/keep): " _HF_INPUT < /dev/tty 2>/dev/null || true
+    else
+        read -rsp "🔑 Enter HF_TOKEN (hidden, Enter to skip/keep): " _HF_INPUT || true
+    fi
     echo
     if [ -n "${_HF_INPUT:-}" ]; then
         export HF_TOKEN="$_HF_INPUT"
