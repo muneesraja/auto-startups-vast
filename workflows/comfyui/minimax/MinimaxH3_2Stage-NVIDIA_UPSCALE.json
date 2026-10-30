@@ -2131,19 +2131,19 @@
         "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale"
       },
       "widgets_values": [
-        "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+        "minimax_h3_latent_upscaler_3d_fp16_V2.safetensors",
         1280,
         704,
         "cuda",
-        "bf16",
+        "fp16",
         true
       ],
       "widgets_values_named": {
-        "model_name": "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+        "model_name": "minimax_h3_latent_upscaler_3d_fp16_V2.safetensors",
         "width": 1280,
         "height": 704,
         "device": "cuda",
-        "precision": "bf16",
+        "precision": "fp16",
         "keep_models_resident": true
       }
     },
