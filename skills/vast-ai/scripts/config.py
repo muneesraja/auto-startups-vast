@@ -94,6 +94,12 @@ WORKFLOW_ALIASES = {
     "hidream-o1-image-dev": "hidream-o1-dev-i2i.sh",
     "hidream-i2i": "hidream-o1-dev-i2i.sh",
     "hidream": "hidream-o1-dev-i2i.sh",
+    # MiniMax H3 2-Stage NVIDIA Upscale
+    "minimax-h3-2stage-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimax-h3-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "h3-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimaxh3-2stage-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimaxh3_2stage-nvidia_upscale": "minimax-h3-2stage-nvidia-upscale.sh",
 }
 
 # =============================================================================

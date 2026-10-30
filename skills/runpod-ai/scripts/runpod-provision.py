@@ -120,6 +120,12 @@ WORKFLOW_ALIASES = {
     "flux-2-klein": "flux-2-klein-image-edit.sh",
     "flux-klein": "flux-2-klein-image-edit.sh",
     "flux2-klein": "flux-2-klein-image-edit.sh",
+    # MiniMax H3 2-Stage NVIDIA Upscale
+    "minimax-h3-2stage-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimax-h3-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "h3-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimaxh3-2stage-nvidia-upscale": "minimax-h3-2stage-nvidia-upscale.sh",
+    "minimaxh3_2stage-nvidia_upscale": "minimax-h3-2stage-nvidia-upscale.sh",
 }
 
 
