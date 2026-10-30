@@ -2125,10 +2125,10 @@
         }
       ],
       "properties": {
-        "cnr_id": "Comfyui-MMH3-UltimateUpscale",
+        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale",
         "ver": "26cf738a33bbd497299663c26c6dfc8f26d5c2ee",
         "Node name for S&R": "MMH3LatentUpscaleWithModelParams",
-        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale"
+        "cnr_id": "Comfyui-MMH3-UltimateUpscale"
       },
       "widgets_values": [
         "minimax_h3_latent_upscaler_3d_fp16_V2.safetensors",
@@ -2144,7 +2144,7 @@
         "height": 704,
         "device": "cuda",
         "precision": "fp16",
-        "keep_models_resident": true
+        "offload_model": true
       }
     },
     {
@@ -2267,6 +2267,18 @@
           "shape": 7,
           "type": "H3_SPATIAL_PARAM",
           "link": 16095
+        },
+        {
+          "name": "fun_control_param",
+          "shape": 7,
+          "type": "H3_FUN_CONTROL_PARAM",
+          "link": null
+        },
+        {
+          "name": "inpaint_param",
+          "shape": 7,
+          "type": "H3_INPAINT_PARAM",
+          "link": null
         }
       ],
       "outputs": [
@@ -2290,9 +2302,10 @@
         }
       ],
       "properties": {
-        "cnr_id": "Comfyui-MMH3-UltimateUpscale",
+        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale",
         "ver": "2553ad1b66ee0956df02e9146dd78b93395f9f69",
-        "Node name for S&R": "MMH3UltimateUpscale"
+        "Node name for S&R": "MMH3UltimateUpscale",
+        "cnr_id": "Comfyui-MMH3-UltimateUpscale"
       },
       "widgets_values": [
         1
@@ -2310,7 +2323,7 @@
       ],
       "size": [
         320,
-        250
+        506
       ],
       "flags": {},
       "order": 54,
@@ -2340,35 +2353,63 @@
           "links": [
             16095
           ]
+        },
+        {
+          "name": "tile_width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "tile_height",
+          "type": "INT",
+          "links": null
         }
       ],
       "properties": {
-        "cnr_id": "Comfyui-MMH3-UltimateUpscale",
+        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale",
         "ver": "26cf738a33bbd497299663c26c6dfc8f26d5c2ee",
         "Node name for S&R": "MMH3SpatialSplitParams",
-        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale"
+        "cnr_id": "Comfyui-MMH3-UltimateUpscale"
       },
       "widgets_values": [
+        1280,
+        704,
+        "specific_size",
         864,
         480,
+        2,
+        2,
         128,
         128,
         32,
         32,
         256,
         "earlier",
-        "linear"
+        "linear",
+        0,
+        false,
+        "off",
+        32
       ],
       "widgets_values_named": {
+        "upscale_width": 1280,
+        "upscale_height": 704,
+        "tile_size_mode": "specific_size",
         "tile_width": 864,
         "tile_height": 480,
+        "grid_rows": 2,
+        "grid_cols": 2,
         "spatial_w_overlap": 128,
         "spatial_h_overlap": 128,
         "fade_width": 32,
         "fade_height": 32,
         "min_tile_size": 256,
         "overlap_mode": "earlier",
-        "overlap_blend": "linear"
+        "overlap_blend": "linear",
+        "masked_area_noise": 0,
+        "brightness_match": false,
+        "dynamic_fade": "off",
+        "dynamic_fade_min": 32
       }
     },
     {
@@ -2979,7 +3020,7 @@
         106
       ],
       "flags": {},
-      "order": 29,
+      "order": 28,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -2992,9 +3033,10 @@
         }
       ],
       "properties": {
-        "cnr_id": "Comfyui-MMH3-UltimateUpscale",
+        "aux_id": "bbaudio-2025/Comfyui-MMH3-UltimateUpscale",
         "ver": "2553ad1b66ee0956df02e9146dd78b93395f9f69",
-        "Node name for S&R": "MMH3TemporalSplitParams"
+        "Node name for S&R": "MMH3TemporalSplitParams",
+        "cnr_id": "Comfyui-MMH3-UltimateUpscale"
       },
       "widgets_values": [
         136,
@@ -3056,7 +3098,7 @@
       ],
       "size": [
         231.8873046875,
-        292
+        316
       ],
       "flags": {},
       "order": 57,
@@ -3088,9 +3130,10 @@
         }
       ],
       "properties": {
-        "cnr_id": "comfyui-rmbg",
+        "aux_id": "1038lab/ComfyUI-RMBG",
         "ver": "d7402513f23f58db7d56754b02a4f51a148b4941",
-        "Node name for S&R": "RMBG"
+        "Node name for S&R": "RMBG",
+        "cnr_id": "comfyui-rmbg"
       },
       "widgets_values": [
         "RMBG-2.0",
@@ -3098,6 +3141,7 @@
         1024,
         0,
         0,
+        false,
         false,
         false,
         "Color",
@@ -3111,6 +3155,7 @@
         "mask_offset": 0,
         "invert_output": false,
         "refine_foreground": false,
+        "unload_model": false,
         "background": "Color",
         "background_color": "#c7c7c7"
       },
@@ -3820,11 +3865,11 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "minimax-h3\\minimax_h3_lms_v1.0_r64.safetensors",
+        "minimax-h3/minimax_h3_lms_v1.0_r64.safetensors",
         0.8
       ],
       "widgets_values_named": {
-        "lora_name": "minimax-h3\\minimax_h3_lms_v1.0_r64.safetensors",
+        "lora_name": "minimax-h3/minimax_h3_lms_v1.0_r64.safetensors",
         "strength_model": 0.8
       }
     },
@@ -3885,11 +3930,11 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "Open-H3-Regenerate-2K\\sharp_curve_branches.safetensors",
+        "Open-H3-Regenerate-2K/sharp_curve_branches.safetensors",
         1
       ],
       "widgets_values_named": {
-        "lora_name": "Open-H3-Regenerate-2K\\sharp_curve_branches.safetensors",
+        "lora_name": "Open-H3-Regenerate-2K/sharp_curve_branches.safetensors",
         "strength_model": 1
       }
     },
@@ -3951,11 +3996,11 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "Open-H3-Regenerate-2K\\open_h3_regenerate_2k_lora.safetensors",
+        "Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors",
         1
       ],
       "widgets_values_named": {
-        "lora_name": "Open-H3-Regenerate-2K\\open_h3_regenerate_2k_lora.safetensors",
+        "lora_name": "Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors",
         "strength_model": 1
       }
     },
@@ -4345,22 +4390,6 @@
       "AUDIO"
     ],
     [
-      16115,
-      6612,
-      0,
-      6601,
-      0,
-      "INT"
-    ],
-    [
-      16116,
-      6612,
-      1,
-      6601,
-      1,
-      "INT"
-    ],
-    [
       16131,
       6007,
       0,
@@ -4561,38 +4590,6 @@
       "IMAGE"
     ],
     [
-      16113,
-      6612,
-      0,
-      6596,
-      0,
-      "INT"
-    ],
-    [
-      16114,
-      6612,
-      1,
-      6596,
-      1,
-      "INT"
-    ],
-    [
-      15668,
-      6350,
-      0,
-      6346,
-      0,
-      "STRING"
-    ],
-    [
-      15667,
-      6341,
-      0,
-      6345,
-      0,
-      "FLOAT"
-    ],
-    [
       16259,
       6122,
       0,
@@ -4641,6 +4638,22 @@
       "CONDITIONING"
     ],
     [
+      15668,
+      6350,
+      0,
+      6346,
+      0,
+      "STRING"
+    ],
+    [
+      15667,
+      6341,
+      0,
+      6345,
+      0,
+      "FLOAT"
+    ],
+    [
       15666,
       6342,
       0,
@@ -4687,6 +4700,38 @@
       6683,
       0,
       "MODEL"
+    ],
+    [
+      16113,
+      6612,
+      0,
+      6596,
+      0,
+      "INT"
+    ],
+    [
+      16114,
+      6612,
+      1,
+      6596,
+      1,
+      "INT"
+    ],
+    [
+      16115,
+      6612,
+      0,
+      6601,
+      0,
+      "INT"
+    ],
+    [
+      16116,
+      6612,
+      1,
+      6601,
+      1,
+      "INT"
     ],
     [
       16192,
@@ -4839,11 +4884,18 @@
     "VHS_MetadataImage": true,
     "VHS_KeepIntermediate": true,
     "ds": {
-      "scale": 0.8029448560331217,
+      "scale": 0.6635907901100188,
       "offset": [
-        4563.6453688815,
-        -5654.409185866711
+        549.4648098365511,
+        -5180.692102448472
       ]
+    }
+  },
+  "extensions": {
+    "seed_widgets": {
+      "217": 0,
+      "6327": 0,
+      "6591": 0
     }
   },
   "version": 0.4,
