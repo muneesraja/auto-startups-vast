@@ -7,6 +7,27 @@
 
 set -e
 
+# ── CLI args ──
+INTERACTIVE=0
+for arg in "$@"; do
+    case "$arg" in
+        --interactive|-i) INTERACTIVE=1 ;;
+    esac
+done
+
+# ── Interactive HF_TOKEN prompt if requested and in a TTY ──
+if [ "$INTERACTIVE" = "1" ] && [ -t 0 ]; then
+    if [ -n "${HF_TOKEN:-}" ]; then
+        echo "  ℹ️  HF_TOKEN already in env — press Enter to keep it."
+    fi
+    read -rsp "🔑 Enter HF_TOKEN (hidden, Enter to use existing env/config): " _HF_INPUT || true
+    echo
+    if [ -n "${_HF_INPUT:-}" ]; then
+        export HF_TOKEN="$_HF_INPUT"
+        echo "  ✅ HF_TOKEN set"
+    fi
+fi
+
 echo "==> Detecting platform..."
 if [ -d "/workspace/runpod" ]; then
     PLATFORM="runpod"
