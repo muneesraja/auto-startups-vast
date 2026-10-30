@@ -713,11 +713,19 @@ echo "[12/29] minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors (Latent Ups
 SRC_BF16="latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
 TGT_BF16="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
 if [ ! -s "$TGT_BF16" ]; then
-    hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "$SRC_BF16" "$BASE_DIR/latent_upscale_models"
-    if [ -s "$BASE_DIR/latent_upscale_models/$SRC_BF16" ]; then
-        mv "$BASE_DIR/latent_upscale_models/$SRC_BF16" "$TGT_BF16"
-        rmdir "$BASE_DIR/latent_upscale_models/latent_upsampler" 2>/dev/null || true
-        echo "  ✅ flattened to $TGT_BF16"
+    if [ -s "$TGT" ]; then
+        ln "$TGT" "$TGT_BF16" 2>/dev/null || ln -s "$TGT" "$TGT_BF16" 2>/dev/null || cp "$TGT" "$TGT_BF16"
+        echo "  ✅ linked existing fp16 upscaler as $(basename "$TGT_BF16")"
+    elif [ -s "$TGT_V2" ]; then
+        ln "$TGT_V2" "$TGT_BF16" 2>/dev/null || ln -s "$TGT_V2" "$TGT_BF16" 2>/dev/null || cp "$TGT_V2" "$TGT_BF16"
+        echo "  ✅ linked existing fp16_V2 upscaler as $(basename "$TGT_BF16")"
+    else
+        hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "$SRC_BF16" "$BASE_DIR/latent_upscale_models"
+        if [ -s "$BASE_DIR/latent_upscale_models/$SRC_BF16" ]; then
+            mv "$BASE_DIR/latent_upscale_models/$SRC_BF16" "$TGT_BF16"
+            rmdir "$BASE_DIR/latent_upscale_models/latent_upsampler" 2>/dev/null || true
+            echo "  ✅ flattened to $TGT_BF16"
+        fi
     fi
 else
     echo "  ✅ already present: $TGT_BF16"

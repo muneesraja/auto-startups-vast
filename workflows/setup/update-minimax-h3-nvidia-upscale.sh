@@ -111,10 +111,27 @@ if [ ! -f "$BASE_DIR/_hf_download.sh" ]; then
 fi
 source "$BASE_DIR/_hf_download.sh"
 
-echo "==> Starting missing model downloads (~23GB total)..."
+# ── Latent Upscaler Alias: Link existing FP16 weights for BF16 widget ──
+echo "==> Setting up Latent Upscaler alias..."
+TGT_BF16="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
+TGT_FP16="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
+if [ ! -s "$TGT_BF16" ]; then
+    if [ -s "$TGT_FP16" ]; then
+        ln "$TGT_FP16" "$TGT_BF16" 2>/dev/null || ln -s "$TGT_FP16" "$TGT_BF16" 2>/dev/null || cp "$TGT_FP16" "$TGT_BF16"
+        echo "  ✅ linked existing fp16 upscaler as $(basename "$TGT_BF16")"
+    elif [ -s "$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16_V2.safetensors" ]; then
+        SRC_V2="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16_V2.safetensors"
+        ln "$SRC_V2" "$TGT_BF16" 2>/dev/null || ln -s "$SRC_V2" "$TGT_BF16" 2>/dev/null || cp "$SRC_V2" "$TGT_BF16"
+        echo "  ✅ linked existing fp16_V2 upscaler as $(basename "$TGT_BF16")"
+    fi
+else
+    echo "  ✅ already present: $TGT_BF16"
+fi
 
-# [1/6] Fast VAE: NVIDIA StreamRender-H3 non-causal 24L (~6.5GB)
-echo "[1/6] fast_h3_vae_noncausal_24l.safetensors (Fast VAE)..."
+echo "==> Starting missing model downloads (~22.5GB total)..."
+
+# [1/5] Fast VAE: NVIDIA StreamRender-H3 non-causal 24L (~6.5GB)
+echo "[1/5] fast_h3_vae_noncausal_24l.safetensors (Fast VAE)..."
 if [ ! -s "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" ]; then
     hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "vae_fast/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae"
     if [ -s "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" ]; then
@@ -128,21 +145,8 @@ else
     echo "  ✅ already present"
 fi
 
-# [2/6] Latent Upscaler: 3D Conv v1 bf16 (~690MB)
-echo "[2/6] minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors (Latent Upscaler)..."
-TGT_BF16="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
-if [ ! -s "$TGT_BF16" ]; then
-    hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors" "$BASE_DIR/latent_upscale_models"
-    if [ -s "$BASE_DIR/latent_upscale_models/latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors" ]; then
-        mv "$BASE_DIR/latent_upscale_models/latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors" "$TGT_BF16"
-        rmdir "$BASE_DIR/latent_upscale_models/latent_upsampler" 2>/dev/null || true
-    fi
-else
-    echo "  ✅ already present"
-fi
-
-# [3/6] LoRA: MiniMax H3 LMS v1.0 r64 (~1.2GB)
-echo "[3/6] minimax_h3_lms_v1.0_r64.safetensors (LoRA - LMS)..."
+# [2/5] LoRA: MiniMax H3 LMS v1.0 r64 (~1.2GB)
+echo "[2/5] minimax_h3_lms_v1.0_r64.safetensors (LoRA - LMS)..."
 mkdir -p "$BASE_DIR/loras/minimax-h3"
 if [ ! -s "$BASE_DIR/loras/minimax_h3_lms_v1.0_r64.safetensors" ] && [ ! -s "$BASE_DIR/loras/minimax-h3/minimax_h3_lms_v1.0_r64.safetensors" ]; then
     hf_download "Alissonerdx/Minimax-H3-ComfyUI" "loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR"
@@ -152,8 +156,8 @@ else
     echo "  ✅ already present"
 fi
 
-# [4/6] LoRA: NVIDIA Open-H3 Sharp Curve (~1.2GB)
-echo "[4/6] sharp_curve_branches.safetensors (LoRA - Open-H3 Sharp Curve)..."
+# [3/5] LoRA: NVIDIA Open-H3 Sharp Curve (~1.2GB)
+echo "[3/5] sharp_curve_branches.safetensors (LoRA - Open-H3 Sharp Curve)..."
 mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
 if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" ]; then
     hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/sharp_curve_branches.safetensors" "$BASE_DIR/loras"
@@ -167,8 +171,8 @@ else
     echo "  ✅ already present"
 fi
 
-# [5/6] LoRA: NVIDIA Open-H3 Regenerate 2K (~12.5GB)
-echo "[5/6] open_h3_regenerate_2k_lora.safetensors (LoRA - Open-H3 Regenerate 2K)..."
+# [4/5] LoRA: NVIDIA Open-H3 Regenerate 2K (~12.5GB)
+echo "[4/5] open_h3_regenerate_2k_lora.safetensors (LoRA - Open-H3 Regenerate 2K)..."
 mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
 if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors" ]; then
     hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras"
@@ -182,8 +186,8 @@ else
     echo "  ✅ already present"
 fi
 
-# [6/6] RMBG-2.0 Background Removal model (~884MB)
-echo "[6/6] RMBG-2.0 (Background Removal model - 1038lab)..."
+# [5/5] RMBG-2.0 Background Removal model (~884MB)
+echo "[5/5] RMBG-2.0 (Background Removal model - 1038lab)..."
 mkdir -p "$BASE_DIR/RMBG/RMBG-2.0"
 for rmbg_file in model.safetensors config.json BiRefNet_config.py birefnet.py; do
     if [ ! -s "$BASE_DIR/RMBG/RMBG-2.0/$rmbg_file" ]; then
