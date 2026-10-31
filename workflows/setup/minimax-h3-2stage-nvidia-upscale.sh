@@ -131,7 +131,7 @@ fi
 # the helper at $BASE_DIR instead of $BASE_DIR/diffusion_models.
 OFFICIAL_REPO="Comfy-Org/MiniMax-H3"
 OFFICIAL_FILE="diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-OFFICIAL_WORKFLOW="workflows/man-made/MinimaxH3_2Stage-NVIDIA_UPSCALE_FIXED.json"
+OFFICIAL_WORKFLOW="workflows/MinimaxH3_2Stage_Pika_Regen2K_Final.json"
 HYBRID_REPO="smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models"
 HYBRID_FILE="minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
 HYBRID_WORKFLOW="workflows/comfyui/minimax/MinimaxH3_2Stage-NVIDIA_UPSCALE.json"
@@ -850,27 +850,23 @@ if [ -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors"
     ln -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" "$BASE_DIR/loras/sharp_curve_branches.safetensors" 2>/dev/null || true
 fi
 
-# ── LoRA: Open-H3 Regenerate 2K, ComfyUI conversion (1038lab) ──
-# Replaces NVIDIA's lora/open_h3_regenerate_2k_lora.safetensors (12.45GB FP32,
-# diffusers layout: split to_q/to_k/to_v, so every key is "not loaded" in ComfyUI).
-# 1038lab's BF16 build is the same refiner+Turbo+LMS merge with fused QKV and
-# fixed SwiGLU order (8.8GB). It lands in loras/minmax/, the folder the
-# Open-H3 Regenerate 2K node checks first, so the node never re-downloads it.
-echo "[27/28] open_h3_regenerate_2k_bf16.safetensors (LoRA - Open-H3 Regenerate 2K, ComfyUI BF16)..."
-mkdir -p "$BASE_DIR/loras/minmax"
-if [ ! -s "$BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors" ]; then
-    hf_download "1038lab/Open-H3-Regenerate-2K" "lora/open_h3_regenerate_2k_bf16.safetensors" "$BASE_DIR/loras"
-    if [ -s "$BASE_DIR/loras/lora/open_h3_regenerate_2k_bf16.safetensors" ]; then
-        mv "$BASE_DIR/loras/lora/open_h3_regenerate_2k_bf16.safetensors" "$BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors"
+# ── LoRA: NVIDIA Open-H3 Regenerate 2K (refiner + Turbo + Sharp merge) ──
+# Used by rdh9616's OpenH3RegenLora node in the finalized workflow, which converts
+# NVIDIA's diffusers layout at load time and applies the Sharp curve branches.
+# ~12.45GB; skipped if already present.
+echo "[27/28] open_h3_regenerate_2k_lora.safetensors (LoRA - NVIDIA Open-H3 Regenerate 2K)..."
+mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
+if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors" ]; then
+    hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras"
+    if [ -s "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" ]; then
+        mv "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
         rmdir "$BASE_DIR/loras/lora" 2>/dev/null || true
     fi
 else
-    echo "  ✅ already present: loras/minmax/open_h3_regenerate_2k_bf16.safetensors"
+    echo "  ✅ already present: loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
 fi
-for OLD in "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors" \
-           "$BASE_DIR/loras/open_h3_regenerate_2k_lora.safetensors"; do
-    [ -e "$OLD" ] && echo "  ℹ️  unused NVIDIA diffusers LoRA still on disk (~12.45GB, safe to delete): $OLD"
-done
+[ -e "$BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors" ] && \
+    echo "  ℹ️  1038lab BF16 Regenerate LoRA not used by the finalized workflow (~8.8GB, safe to delete): $BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors"
 
 # ── Background Removal Model: RMBG-2.0 (1038lab / BiRefNet) ──
 echo "[28/28] RMBG-2.0 (Background Removal model - 1038lab / BiRefNet)..."
