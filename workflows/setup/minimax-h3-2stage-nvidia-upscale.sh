@@ -1,45 +1,69 @@
 #!/bin/bash
 # ---
-# name: MiniMax H3 2-Stage NVIDIA Upscale
-# workflow: MinimaxH3_2Stage-NVIDIA_UPSCALE
-# aliases: [minimax-h3-2stage-nvidia-upscale, minimax-h3-nvidia-upscale, h3-nvidia-upscale, MinimaxH3_2Stage-NVIDIA_UPSCALE, minimaxh3-2stage-nvidia-upscale]
-# description: MiniMax H3 2-stage latent upscaling with NVIDIA Open-H3-Regenerate-2K (Fast VAE Decode StreamRender-H3 + Open-H3 2K LoRAs) and MMH3 Ultimate Upscale tiling/chunking. Includes RMBG-2.0 background segmentation, H3 LMS LoRA, and the BUNNY / H3 hybrid fl2va+ref2va base pipeline.
-# size: ~110.6GB measured with the hybrid base (~123.7GB with the Singularity V2 base, which is unpruned at ~31.7GiB; ~111.8GB with the FastH3 Omni 8-step base at ~20.7GiB)
+# name: MiniMax H3 — Story Studio render workflows
+# workflow: BUNNY_SelfLift_12GB_LORA, MinimaxH3_2Stage_Pika_Regen2K_Final, video_pika_h3_flex_ref2va, minimax-h3.ui_v2_1_stage
+# aliases: [minimax-h3, story-studio-h3, minimax-h3-2stage-nvidia-upscale, h3-nvidia-upscale, MinimaxH3_2Stage-NVIDIA_UPSCALE]
+# description: Provisions ONLY what the Render page's workflows need (web/src/server/render/workflows.ts). Pick the workflows you will run and the script installs just their custom-node packs and workflow-specific weights; every LoRA the app can load (turbo slot + fight LoRAs) is always downloaded. Provisioned instances have 120 GB of disk, so nothing else is fetched.
+# size: ~75GB with all four workflows and the official base; the Regen 2K weights (~13GB LoRAs) and the Fast VAE are skipped unless that workflow is picked
 # min_vram: 24GB
-# nodes: [ComfyUI-Open-H3-Regenerate-2K, comfyui-kjnodes, comfyui-minimax-h3-audio-T8, Comfyui_Minimax_h3_latent_Upscaler, ComfyUI-VideoHelperSuite, MiniMax_H3_Semantic_Bridge, BUNNY_H3_Conditioning_Bridge, ComfyUI-Easy-Use, ComfyUI-Easy-Media, ComfyLiterals, ComfyUI-ShellAgent-Plugin, comfyui-minimax-h3-prompt-enhancer-T8, selflift-Avatar, ComfyUI-YCNodes-MiniMax-H3, Comfyui-MMH3-UltimateUpscale, ComfyUI-Open-H3-Regenerate, ComfyUI-RMBG]
-# usage: ./minimax-h3-2stage-nvidia-upscale.sh [--interactive]
-#   --interactive  Prompt for HF_TOKEN (hidden) and ask which diffusion model to
-#                  download. Needs a TTY (tmux pane or foreground shell).
-#                  Enter = keep env/config token, official diffusion model.
-#   Diffusion model — ONE checkpoint is downloaded (they are ~20-32GiB each);
+# nodes: [comfyui-minimax-h3-audio-T8, selflift-Avatar, ComfyUI-YCNodes-MiniMax-H3, ComfyUI-KJNodes, ComfyUI-VideoHelperSuite, ComfyUI-Easy-Use, Comfyui-MMH3-UltimateUpscale, ComfyUI-Open-H3-Regenerate, ComfyUI-RMBG]
+# usage: ./script.sh [--interactive] [--workflows=bunny,regen2k,flex,standard|all]
+#   --interactive  Prompt for HF_TOKEN (hidden), the workflows and the diffusion
+#                  model. Needs a TTY (tmux pane or foreground shell).
+#   --workflows=   Which render workflows to provision (or env WORKFLOWS=...).
+#                  Non-interactive default: all.
+#     bunny     BUNNY SelfLift          (BUNNY_SelfLift_12GB_LORA.json)
+#                 nodes: comfyui-minimax-h3-audio-T8 (incl. SolAttnMiniMax),
+#                        selflift-Avatar, ComfyUI-YCNodes-MiniMax-H3
+#                 weights: V2 latent upscaler
+#     regen2k   Pika Regen 2K           (MinimaxH3_2Stage_Pika_Regen2K_Final.json)
+#                 nodes: comfyui-minimax-h3-audio-T8, ComfyUI-KJNodes, ComfyUI-Easy-Use,
+#                        Comfyui-MMH3-UltimateUpscale, ComfyUI-Open-H3-Regenerate, ComfyUI-RMBG
+#                 weights: latent upscaler, Fast VAE, Open-H3 Regenerate 2K + Sharp curve LoRAs, LMS LoRA, RMBG-2.0
+#     flex      Pika H3 Flex            (video_pika_h3_flex_ref2va.json)  core nodes only
+#     standard  MiniMax H3 1-stage      (minimax-h3.ui_v2_1_stage.json)   core nodes only
+#   Always installed: ComfyUI-VideoHelperSuite (VHS_LoadVideo loads reference videos in every
+#   ref2va graph the app builds), the shared VAEs/text encoder and ALL LoRAs.
+#   Diffusion model: ONE checkpoint is downloaded (they are ~20-32GiB each);
 #   non-interactive runs ALWAYS take the official one:
 #     [default]   minimax_h3_ref2va_pruned_int8_convrot.safetensors
 #                 (Comfy-Org/MiniMax-H3, inside its diffusion_models/ subdir)
-#                 Official base. Carries the 1025x8 adaln_t_table that the
-#                 Open-H3 Regenerate 2K node needs for its Sharp curve branches.
+#                 Pika Flex's base; Pika Regen 2K needs it too (its 1025x8 adaln_t_table).
 #     [choice 2]  minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors
-#                 (smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models)
+#                 (smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models): MiniMax H3 1-stage, i2v, long takes
 #     [choice 3]  Minimax-h3_Singularity_ref2va_v2_int8.safetensors
-#                 (WarmBloodAban/Minimax-h3_Singularity)
+#                 (WarmBloodAban/Minimax-h3_Singularity): BUNNY SelfLift default
 #     [choice 4]  fasth3_omniref_8step_pruned_int8_convrot.safetensors
 #                 (FastVideo/FastH3-Omni-Comfy, inside its diffusion_models/ subdir)
 #   All four are DIFFERENT weight files (hybrid ~19.5GiB, Singularity V2
-#   ~31.7GiB — the V2 int8 release is NOT pruned, FastH3 Omni ~20.7GiB), NOT
-#   aliases — the workflow's UNETLoader widget must name the one you downloaded:
-#     official    -> workflows/man-made/MinimaxH3_2Stage-NVIDIA_UPSCALE_FIXED.json   <- the workflow THIS script targets
-#     hybrid      -> workflows/comfyui/minimax/MinimaxH3_2Stage-NVIDIA_UPSCALE.json
-#                    workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale.json
-#                    workflows/comfyui/minimax/BUNNY_SelfLift_12GB1080P_LORA__1.json
-#     Singularity -> workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json
-#     FastH3 Omni -> no bundled graph yet (state 2026-10): the two shipped graphs run
-#                    a turbo LoRA on a 4/5/6-step ManualSigmas schedule, while this
-#                    base is already 8-step distilled (cfg 1.0, video shift 12.0,
-#                    audio shift 3.0, no turbo LoRA). Load the core "MiniMax H3
-#                    Reference to Video" template or re-point either graph's
-#                    UNETLoader, bypass its LoRA, and use an 8-step schedule.
+#   ~31.7GiB unpruned, FastH3 Omni ~20.7GiB), NOT aliases. The app sets the
+#   UNETLoader from the Render page checkpoint, so it must name the one you
+#   downloaded.
 # ---
 
 set -e
+
+# ── Workflow selection helpers ──
+# SELECTED_WORKFLOWS is a space-separated list; everything below is gated on want <name>.
+ALL_WORKFLOWS="bunny regen2k flex standard"
+WORKFLOWS_ARG="${WORKFLOWS:-}"
+want() { case " $SELECTED_WORKFLOWS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+normalize_workflows() {
+    local out="" tok
+    for tok in $(echo "$1" | tr ',;' '  ' | tr 'A-Z' 'a-z'); do
+        case "$tok" in
+            all) out="$ALL_WORKFLOWS" ;;
+            bunny|selflift|bunny_selflift) out="$out bunny" ;;
+            regen2k|regen|pika_regen2k) out="$out regen2k" ;;
+            flex|pika|pika_flex) out="$out flex" ;;
+            standard|h3|h3_standard|1stage) out="$out standard" ;;
+            *) echo "  ⚠️  Unknown workflow '$tok' — ignored (use: bunny regen2k flex standard all)" >&2 ;;
+        esac
+    done
+    for tok in $ALL_WORKFLOWS; do
+        case " $out " in *" $tok "*) printf '%s ' "$tok" ;; esac
+    done
+}
 
 # ── CLI args ──
 # --interactive prompts for HF_TOKEN before any long work. Manual/foreground runs
@@ -49,27 +73,9 @@ INTERACTIVE=0
 for arg in "$@"; do
     case "$arg" in
         --interactive|-i) INTERACTIVE=1 ;;
+        --workflows=*) WORKFLOWS_ARG="${arg#--workflows=}" ;;
         -h|--help)
-            echo "Usage: $0 [--interactive]"
-            echo "  --interactive   Prompt for HF_TOKEN on stdin (hidden input) and which"
-            echo "                  diffusion model to download. Needs a TTY (tmux pane /"
-            echo "                  foreground shell) — do NOT pipe stdin in."
-            echo "                  Enter = keep token, official diffusion model."
-            echo "  Only ONE diffusion model is downloaded. Without --interactive it is the"
-            echo "  official Comfy-Org ref2va pruned int8 UNET:"
-            echo "    minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-            echo "  Interactive choice 2 is the hybrid fl2va+ref2va int8 base (~19.5GiB):"
-            echo "    minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
-            echo "  Interactive choice 3 is the Singularity ref2va V2 base (unpruned, ~31.7GiB):"
-            echo "    Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
-            echo "  Interactive choice 4 is the FastH3 Omni ref2v 8-step pruned int8 base (~20.7GiB):"
-            echo "    fasth3_omniref_8step_pruned_int8_convrot.safetensors"
-            echo "    (download only — no bundled graph matches it yet; 8 steps, cfg 1.0,"
-            echo "     video shift 12.0, audio shift 3.0, no turbo LoRA; its VAEs AND text"
-            echo "     encoder are pulled from FastVideo/FastH3-Omni-Comfy, same files as Comfy-Org)"
-            echo "  The three are different weight files — match the workflow's UNETLoader widget."
-            echo "  This script targets the NVIDIA 2-stage upscale graph, whose UNETLoader names the official base:"
-            echo "    workflows/man-made/MinimaxH3_2Stage-NVIDIA_UPSCALE_FIXED.json"
+            sed -n '/^# usage:/,/^# ---$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *) echo "⚠️  Ignoring unknown argument: $arg" ;;
@@ -122,47 +128,59 @@ if [ "$INTERACTIVE" = "1" ]; then
     fi
 fi
 
+# ── Workflow selection ──
+# Only the picked workflows get their custom nodes and workflow-specific weights.
+if [ "$INTERACTIVE" = "1" ]; then
+    echo "==> Interactive mode — choose the render workflows to provision"
+    echo "    bunny     BUNNY SelfLift     (default in the app)  nodes: T8 audio, selflift-Avatar, YCNodes"
+    echo "    regen2k   Pika Regen 2K      nodes: T8 audio, KJNodes, Easy-Use, MMH3-UltimateUpscale, Open-H3-Regenerate, RMBG; +13GB LoRAs"
+    echo "    flex      Pika H3 Flex       core nodes only"
+    echo "    standard  MiniMax H3 1-stage core nodes only"
+    if [ ! -t 0 ]; then
+        echo "  ⚠️  stdin is not a TTY — keeping: ${WORKFLOWS_ARG:-all}"
+    else
+        read -rp "  🧩 Workflows (comma-separated, or 'all') [${WORKFLOWS_ARG:-all}]: " _WF_INPUT || true
+        [ -n "${_WF_INPUT:-}" ] && WORKFLOWS_ARG="$_WF_INPUT"
+        unset _WF_INPUT
+    fi
+fi
+SELECTED_WORKFLOWS="$(normalize_workflows "${WORKFLOWS_ARG:-all}")"
+if [ -z "${SELECTED_WORKFLOWS// /}" ]; then
+    echo "  ⚠️  No valid workflow in '${WORKFLOWS_ARG}' — provisioning all."
+    SELECTED_WORKFLOWS="$ALL_WORKFLOWS"
+fi
+echo "  ✅ Workflows: $SELECTED_WORKFLOWS"
+
 # ── Diffusion-model selection ──
-# Four different weights, NOT aliases, so the download is a straight choice and
-# the workflow's UNETLoader widget must name the file that landed. Only the
-# chosen one is downloaded — a second ~20-32GiB checkpoint fills the disk.
-# Non-interactive runs always take the official Comfy-Org ref2va UNET. It ships
-# inside the repo's diffusion_models/ subdir, so (like FastH3) step [5/28] points
-# the helper at $BASE_DIR instead of $BASE_DIR/diffusion_models.
+# Four different weights, NOT aliases, so the download is a straight choice. Only
+# the chosen one is downloaded — a second ~20-32GiB checkpoint fills the disk.
+# Non-interactive runs always take the official Comfy-Org ref2va UNET. It (and
+# FastH3) ships inside the repo's diffusion_models/ subdir, so step [5] points the
+# helper at $BASE_DIR instead of $BASE_DIR/diffusion_models.
 OFFICIAL_REPO="Comfy-Org/MiniMax-H3"
 OFFICIAL_FILE="diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-OFFICIAL_WORKFLOW="workflows/MinimaxH3_2Stage_Pika_Regen2K_Final.json"
 HYBRID_REPO="smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models"
 HYBRID_FILE="minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
-HYBRID_WORKFLOW="workflows/comfyui/minimax/MinimaxH3_2Stage-NVIDIA_UPSCALE.json"
-DIFFUSION_REPO="$OFFICIAL_REPO"
-DIFFUSION_FILE="$OFFICIAL_FILE"
-DIFFUSION_WORKFLOW="$OFFICIAL_WORKFLOW"
 SINGULARITY_REPO="WarmBloodAban/Minimax-h3_Singularity"
 SINGULARITY_FILE="Minimax-h3_Singularity_ref2va_v2_int8.safetensors"
-SINGULARITY_WORKFLOW="workflows/comfyui/minimax/minimax-h3-i2v-2stage-latent-upscale-Singularity-Semantic_Bridge.json"
-# FastH3 Omni ships inside the repo's diffusion_models/ subdir — the filename keeps
-# that prefix so hf_download mirrors it, and step [5/28] points the helper at
-# $BASE_DIR instead of $BASE_DIR/diffusion_models (otherwise it nests twice and the
-# UNETLoader dropdown never sees the file). Its card also pins its own vae/ and
-# text_encoders/ copies, so steps [1/28]-[4/28] source ALL from this repo when
-# choice 4 is picked (byte-identical to Comfy-Org's — same LFS sha256 + size, verified
-# 2026-10 — so the paths land the same files; the switch is provenance, not a
-# different decode).
+# FastH3 Omni's card pins its own vae/ and text_encoders/ copies, so the VAE and
+# text-encoder steps source them from this repo when choice 4 is picked
+# (byte-identical to Comfy-Org's, same LFS sha256 + size, verified 2026-10).
 FASTH3_REPO="FastVideo/FastH3-Omni-Comfy"
 FASTH3_FILE="diffusion_models/fasth3_omniref_8step_pruned_int8_convrot.safetensors"
-FASTH3_WORKFLOW=""
+DIFFUSION_REPO="$OFFICIAL_REPO"
+DIFFUSION_FILE="$OFFICIAL_FILE"
 
 if [ "$INTERACTIVE" = "1" ]; then
     echo "==> Interactive mode — choose the diffusion model"
     echo "    1) $(basename "$OFFICIAL_FILE")"
-    echo "         official Comfy-Org ref2va pruned int8  [default]"
+    echo "         official Comfy-Org ref2va pruned int8: Pika Flex / Pika Regen 2K base  [default]"
     echo "    2) $HYBRID_FILE"
-    echo "         hybrid fl2va+ref2va int8, ~19.5GiB"
+    echo "         hybrid fl2va+ref2va int8, ~19.5GiB: MiniMax H3 1-stage, i2v, long takes"
     echo "    3) $SINGULARITY_FILE"
-    echo "         Singularity ref2va V2 int8 (unpruned), ~31.7GiB"
+    echo "         Singularity ref2va V2 int8 (unpruned), ~31.7GiB: BUNNY SelfLift default"
     echo "    4) $(basename "$FASTH3_FILE")"
-    echo "         FastH3 Omni ref2v 8-step pruned int8, ~20.7GiB (download only)"
+    echo "         FastH3 Omni ref2v 8-step pruned int8, ~20.7GiB (no turbo LoRA needed)"
     if [ ! -t 0 ]; then
         echo "  ⚠️  stdin is not a TTY — keeping the default (1): $(basename "$DIFFUSION_FILE")"
     else
@@ -171,17 +189,14 @@ if [ "$INTERACTIVE" = "1" ]; then
             2|hybrid|Hybrid)
                 DIFFUSION_REPO="$HYBRID_REPO"
                 DIFFUSION_FILE="$HYBRID_FILE"
-                DIFFUSION_WORKFLOW="$HYBRID_WORKFLOW"
                 ;;
             3|singularity|Singularity)
                 DIFFUSION_REPO="$SINGULARITY_REPO"
                 DIFFUSION_FILE="$SINGULARITY_FILE"
-                DIFFUSION_WORKFLOW="$SINGULARITY_WORKFLOW"
                 ;;
             4|fasth3|FastH3|omni|Omni)
                 DIFFUSION_REPO="$FASTH3_REPO"
                 DIFFUSION_FILE="$FASTH3_FILE"
-                DIFFUSION_WORKFLOW="$FASTH3_WORKFLOW"
                 ;;
             1|official|Official|"") ;;
             *) echo "  ⚠️  Unrecognised choice '$_MDL_INPUT' — using the default (1)." ;;
@@ -190,18 +205,15 @@ if [ "$INTERACTIVE" = "1" ]; then
     fi
     echo "  ✅ Diffusion model: $(basename "$DIFFUSION_FILE")"
     echo "     from: $DIFFUSION_REPO"
-    if [ -n "$DIFFUSION_WORKFLOW" ]; then
-        echo "     load workflow: $DIFFUSION_WORKFLOW"
-    else
-        echo "     workflow: none bundled — load the core 'MiniMax H3 Reference to Video'"
-        echo "               template (or re-point a graph's UNETLoader at this file),"
-        echo "               bypass its turbo LoRA, then use: 8 steps, cfg 1.0,"
-        echo "               video shift 12.0, audio shift 3.0, euler sampler."
-        echo "               Prompt reference tags: <Picture 1> <Video 1> <Audio 1>"
+    if [ "$DIFFUSION_REPO" = "$FASTH3_REPO" ]; then
         echo "     VAEs + text encoder: pulled from $FASTH3_REPO (its card's copies)"
     fi
 else
     echo "==> Non-interactive: diffusion model = $(basename "$DIFFUSION_FILE") (official Comfy-Org ref2va pruned int8)"
+fi
+if want regen2k && [ "$DIFFUSION_FILE" != "$OFFICIAL_FILE" ]; then
+    echo "  ⚠️  Pika Regen 2K's OpenH3RegenLora needs the official ref2va base — pick it on the Render page"
+    echo "      only if you also download it (this run fetches just $(basename "$DIFFUSION_FILE"))."
 fi
 
 BASE_DIR="$COMFYUI_DIR/models"
@@ -287,66 +299,76 @@ if [ "${UPGRADED:-0}" = "1" ] && [ -f "$COMFYUI_DIR/requirements.txt" ]; then
     $COMFY_PIP install -q -r "$COMFYUI_DIR/requirements.txt" 2>&1 | tail -3 || true
 fi
 
-# ── Phase 1: Install Custom Nodes ──
-echo "==> Phase 1: Installing custom node packs..."
-cd "$COMFYUI_DIR"
+# ── Phase 1: Install only the custom node packs the selected workflows use ──
+echo "==> Phase 1: Installing custom node packs for: $SELECTED_WORKFLOWS"
+mkdir -p "$CUSTOM_NODES_DIR"
 
-if command -v comfy >/dev/null 2>&1; then
-    echo "  Using comfy-cli..."
-    comfy node install https://github.com/kijai/ComfyUI-KJNodes 2>/dev/null || true
-    comfy node install https://github.com/T8mars/comfyui-minimax-h3-audio-T8 2>/dev/null || true
-    comfy node install https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler 2>/dev/null || true
-    comfy node install https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite 2>/dev/null || true
-    comfy node install https://github.com/yolain/ComfyUI-Easy-Use 2>/dev/null || true
-    comfy node install https://github.com/M1kep/ComfyLiterals 2>/dev/null || true
-    comfy node install https://github.com/myshell-ai/ComfyUI-ShellAgent-Plugin 2>/dev/null || true
-    comfy node install https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 2>/dev/null || true
-    comfy node install https://github.com/slmonker/selflift-Avatar 2>/dev/null || true
-    comfy node install https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3 2>/dev/null || true
-    # NVIDIA 2-Stage Upscale workflow packs:
-    comfy node install https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale 2>/dev/null || true
-    comfy node install https://github.com/rdh9616/ComfyUI-Open-H3-Regenerate 2>/dev/null || true
-    comfy node install https://github.com/1038lab/ComfyUI-RMBG 2>/dev/null || true
-    comfy node install https://github.com/1038lab/ComfyUI-Open-H3-Regenerate-2K 2>/dev/null || true
-    echo "  ✅ comfy-cli done"
-else
-    echo "  comfy-cli not found, cloning manually..."
-    cd "$CUSTOM_NODES_DIR"
-    [ -d ComfyUI-KJNodes ] || git clone --depth=1 https://github.com/kijai/ComfyUI-KJNodes || true
-    [ -d comfyui-minimax-h3-audio-T8 ] || git clone --depth=1 https://github.com/T8mars/comfyui-minimax-h3-audio-T8 || true
-    [ -d Comfyui_Minimax_h3_latent_Upscaler ] || git clone --depth=1 https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler || true
-    [ -d ComfyUI-VideoHelperSuite ] || git clone --depth=1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite || true
-    [ -d ComfyUI-Easy-Use ] || git clone --depth=1 https://github.com/yolain/ComfyUI-Easy-Use || true
-    [ -d ComfyLiterals ] || git clone --depth=1 https://github.com/M1kep/ComfyLiterals || true
-    [ -d ComfyUI-ShellAgent-Plugin ] || git clone --depth=1 https://github.com/myshell-ai/ComfyUI-ShellAgent-Plugin || true
-    [ -d comfyui-minimax-h3-prompt-enhancer-T8 ] || git clone --depth=1 https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8 || true
-    [ -d selflift-Avatar ] || git clone --depth=1 https://github.com/slmonker/selflift-Avatar || true
-    [ -d ComfyUI-YCNodes-MiniMax-H3 ] || git clone --depth=1 https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3 || true
-    [ -d Comfyui-MMH3-UltimateUpscale ] || git clone --depth=1 https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale || true
-    [ -d ComfyUI-Open-H3-Regenerate ] || git clone --depth=1 https://github.com/rdh9616/ComfyUI-Open-H3-Regenerate || true
-    [ -d ComfyUI-RMBG ] || git clone --depth=1 https://github.com/1038lab/ComfyUI-RMBG || true
-    [ -d ComfyUI-Open-H3-Regenerate-2K ] || git clone --depth=1 https://github.com/1038lab/ComfyUI-Open-H3-Regenerate-2K || true
-    cd "$COMFYUI_DIR"
+# install_node <repo-url> [dir-name]  — comfy-cli when present, else a shallow clone.
+INSTALLED_NODE_DIRS=""
+install_node() {
+    local url="$1" name="${2:-$(basename "$1")}"
+    if [ -d "$CUSTOM_NODES_DIR/$name" ]; then
+        echo "  ✅ $name already installed"
+    elif command -v comfy >/dev/null 2>&1; then
+        echo "  📥 comfy node install $name"
+        ( cd "$COMFYUI_DIR" && comfy node install "$url" 2>/dev/null ) || true
+    fi
+    if [ ! -d "$CUSTOM_NODES_DIR/$name" ]; then
+        echo "  📥 git clone $name"
+        ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$url" "$name" ) \
+            || echo "  ⚠️  $name clone failed (non-fatal)"
+    fi
+    INSTALLED_NODE_DIRS="$INSTALLED_NODE_DIRS $name"
+}
+
+# T8 audio pack: MiniMaxH3AVDecodeT8 / AudioConditioningT8 / AVLatentSeparateT8 and SolAttnMiniMax.
+if want bunny || want regen2k; then
+    install_node https://github.com/T8mars/comfyui-minimax-h3-audio-T8
 fi
+# BUNNY SelfLift
+if want bunny; then
+    install_node https://github.com/slmonker/selflift-Avatar
+    install_node https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3
+fi
+# Pika Regen 2K: Get/SetNode + chunk-FFN (KJNodes), Easy-Use cleanup nodes, tiled upscale, Open-H3 LoRA/VAE
+if want regen2k; then
+    install_node https://github.com/kijai/ComfyUI-KJNodes
+    install_node https://github.com/yolain/ComfyUI-Easy-Use
+    install_node https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale
+    install_node https://github.com/rdh9616/ComfyUI-Open-H3-Regenerate
+    # optional "cut out character/prop references" setting (RMBG-2.0)
+    install_node https://github.com/1038lab/ComfyUI-RMBG
+fi
+# VHS_LoadVideo: every ref2va graph the app builds loads reference videos through it (VHS_VideoCombine in the Regen 2K JSON)
+install_node https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 
 # ── Install node dependencies ──
 echo "==> Installing node dependencies..."
-for repo in ComfyUI-KJNodes comfyui-minimax-h3-audio-T8 Comfyui_Minimax_h3_latent_Upscaler ComfyUI-VideoHelperSuite \
-            ComfyLiterals ComfyUI-ShellAgent-Plugin comfyui-easy-use ComfyUI-Easy-Use \
-            ComfyUI-Easy-Media comfyui-easy-media \
-            comfyui-minimax-h3-prompt-enhancer-T8 \
-            selflift-Avatar ComfyUI-YCNodes-MiniMax-H3 \
-            Comfyui-MMH3-UltimateUpscale comfyui-mmh3-ultimateupscale \
-            ComfyUI-Open-H3-Regenerate comfyui-open-h3-regenerate \
-            ComfyUI-RMBG comfyui-rmbg \
-            ComfyUI-Open-H3-Regenerate-2K comfyui-open-h3-regenerate-2k; do
-    [ -d "$CUSTOM_NODES_DIR/$repo" ] || continue
+for repo in $INSTALLED_NODE_DIRS; do
     REQ="$CUSTOM_NODES_DIR/$repo/requirements.txt"
     if [ -f "$REQ" ]; then
         echo "  Installing $repo deps..."
         $COMFY_PIP install -q -r "$REQ" 2>&1 | tail -5 || true
     fi
 done
+
+# ── Verify the nodes that matter ──
+if want bunny; then
+    grep -q "SelfLiftAvatarH3Sampler" "$CUSTOM_NODES_DIR/selflift-Avatar/nodes.py" 2>/dev/null \
+        && echo "  ✅ selflift-Avatar has SelfLiftAvatarH3Sampler" \
+        || echo "  ⚠️  selflift-Avatar missing SelfLiftAvatarH3Sampler"
+    grep -q "H3SigmaRefiner" "$CUSTOM_NODES_DIR/ComfyUI-YCNodes-MiniMax-H3/py/h3_sigma_refiner.py" 2>/dev/null \
+        && echo "  ✅ H3SigmaRefiner present" \
+        || echo "  ⚠️  ComfyUI-YCNodes-MiniMax-H3 missing H3SigmaRefiner"
+fi
+if want regen2k; then
+    [ -d "$CUSTOM_NODES_DIR/Comfyui-MMH3-UltimateUpscale" ] \
+        && echo "  ✅ Comfyui-MMH3-UltimateUpscale installed" \
+        || echo "  ⚠️  Comfyui-MMH3-UltimateUpscale missing"
+    [ -d "$CUSTOM_NODES_DIR/ComfyUI-Open-H3-Regenerate" ] \
+        && echo "  ✅ ComfyUI-Open-H3-Regenerate installed" \
+        || echo "  ⚠️  ComfyUI-Open-H3-Regenerate missing"
+fi
 
 # ── SageAttention v2 (fixes MiniMaxH3MemoryEfficientSageAttentionPatch) ──
 if $COMFY_PYTHON -c "from sageattention.core import get_cuda_arch_versions" >/dev/null 2>&1; then
@@ -440,103 +462,8 @@ LAUNCHER_EOF
     fi
 fi
 
-# ── Phase 1b: MiniMax_H3_Semantic_Bridge custom node (zip node) ──
-echo "==> Installing MiniMax_H3_Semantic_Bridge custom node..."
-mkdir -p "$CUSTOM_NODES_DIR"
-cd "$CUSTOM_NODES_DIR"
-if [ -d MiniMax_H3_Semantic_Bridge ]; then
-    echo "  ✅ MiniMax_H3_Semantic_Bridge already installed"
-else
-    echo "  📥 Downloading + extracting MiniMax_H3_Semantic_Bridge (zip node)..."
-    curl -fsSL --max-time 120 -o /tmp/semantic_bridge.zip \
-        "https://huggingface.co/speach1sdef178/MiniMax-H3-Semantic-Bridge/resolve/main/MiniMax_H3_Semantic_Bridge_v1.0.zip" \
-        || echo "  ⚠️  Semantic Bridge zip download failed (non-fatal)"
-    if [ -s /tmp/semantic_bridge.zip ]; then
-        "$COMFY_PYTHON" -c "import zipfile; zipfile.ZipFile('/tmp/semantic_bridge.zip').extractall('$CUSTOM_NODES_DIR')" || true
-        rm -f /tmp/semantic_bridge.zip
-        [ -d MiniMax_H3_Semantic_Bridge ] && echo "  ✅ Semantic Bridge node installed"
-    fi
-fi
-cd "$COMFYUI_DIR"
-
-# ── Phase 1c: BUNNY_H3_Conditioning_Bridge custom node ──
-echo "==> Installing BUNNY_H3_Conditioning_Bridge custom node..."
-BUNNY_REPO="https://github.com/aa335615543-ux/BUNNY_H3_Conditioning_Bridge"
-BUNNY_DIR="$CUSTOM_NODES_DIR/BUNNY_H3_Conditioning_Bridge"
-mkdir -p "$CUSTOM_NODES_DIR"
-if command -v comfy >/dev/null 2>&1; then
-    comfy node install "$BUNNY_REPO" 2>/dev/null || true
-fi
-for CAND in "$CUSTOM_NODES_DIR/bunny-h3-semantic-bridge" "$CUSTOM_NODES_DIR/BUNNY_H3_Conditioning_Bridge"; do
-    [ -f "$CAND/nodes.py" ] && BUNNY_DIR="$CAND" && break
-done
-if [ ! -f "$BUNNY_DIR/nodes.py" ]; then
-    echo "  📥 Cloning $BUNNY_REPO ..."
-    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$BUNNY_REPO" BUNNY_H3_Conditioning_Bridge ) \
-        || echo "  ⚠️  BUNNY bridge clone failed (non-fatal)"
-fi
-if [ -f "$BUNNY_DIR/nodes.py" ]; then
-    echo "  ✅ BUNNY H3 Conditioning Bridge installed at $BUNNY_DIR"
-else
-    echo "  ⚠️  BUNNY bridge node missing"
-fi
-BUNNY_MODELS_DIR="$BUNNY_DIR/models"
-mkdir -p "$BUNNY_MODELS_DIR"
-if [ -f "$BUNNY_DIR/requirements.txt" ]; then
-    echo "  Installing BUNNY bridge deps..."
-    $COMFY_PIP install -q -r "$BUNNY_DIR/requirements.txt" 2>&1 | tail -3 || true
-fi
-
-# ── Phase 1d: ComfyUI-Easy-Media custom node ──
-echo "==> Installing ComfyUI-Easy-Media custom node..."
-EASY_MEDIA_REPO="https://github.com/yolain/ComfyUI-Easy-Media"
-EASY_MEDIA_TAG="v1.3.4"
-EASY_MEDIA_DIR=""
-if [ -d "$CUSTOM_NODES_DIR/ComfyUI-Easy-Media" ]; then
-    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/ComfyUI-Easy-Media"
-elif [ -d "$CUSTOM_NODES_DIR/comfyui-easy-media" ]; then
-    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/comfyui-easy-media"
-fi
-if [ -n "$EASY_MEDIA_DIR" ] && \
-   ! grep -rq -- "easy multitrackProject" "$EASY_MEDIA_DIR" --include=*.py 2>/dev/null; then
-    echo "  ⚠️  $(basename "$EASY_MEDIA_DIR") predates $EASY_MEDIA_TAG — replacing with the pinned release"
-    rm -rf "$EASY_MEDIA_DIR"
-    EASY_MEDIA_DIR=""
-fi
-if [ -z "$EASY_MEDIA_DIR" ]; then
-    echo "  📥 Cloning $EASY_MEDIA_REPO @ $EASY_MEDIA_TAG ..."
-    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 --branch "$EASY_MEDIA_TAG" \
-        "$EASY_MEDIA_REPO" ComfyUI-Easy-Media ) || echo "  ⚠️  Easy-Media clone failed (non-fatal)"
-    EASY_MEDIA_DIR="$CUSTOM_NODES_DIR/ComfyUI-Easy-Media"
-fi
-if grep -rq -- "easy multitrackProject" "$EASY_MEDIA_DIR" --include=*.py 2>/dev/null; then
-    echo "  ✅ ComfyUI-Easy-Media installed at $EASY_MEDIA_DIR"
-else
-    echo "  ⚠️  ComfyUI-Easy-Media missing MultiTrack Project nodes"
-fi
-if command -v ffmpeg >/dev/null 2>&1; then
-    echo "  ✅ ffmpeg present"
-else
-    echo "  ⚠️  ffmpeg NOT found — ComfyUI-Easy-Media video nodes need it"
-fi
-
-# ── Phase 1e: selflift-Avatar ──
-echo "==> Installing selflift-Avatar custom node..."
-SELFLIFT_REPO="https://github.com/slmonker/selflift-Avatar"
-SELFLIFT_DIR="$CUSTOM_NODES_DIR/selflift-Avatar"
-mkdir -p "$CUSTOM_NODES_DIR"
-if command -v comfy >/dev/null 2>&1; then
-    comfy node install "$SELFLIFT_REPO" 2>/dev/null || true
-fi
-[ -f "$SELFLIFT_DIR/nodes.py" ] || \
-    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$SELFLIFT_REPO" selflift-Avatar ) \
-        || echo "  ⚠️  selflift-Avatar clone failed (non-fatal)"
-if grep -q "SelfLiftAvatarH3Sampler" "$SELFLIFT_DIR/nodes.py" 2>/dev/null; then
-    echo "  ✅ selflift-Avatar installed at $SELFLIFT_DIR"
-else
-    echo "  ⚠️  selflift-Avatar missing SelfLiftAvatarH3Sampler"
-fi
-
+# ── Sol-Attn (SolAttnMiniMax): BUNNY SelfLift only ──
+if want bunny; then
 # ── Phase 1f: Sol-Attn provider check (SolAttnMiniMax) ──
 echo "==> Verifying the Sol-Attn provider (SolAttnMiniMax)..."
 SOLATTN_SRC="$CUSTOM_NODES_DIR/comfyui-minimax-h3-audio-T8/sol_attn_minimax_v2.py"
@@ -583,73 +510,12 @@ else
     echo "  ⚠️  triton NOT importable"
 fi
 
-# ── Phase 1g: ComfyUI-YCNodes-MiniMax-H3 (H3SigmaRefiner) ──
-echo "==> Installing ComfyUI-YCNodes-MiniMax-H3 custom node..."
-YC_REPO="https://github.com/yichengup/ComfyUI-YCNodes-MiniMax-H3"
-YC_DIR="$CUSTOM_NODES_DIR/ComfyUI-YCNodes-MiniMax-H3"
-if command -v comfy >/dev/null 2>&1; then
-    comfy node install "$YC_REPO" 2>/dev/null || true
-fi
-[ -f "$YC_DIR/py/h3_sigma_refiner.py" ] || \
-    ( cd "$CUSTOM_NODES_DIR" && git clone --depth=1 "$YC_REPO" ComfyUI-YCNodes-MiniMax-H3 ) \
-        || echo "  ⚠️  YCNodes clone failed (non-fatal)"
-if grep -q "H3SigmaRefiner" "$YC_DIR/py/h3_sigma_refiner.py" 2>/dev/null; then
-    echo "  ✅ H3SigmaRefiner present at $YC_DIR"
-fi
-
-# ── Phase 1h: Comfyui-MMH3-UltimateUpscale (MMH3 Ultimate Upscale) ──
-echo "==> Verifying Comfyui-MMH3-UltimateUpscale..."
-MMH3_DIR=""
-for CAND in "$CUSTOM_NODES_DIR/Comfyui-MMH3-UltimateUpscale" "$CUSTOM_NODES_DIR/comfyui-mmh3-ultimateupscale"; do
-    [ -d "$CAND" ] && MMH3_DIR="$CAND" && break
-done
-if [ -n "$MMH3_DIR" ]; then
-    echo "  ✅ Comfyui-MMH3-UltimateUpscale installed at $MMH3_DIR"
-else
-    echo "  ⚠️  Comfyui-MMH3-UltimateUpscale missing"
-fi
-
-# ── Phase 1i: ComfyUI-Open-H3-Regenerate (Open-H3 Fast VAE Decode) ──
-echo "==> Verifying ComfyUI-Open-H3-Regenerate..."
-OPEN_H3_DIR=""
-for CAND in "$CUSTOM_NODES_DIR/ComfyUI-Open-H3-Regenerate" "$CUSTOM_NODES_DIR/comfyui-open-h3-regenerate"; do
-    [ -d "$CAND" ] && OPEN_H3_DIR="$CAND" && break
-done
-if [ -n "$OPEN_H3_DIR" ]; then
-    echo "  ✅ ComfyUI-Open-H3-Regenerate installed at $OPEN_H3_DIR"
-else
-    echo "  ⚠️  ComfyUI-Open-H3-Regenerate missing"
-fi
-
-# ── Phase 1i2: ComfyUI-Open-H3-Regenerate-2K (Open-H3 Regenerate 2K node) ──
-# Applies the merged refiner+Turbo+LMS LoRA AND the 50 Sharp curve branches,
-# which a plain LoraLoaderModelOnly cannot load (curve_A/curve_B keys).
-echo "==> Verifying ComfyUI-Open-H3-Regenerate-2K..."
-OPEN_H3_2K_DIR=""
-for CAND in "$CUSTOM_NODES_DIR/ComfyUI-Open-H3-Regenerate-2K" "$CUSTOM_NODES_DIR/comfyui-open-h3-regenerate-2k"; do
-    [ -d "$CAND" ] && OPEN_H3_2K_DIR="$CAND" && break
-done
-if grep -q "AILab_OpenH3_Regenerate_2K" "$OPEN_H3_2K_DIR/AILab_OpenH3.py" 2>/dev/null; then
-    echo "  ✅ ComfyUI-Open-H3-Regenerate-2K installed at $OPEN_H3_2K_DIR"
-else
-    echo "  ⚠️  ComfyUI-Open-H3-Regenerate-2K missing AILab_OpenH3_Regenerate_2K"
-fi
-
-# ── Phase 1j: ComfyUI-RMBG (RMBG-2.0 Background Removal) ──
-echo "==> Verifying ComfyUI-RMBG..."
-RMBG_DIR=""
-for CAND in "$CUSTOM_NODES_DIR/ComfyUI-RMBG" "$CUSTOM_NODES_DIR/comfyui-rmbg"; do
-    [ -d "$CAND" ] && RMBG_DIR="$CAND" && break
-done
-if [ -n "$RMBG_DIR" ]; then
-    echo "  ✅ ComfyUI-RMBG installed at $RMBG_DIR"
-else
-    echo "  ⚠️  ComfyUI-RMBG missing"
 fi
 
 # ── Create model directories ──
 echo "==> Creating model directories..."
-mkdir -p "$BASE_DIR"/{vae,vae_approx,text_encoders,diffusion_models,loras,latent_upscale_models,semantic_bridge,RMBG}
+mkdir -p "$BASE_DIR"/{vae,vae_approx,text_encoders,diffusion_models,loras}
+if want bunny || want regen2k; then mkdir -p "$BASE_DIR/latent_upscale_models"; fi
 
 # ── Load shared HF download helper ──
 if [ ! -f "$BASE_DIR/_hf_download.sh" ]; then
@@ -658,6 +524,13 @@ if [ ! -f "$BASE_DIR/_hf_download.sh" ]; then
         "https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/workflows/setup/_hf_download.sh" || true
 fi
 source "$BASE_DIR/_hf_download.sh"
+
+# link_alias <existing> <alias>  — hardlink (no extra disk), falling back to symlink/copy
+link_alias() {
+    [ -s "$1" ] && [ ! -e "$2" ] || return 0
+    mkdir -p "$(dirname "$2")"
+    ln "$1" "$2" 2>/dev/null || ln -s "$1" "$2" 2>/dev/null || cp "$1" "$2"
+}
 
 # ── Downloads ──
 echo "==> Starting model downloads..."
@@ -670,34 +543,20 @@ else
     TEXT_ENC_REPO="Comfy-Org/MiniMax-H3"
 fi
 
-# ── VAE (video) ──
-echo "[1/28] minimax_h3_video_vae_fp16.safetensors (VAE - video, $VAE_REPO)..."
+STEP=0
+step() { STEP=$((STEP + 1)); echo "[$STEP] $*"; }
+
+# ── Shared by every workflow ──
+step "minimax_h3_video_vae_fp16.safetensors (VAE - video, $VAE_REPO)..."
 hf_download "$VAE_REPO" "vae/minimax_h3_video_vae_fp16.safetensors" "$BASE_DIR"
 
-# ── VAE (audio) ──
-echo "[2/28] minimax_h3_audio_vae_fp32.safetensors (VAE - audio, $VAE_REPO)..."
+step "minimax_h3_audio_vae_fp32.safetensors (VAE - audio, $VAE_REPO)..."
 hf_download "$VAE_REPO" "vae/minimax_h3_audio_vae_fp32.safetensors" "$BASE_DIR"
 
-# ── Fast VAE: NVIDIA StreamRender-H3 non-causal 24L ──
-echo "[3/28] fast_h3_vae_noncausal_24l.safetensors (Fast VAE - NVIDIA StreamRender-H3)..."
-hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "vae_fast/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae"
-if [ -s "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" ] && [ ! -s "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" ]; then
-    mv "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors"
-    rmdir "$BASE_DIR/vae/vae_fast" 2>/dev/null || true
-    echo "  ✅ flattened to models/vae/fast_h3_vae_noncausal_24l.safetensors"
-fi
-if [ -s "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" ] && [ ! -s "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" ]; then
-    mkdir -p "$BASE_DIR/vae/vae_fast"
-    ln "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" 2>/dev/null || \
-    ln -s "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" 2>/dev/null || true
-fi
-
-# ── Text Encoder ──
-echo "[4/28] qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder, $TEXT_ENC_REPO)..."
+step "qwen3vl_32b_minimax_h3_int8_convrot.safetensors (Text Encoder, $TEXT_ENC_REPO)..."
 hf_download "$TEXT_ENC_REPO" "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors" "$BASE_DIR"
 
-# ── Diffusion Model ──
-echo "[5/28] $(basename "$DIFFUSION_FILE") (Diffusion Model)..."
+step "$(basename "$DIFFUSION_FILE") (Diffusion Model)..."
 if [ "$DIFFUSION_REPO" = "$FASTH3_REPO" ] || [ "$DIFFUSION_REPO" = "$OFFICIAL_REPO" ]; then
     DIFFUSION_DEST="$BASE_DIR"
 else
@@ -708,174 +567,116 @@ if [ ! -s "$BASE_DIR/diffusion_models/$(basename "$DIFFUSION_FILE")" ]; then
     echo "  ⚠️  expected models/diffusion_models/$(basename "$DIFFUSION_FILE") — not on disk."
 fi
 
-# ── LoRA: fl2v turbo 4-step v1.2 768p (comfyui) ──
-echo "[6/28] minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
-hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
-
-# ── LoRA: ref2v turbo 8-step 768p (comfyui) ──
-echo "[7/28] minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
-hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
-
-# ── LoRA: fl2v lightx2v turbo 4-step ──
-echo "[8/28] minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step)..."
-hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
-
-# ── LoRA: ref2v lightx2v turbo 4-step resized avg rank 20 ──
-echo "[9/28] minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors (LoRA - ref2v turbo 4-step rank 20)..."
-hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_ref2v_lightx2v_turbo_4step_v0.1_resized_avg_rank_20_bf16.safetensors" "$BASE_DIR"
-
-# ── LoRA: H3 Realism People (fal) ──
-echo "[10/28] h3-realism-people-t2v-i2v-r2v.safetensors (LoRA - H3 Realism People)..."
-hf_download "fal/MiniMax-H3-Realism-People-LoRA" "h3-realism-people-t2v-i2v-r2v.safetensors" "$BASE_DIR/loras"
-
-# ── Latent Upscale Model: 3D fp16 ──
-echo "[11/28] minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
-SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
-TGT="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
-if [ ! -s "$TGT" ]; then
-    hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "$SRC" "$BASE_DIR/latent_upscale_models"
-    if [ -s "$BASE_DIR/latent_upscale_models/$SRC" ]; then
-        mv "$BASE_DIR/latent_upscale_models/$SRC" "$TGT"
-        echo "  ✅ flattened to $TGT"
-    fi
-else
-    echo "  ✅ already present: $TGT"
-fi
-
-# ── Upstream-V2 alias for SelfLift upscaler dropdown ──
-TGT_V2="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16_V2.safetensors"
-if [ -s "$TGT" ] && [ ! -s "$TGT_V2" ]; then
-    ln "$TGT" "$TGT_V2" 2>/dev/null || cp "$TGT" "$TGT_V2"
-    echo "  ✅ v1 fp16 weights also installed as $(basename "$TGT_V2")"
-fi
-
-# ── Latent Upscaler: 3D Conv v1 bf16 (NVIDIA / LBH) ──
-echo "[12/28] minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors (Latent Upscaler 3D Conv v1 bf16)..."
-SRC_BF16="latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
-TGT_BF16="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
-if [ ! -s "$TGT_BF16" ]; then
-    if [ -s "$TGT" ]; then
-        ln "$TGT" "$TGT_BF16" 2>/dev/null || ln -s "$TGT" "$TGT_BF16" 2>/dev/null || cp "$TGT" "$TGT_BF16"
-        echo "  ✅ linked existing fp16 upscaler as $(basename "$TGT_BF16")"
-    elif [ -s "$TGT_V2" ]; then
-        ln "$TGT_V2" "$TGT_BF16" 2>/dev/null || ln -s "$TGT_V2" "$TGT_BF16" 2>/dev/null || cp "$TGT_V2" "$TGT_BF16"
-        echo "  ✅ linked existing fp16_V2 upscaler as $(basename "$TGT_BF16")"
-    else
-        hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "$SRC_BF16" "$BASE_DIR/latent_upscale_models"
-        if [ -s "$BASE_DIR/latent_upscale_models/$SRC_BF16" ]; then
-            mv "$BASE_DIR/latent_upscale_models/$SRC_BF16" "$TGT_BF16"
-            rmdir "$BASE_DIR/latent_upscale_models/latent_upsampler" 2>/dev/null || true
-            echo "  ✅ flattened to $TGT_BF16"
-        fi
-    fi
-else
-    echo "  ✅ already present: $TGT_BF16"
-fi
-
-# ── Tiny VAE for live preview ──
-echo "[13/28] taeh3.safetensors (Tiny VAE - live preview)..."
+step "taeh3.safetensors (Tiny VAE - live preview)..."
 hf_download "Kijai/MiniMax-H3-TAE" "vae_approx/taeh3.safetensors" "$BASE_DIR"
 
-# ── Semantic Bridge adapter model ──
-echo "[14/28] MiniMaxH3_SemanticBridge_v1.safetensors (Semantic Bridge adapter)..."
-hf_download "speach1sdef178/MiniMax-H3-Semantic-Bridge" "MiniMaxH3_SemanticBridge_v1.safetensors" "$BASE_DIR/semantic_bridge"
-
-# ── LoRA: ref2v turbo 4-step v0.1 (comfyui) ──
-echo "[15/28] minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
+# ── LoRAs: all of them, whichever workflows were picked ──
+# Turbo (acceleration) slot — web/src/server/render/workflows.ts TURBO_LORAS
+step "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors (LoRA - ref2v turbo 4-step v0.1)..."
 hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
-# ── LoRA: General Motion Continuity Repair V2 (JOKER141) ──
-echo "[16/28] Motion_Repair_V2.safetensors (LoRA - General Motion Continuity Repair V2)..."
-hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair_V2.safetensors" "$BASE_DIR/loras"
+step "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors (LoRA - ref2v turbo 8-step 768p)..."
+hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
 
-# ── v1-name alias ──
-MR_V1="$BASE_DIR/loras/Motion_Repair.safetensors"
-MR_V2="$BASE_DIR/loras/Motion_Repair_V2.safetensors"
-if [ -s "$MR_V2" ] && [ ! -s "$MR_V1" ]; then
-    ln "$MR_V2" "$MR_V1" 2>/dev/null || cp "$MR_V2" "$MR_V1"
-    echo "  ✅ V2 weights also installed as Motion_Repair.safetensors"
-fi
-
-# ── LoRA: Combat Base V2 (JOKER141) ──
-echo "[17/28] H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
-hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BASE_DIR/loras"
-
-# ── BUNNY H3 ActionLogic Bridge adapters (JOKER141) ──
-echo "[18/28] BUNNY_H3_ActionLogic_Bridge_V1.safetensors (BUNNY H3 bridge adapter - V1, default)..."
-hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V1.safetensors" "$BUNNY_MODELS_DIR"
-
-echo "[19/28] BUNNY_H3_ActionLogic_Bridge_V2.safetensors (BUNNY H3 bridge adapter - V2)..."
-hf_download "JOKER141/BUNNY_H3_Conditioning_Bridge" "BUNNY_H3_ActionLogic_Bridge_V2.safetensors" "$BUNNY_MODELS_DIR"
-
-# ── LoRA: DMAD 4-step full ──
-echo "[20/28] minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
-hf_download "Kijai/MiniMax-H3-experimental" "loras/minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors" "$BASE_DIR"
-
-# ── LoRA: Turbo v4 step600 EMA pruned ──
-echo "[21/28] minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors (LoRA - Turbo v4 step600 EMA pruned)..."
-hf_download "Momoking/MiniMax-H3-Turbo-Lora-ComfyUI" "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors" "$BASE_DIR/loras"
-
-# ── LoRA: H3 Fight Flow V1 ──
-echo "[22/28] H3_Fight_Flow_V1.safetensors (LoRA - Fight Flow fight-interaction V1)..."
-hf_download "JOKER141/H3-Fight-Flow-Fight-Interaction-LoRA" "H3_Fight_Flow_V1.safetensors" "$BASE_DIR/loras"
-
-# ── LoRA: Superhuman Combat ──
-echo "[23/28] SuperHunman.safetensors (LoRA - Superhuman Combat)..."
-hf_download "JOKER141/H3-superhuman-combat-lora" "SuperHunman.safetensors" "$BASE_DIR/loras"
-
-# ── LoRA: Pika H3 Flex Ref2va V1 (Comfy-Org) ──
-echo "[24/28] pika_h3_flex_ref2va_v1_bf16.safetensors (LoRA - Pika H3 Flex Ref2va V1)..."
+step "pika_h3_flex_ref2va_v1_bf16.safetensors (LoRA - Pika H3 Flex Ref2va V1)..."
 hf_download "Comfy-Org/MiniMax-H3" "loras/pika_h3_flex_ref2va_v1_bf16.safetensors" "$BASE_DIR"
 
-# ── LoRA: MiniMax H3 LMS v1.0 r64 (Alissonerdx) ──
-echo "[25/28] minimax_h3_lms_v1.0_r64.safetensors (LoRA - MiniMax H3 LMS v1.0 r64)..."
-hf_download "Alissonerdx/Minimax-H3-ComfyUI" "loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR"
-mkdir -p "$BASE_DIR/loras/minimax-h3"
-if [ -s "$BASE_DIR/loras/minimax_h3_lms_v1.0_r64.safetensors" ] && [ ! -s "$BASE_DIR/loras/minimax-h3/minimax_h3_lms_v1.0_r64.safetensors" ]; then
-    ln "$BASE_DIR/loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR/loras/minimax-h3/minimax_h3_lms_v1.0_r64.safetensors" 2>/dev/null || \
-    ln -s "$BASE_DIR/loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR/loras/minimax-h3/minimax_h3_lms_v1.0_r64.safetensors" 2>/dev/null || true
-    echo "  ✅ LMS LoRA also installed in models/loras/minimax-h3/ (workflow widget path)"
-fi
+step "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors (LoRA - Turbo v4 step600 EMA pruned)..."
+hf_download "Momoking/MiniMax-H3-Turbo-Lora-ComfyUI" "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors" "$BASE_DIR/loras"
 
-# ── LoRA: NVIDIA Open-H3 Sharp Curve Branches ──
-echo "[26/28] sharp_curve_branches.safetensors (LoRA - NVIDIA Open-H3 Sharp Curve)..."
-mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
-hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/sharp_curve_branches.safetensors" "$BASE_DIR/loras"
-if [ -s "$BASE_DIR/loras/lora/sharp_curve_branches.safetensors" ]; then
-    mv "$BASE_DIR/loras/lora/sharp_curve_branches.safetensors" "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors"
-    rmdir "$BASE_DIR/loras/lora" 2>/dev/null || true
-fi
-if [ -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" ] && [ ! -s "$BASE_DIR/loras/sharp_curve_branches.safetensors" ]; then
-    ln "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" "$BASE_DIR/loras/sharp_curve_branches.safetensors" 2>/dev/null || \
-    ln -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" "$BASE_DIR/loras/sharp_curve_branches.safetensors" 2>/dev/null || true
-fi
+step "minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors (LoRA - DMAD 4-step full)..."
+hf_download "Kijai/MiniMax-H3-experimental" "loras/minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors" "$BASE_DIR"
 
-# ── LoRA: NVIDIA Open-H3 Regenerate 2K (refiner + Turbo + Sharp merge) ──
-# Used by rdh9616's OpenH3RegenLora node in the finalized workflow, which converts
-# NVIDIA's diffusers layout at load time and applies the Sharp curve branches.
-# ~12.45GB; skipped if already present.
-echo "[27/28] open_h3_regenerate_2k_lora.safetensors (LoRA - NVIDIA Open-H3 Regenerate 2K)..."
-mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
-if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors" ]; then
-    hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras"
-    if [ -s "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" ]; then
-        mv "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
-        rmdir "$BASE_DIR/loras/lora" 2>/dev/null || true
+step "minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors (LoRA - fl2v turbo 4-step v0.1)..."
+hf_download "Kijai/MiniMax-H3_comfy" "loras/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors" "$BASE_DIR"
+
+step "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors (LoRA - fl2v turbo 4-step v1.2 768p)..."
+hf_download "lightx2v/Minimax-h3-Turbo" "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors" "$BASE_DIR/loras"
+
+# Fight / motion LoRAs — web/src/server/h3/lora-presets.ts
+step "Motion_Repair_V2.safetensors (LoRA - General Motion Continuity Repair V2)..."
+hf_download "JOKER141/MiniMax-H3-General-Motion-Continuity-Repair" "Motion_Repair_V2.safetensors" "$BASE_DIR/loras"
+
+step "H3_Combat_V2.safetensors (LoRA - Combat Base V2)..."
+hf_download "JOKER141/MiniMax-H3-Combat-Base-V2" "H3_Combat_V2.safetensors" "$BASE_DIR/loras"
+
+step "H3_Fight_Flow_V1.safetensors (LoRA - Fight Flow fight-interaction V1)..."
+hf_download "JOKER141/H3-Fight-Flow-Fight-Interaction-LoRA" "H3_Fight_Flow_V1.safetensors" "$BASE_DIR/loras"
+
+step "SuperHunman.safetensors (LoRA - Superhuman Combat)..."
+hf_download "JOKER141/H3-superhuman-combat-lora" "SuperHunman.safetensors" "$BASE_DIR/loras"
+
+# ── Latent upscaler: BUNNY SelfLift + Pika Regen 2K ──
+if want bunny || want regen2k; then
+    step "minimax_h3_latent_upscaler_3d_fp16.safetensors (Latent Upscaler 3D, nested repo)..."
+    SRC="minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
+    TGT="$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16.safetensors"
+    if [ ! -s "$TGT" ]; then
+        hf_download "LBH-123-AI/Minimax_h3_latent_Upscaler" "$SRC" "$BASE_DIR/latent_upscale_models"
+        if [ -s "$BASE_DIR/latent_upscale_models/$SRC" ]; then
+            mv "$BASE_DIR/latent_upscale_models/$SRC" "$TGT"
+            rmdir "$BASE_DIR/latent_upscale_models/$(dirname "$SRC")" 2>/dev/null || true
+            echo "  ✅ flattened to $TGT"
+        fi
+    else
+        echo "  ✅ already present: $TGT"
     fi
-else
-    echo "  ✅ already present: loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
+    # The workflows' upscaler dropdown names the _V2 file (same weights)
+    link_alias "$TGT" "$BASE_DIR/latent_upscale_models/minimax_h3_latent_upscaler_3d_fp16_V2.safetensors"
 fi
-[ -e "$BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors" ] && \
-    echo "  ℹ️  1038lab BF16 Regenerate LoRA not used by the finalized workflow (~8.8GB, safe to delete): $BASE_DIR/loras/minmax/open_h3_regenerate_2k_bf16.safetensors"
 
-# ── Background Removal Model: RMBG-2.0 (1038lab / BiRefNet) ──
-echo "[28/28] RMBG-2.0 (Background Removal model - 1038lab / BiRefNet)..."
-mkdir -p "$BASE_DIR/RMBG/RMBG-2.0"
-for rmbg_file in model.safetensors config.json BiRefNet_config.py birefnet.py; do
-    if [ ! -s "$BASE_DIR/RMBG/RMBG-2.0/$rmbg_file" ]; then
-        hf_download "1038lab/RMBG-2.0" "$rmbg_file" "$BASE_DIR/RMBG/RMBG-2.0"
+# ── Pika Regen 2K only ──
+if want regen2k; then
+    # Fast VAE: NVIDIA StreamRender-H3 non-causal 24L (OpenH3RegenFastVAEDecode)
+    step "fast_h3_vae_noncausal_24l.safetensors (Fast VAE - NVIDIA StreamRender-H3)..."
+    hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "vae_fast/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae"
+    if [ -s "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" ] && [ ! -s "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" ]; then
+        mv "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors"
+        rmdir "$BASE_DIR/vae/vae_fast" 2>/dev/null || true
+        echo "  ✅ flattened to models/vae/fast_h3_vae_noncausal_24l.safetensors"
     fi
-done
+    link_alias "$BASE_DIR/vae/fast_h3_vae_noncausal_24l.safetensors" "$BASE_DIR/vae/vae_fast/fast_h3_vae_noncausal_24l.safetensors"
+
+    # LMS LoRA (MMH3 Ultimate Upscale group)
+    step "minimax_h3_lms_v1.0_r64.safetensors (LoRA - MiniMax H3 LMS v1.0 r64)..."
+    hf_download "Alissonerdx/Minimax-H3-ComfyUI" "loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR"
+    link_alias "$BASE_DIR/loras/minimax_h3_lms_v1.0_r64.safetensors" "$BASE_DIR/loras/minimax-h3/minimax_h3_lms_v1.0_r64.safetensors"
+
+    # Sharp curve branches (rdh9616 OpenH3RegenLora curve_name)
+    step "sharp_curve_branches.safetensors (LoRA - NVIDIA Open-H3 Sharp Curve)..."
+    mkdir -p "$BASE_DIR/loras/Open-H3-Regenerate-2K"
+    if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" ]; then
+        hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/sharp_curve_branches.safetensors" "$BASE_DIR/loras"
+        if [ -s "$BASE_DIR/loras/lora/sharp_curve_branches.safetensors" ]; then
+            mv "$BASE_DIR/loras/lora/sharp_curve_branches.safetensors" "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors"
+            rmdir "$BASE_DIR/loras/lora" 2>/dev/null || true
+        fi
+    else
+        echo "  ✅ already present: loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors"
+    fi
+    link_alias "$BASE_DIR/loras/Open-H3-Regenerate-2K/sharp_curve_branches.safetensors" "$BASE_DIR/loras/sharp_curve_branches.safetensors"
+
+    # Regenerate 2K LoRA (refiner + Turbo + Sharp merge), ~12.45GB
+    step "open_h3_regenerate_2k_lora.safetensors (LoRA - NVIDIA Open-H3 Regenerate 2K)..."
+    if [ ! -s "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors" ]; then
+        hf_download "Efficient-Large-Model/Open-H3-Regenerate-2K" "lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras"
+        if [ -s "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" ]; then
+            mv "$BASE_DIR/loras/lora/open_h3_regenerate_2k_lora.safetensors" "$BASE_DIR/loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
+            rmdir "$BASE_DIR/loras/lora" 2>/dev/null || true
+        fi
+    else
+        echo "  ✅ already present: loras/Open-H3-Regenerate-2K/open_h3_regenerate_2k_lora.safetensors"
+    fi
+
+    # RMBG-2.0 for the optional "cut out character/prop references" setting
+    step "RMBG-2.0 (Background Removal model - 1038lab / BiRefNet)..."
+    mkdir -p "$BASE_DIR/RMBG/RMBG-2.0"
+    for rmbg_file in model.safetensors config.json BiRefNet_config.py birefnet.py; do
+        if [ ! -s "$BASE_DIR/RMBG/RMBG-2.0/$rmbg_file" ]; then
+            hf_download "1038lab/RMBG-2.0" "$rmbg_file" "$BASE_DIR/RMBG/RMBG-2.0"
+        fi
+    done
+fi
 
 echo "==> All downloads completed!"
 
@@ -917,5 +718,13 @@ else
 fi
 
 echo "✅ Setup complete!"
-echo "👉 Open ComfyUI and load the workflow: ${DIFFUSION_WORKFLOW:-(none bundled for this base)}"
+for _wf in $SELECTED_WORKFLOWS; do
+    case "$_wf" in
+        bunny)    echo "👉 Workflow: workflows/BUNNY_SelfLift_12GB_LORA.json" ;;
+        regen2k)  echo "👉 Workflow: workflows/MinimaxH3_2Stage_Pika_Regen2K_Final.json" ;;
+        flex)     echo "👉 Workflow: workflows/video_pika_h3_flex_ref2va.json" ;;
+        standard) echo "👉 Workflow: workflows/minimax-h3.ui_v2_1_stage.json" ;;
+    esac
+done
+echo "👉 Diffusion model on disk: $(basename "$DIFFUSION_FILE")"
 echo "👉 Upload an image in the LoadImage node"
