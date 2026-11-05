@@ -55,3 +55,4 @@ Standalone bash scripts for downloading AI models. Each script is self-contained
 2. Follow the pattern in `wan-22-i2v-keyframe.sh`
 3. Push to `main` branch
 4. Use the raw URL: `https://raw.githubusercontent.com/muneesraja/auto-startups-vast/main/workflows/setup/<name>.sh`
+TEST
